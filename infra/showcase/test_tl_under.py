@@ -446,7 +446,7 @@ class Png(unittest.TestCase):
         cv, sd = U.render(w, pos, scene, 'plan', U.last_time(pos), size=(1440, 1440))
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, 'f.png')
-            U.write_frame(cv, sd, p)
+            U.write_frame(cv, sd, p, d)
             W, H, rgb = U.png_decode(raw(p))
             self.assertEqual((W, H), (1440, 1440))
             for (x, y) in ((0, 0), (700, 700), (1439, 1439), (200, 900)):
@@ -462,6 +462,212 @@ class Png(unittest.TestCase):
         cv.text(1, 1, 'T', (255, 255, 255), 1)
         self.assertEqual([cv.pixel(x, 1) for x in range(1, 6)], [(255, 255, 255)] * 5, 'the bar of a T')
         self.assertEqual([cv.pixel(x, 5) for x in range(1, 6)], [(0, 0, 0)] * 2 + [(255, 255, 255)] + [(0, 0, 0)] * 2)
+
+
+def run_cli(args):
+    """The CLI, quietly. -> (exit status or None, stderr text). A SystemExit is a refusal, not a crash."""
+    out, err = io.StringIO(), io.StringIO()
+    code = None
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            U.main(args)
+        except SystemExit as e:
+            code = e.code
+    return code, err.getvalue() + (str(code) if isinstance(code, str) else '')
+
+
+def tree(root):
+    return sorted(os.path.relpath(os.path.join(d, f), root) for d, _, fs in os.walk(root) for f in fs)
+
+
+class Blockers(unittest.TestCase):
+    """The five blockers of the 11-16 review of 57b9365c, one test each (each with a mutant)."""
+    @classmethod
+    def setUpClass(cls):
+        cls.w, cls.f = U.synthetic_world()
+        cls.pos = U.synthetic_positions(cls.f)
+        cls.t = U.last_time(cls.pos)
+        cls.scene = {'id': 'syn', 'box': list(cls.w.box), 'y': [cls.f['tunnel_y'] - 6, cls.f['tunnel_y'] + 6], 'auto': True}
+
+    def inputs(self, d, pos=None, scenes=None):
+        w = self.w
+        dump, posf, scf = (os.path.join(d, n) for n in ('dump.json', 'pos.json', 'scenes-slot.json'))
+        put(dump, {'box': w.box, 'y': w.yr, 'bits': 8, 'palette': w.palette, 'cells': base64.b64encode(w.cells).decode()})
+        iso = lambda t: dt.datetime.fromtimestamp(t, UTC).strftime('%Y-%m-%dT%H:%M:%S')
+        pos = self.pos if pos is None else pos
+        put(posf, {'pos': {b: {iso(r[0]): [r[1], r[2], r[3], r[4]] for r in rows} for b, rows in pos.items()}})
+        if scenes is None:
+            scenes = [{'id': 'mine1', 'layer': 'deep', 'box': w.box, 'y': self.scene['y']}]
+        put(scf, {'scenes': scenes})
+        return ['--dump', dump, '--pos', posf, '--scenes', scf]
+
+    # 1 ------------------------------------------------------------------ the disk cache is bounded
+    def test_the_disk_cache_is_pruned_by_count_bytes_and_age(self):
+        now = 2_000_000_000
+        with tempfile.TemporaryDirectory() as d:
+            def entry(i, age_s, size=1000):
+                p = os.path.join(d, f'under-{i:020x}.bg')
+                with open(p, 'wb') as f:
+                    f.write(bytes(size))
+                os.utime(p, (now - age_s, now - age_s))
+                return os.path.basename(p)
+            names = [entry(i, 60 * i) for i in range(30)]                    # 0 to 29 minutes old
+            with open(os.path.join(d, 'notes.txt'), 'w') as f:
+                f.write('not ours')
+            gone = U.prune_cache(d, max_files=24, max_bytes=10 ** 9, now=now)
+            self.assertEqual(sorted(gone), sorted(names[24:]), 'the six least recently used go')
+            gone = U.prune_cache(d, max_files=24, max_bytes=10_000, now=now)
+            self.assertEqual(sorted(gone), sorted(names[10:24]), 'ten 1000-byte entries fit in 10 000 bytes')
+            old = entry(99, 2 * 86400)
+            dead = old + '.tmp4242'
+            os.rename(os.path.join(d, old), os.path.join(d, dead))
+            old = entry(98, 86400 + 60)
+            self.assertEqual(sorted(U.prune_cache(d, now=now)), sorted([old, dead]), 'unused for a day; a dead writer')
+            live = names[0] + '.tmp77'
+            with open(os.path.join(d, live), 'wb') as f:
+                f.write(b'being written')
+            os.utime(os.path.join(d, live), (now - 5, now - 5))
+            self.assertEqual(sorted(U.prune_cache(d, max_files=0, now=now, keep=(names[0],))), sorted(names[1:10]),
+                             'the entry just written stays, and so does a file another process is writing')
+            os.remove(os.path.join(d, live))
+            self.assertEqual(sorted(os.listdir(d)), sorted([names[0], 'notes.txt']), 'and nothing that is not ours is touched')
+
+    def test_rendering_keeps_the_disk_cache_bounded(self):
+        old = U.CACHE_MAX_FILES
+        U.CACHE_MAX_FILES = 3
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                fr = U.make_framing(self.w, self.pos, self.scene, 'side', (1920, 1080), self.t)
+                for i in range(6):
+                    U.render(self.w, self.pos, self.scene, 'side', self.t, framing=dict(fr, note=i), cache=d)
+                self.assertEqual(len(os.listdir(d)), 3, 'six framings were drawn, three backgrounds stay on disk')
+        finally:
+            U.CACHE_MAX_FILES = old
+
+    # 2 ------------------------------------------------------------------ the memory cache is bounded on a disk hit too
+    def test_backgrounds_read_from_disk_do_not_pile_up_in_memory(self):
+        with tempfile.TemporaryDirectory() as d:
+            fr = U.make_framing(self.w, self.pos, self.scene, 'plan', (1920, 1080), self.t)
+            frs = [dict(fr, note=i) for i in range(U.BG_MEM_MAX + 4)]
+            for f in frs:
+                U.background(self.w, f, d)
+            U._BG.clear()
+            for f in frs:
+                self.assertEqual(U.background(self.w, f, d)[1]['cache'], 'disk')
+            self.assertEqual(len(U._BG), U.BG_MEM_MAX, f'{len(frs)} backgrounds were read back from disk')
+            self.assertEqual(U.background(self.w, frs[-1], d)[1]['cache'], 'memory', 'the newest is the one kept')
+        U._BG.clear()
+
+    # 3 ------------------------------------------------------------------ nobody there, nothing to draw
+    def test_a_scene_with_no_bots_is_drawn_as_rock_and_says_so(self):
+        for at in ('latest', 'busiest'):
+            with tempfile.TemporaryDirectory() as d:
+                out = os.path.join(d, 'out')
+                try:
+                    code, err = run_cli(['frame'] + self.inputs(d, pos={}) + ['--style', 'trails', '--at', at, '--out', out])
+                except Exception as e:                              # a crash is the bug this test is for
+                    self.fail(f'--at {at} with no positions crashed: {type(e).__name__}: {e}')
+                self.assertIsNone(code, err)
+                side = get(os.path.join(out, 'scene1-trails.json'))
+                self.assertTrue(side['label'].startswith('no bots under the town right now'), side['label'])
+                self.assertEqual(side['bots'], {})
+                self.assertGreater(os.path.getsize(os.path.join(out, 'scene1-trails.png')), 10000)
+        self.assertIsNone(U.busiest_slot({}, self.scene, 45))
+        self.assertEqual(U._when('latest', {}, self.scene, 45, now=1794800123), 1794800100)
+
+    def test_no_scene_is_a_refusal_before_anything_is_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, 'out')
+            args = self.inputs(d, scenes=[])
+            try:
+                code, err = run_cli(['seq'] + args + ['--out', out])
+            except Exception as e:
+                self.fail(f'seq with no scene crashed: {type(e).__name__}: {e}')
+            self.assertIn('the input has 0 scene(s)', str(code))
+            try:
+                code, err = run_cli(['frame'] + args + ['--out', out])
+            except Exception as e:
+                self.fail(f'frame with no scene crashed: {type(e).__name__}: {e}')
+            self.assertIsNone(code)
+            self.assertIn('no scenes', err)
+            code, _ = run_cli(['seq'] + self.inputs(d) + ['--pick', '3', '--out', out])
+            self.assertIn('the input has 1 scene(s)', str(code))
+            self.assertFalse(os.path.exists(out), 'nothing was written')
+
+    # 4 ------------------------------------------------------------------ seq --root
+    def test_seq_writes_under_root_when_root_is_given(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, 'tl')
+            cwd = os.getcwd()
+            os.makedirs(os.path.join(d, 'cwd'))
+            os.chdir(os.path.join(d, 'cwd'))
+            try:
+                code, err = run_cli(['seq'] + self.inputs(d) + ['--root', root, '--frames', '3', '--step-min', '15'])
+            finally:
+                os.chdir(cwd)
+            self.assertIsNone(code, err)
+            self.assertEqual(os.listdir(os.path.join(d, 'cwd')), [], 'nothing in the default --out')
+            got = tree(root)
+            pngs = [p for p in got if p.endswith('.png')]
+            self.assertEqual(len(pngs), 3, got)
+            for p in pngs:
+                self.assertRegex(p, r'^frames/mine1_trails/\d{8}/\d{8}T\d{4}Z\.png$')
+            self.assertIn('under-framing/mine1_trails.json', got)
+            sides = [get(os.path.join(root, p[:-4] + '.json')) for p in pngs]
+            self.assertEqual(sides[0]['framing'], sides[2]['framing'])
+            code, _ = run_cli(['seq'] + self.inputs(d) + ['--root', root, '--out', os.path.join(d, 'elsewhere')])
+            self.assertEqual(code, 2, '--root and --out together are refused')
+
+    # 5 ------------------------------------------------------------------ names cannot leave the output folder
+    def test_a_path_must_stay_inside_its_folder(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = os.path.join(d, 'base')
+            os.makedirs(os.path.join(base, 'sub'))
+            self.assertEqual(U.inside(base, os.path.join(base, 'sub', 'f.png')), os.path.join(base, 'sub', 'f.png'))
+            self.assertEqual(U.inside(base, os.path.join(base, 'new', 'deeper', 'f.png')), os.path.join(base, 'new', 'deeper', 'f.png'))
+            for bad in (os.path.join(base, '..', 'f.png'), os.path.join(base, 'sub', '..', '..', 'f.png'), '/etc/f.png',
+                        os.path.join(d, 'base2', 'f.png'), base):
+                with self.assertRaises(ValueError, msg=bad):
+                    U.inside(base, bad)
+            os.symlink(d, os.path.join(base, 'link'))
+            with self.assertRaises(ValueError, msg='through a link that points out'):
+                U.inside(base, os.path.join(base, 'link', 'f.png'))
+            cv = U.Canvas(8, 8)
+            with self.assertRaises(ValueError):
+                U.write_frame(cv, {'render_s': {}}, os.path.join(base, '..', 'escaped.png'), base)
+            self.assertFalse(os.path.exists(os.path.join(d, 'escaped.png')))
+
+    def test_tag_style_and_scene_id_cannot_escape(self):
+        with tempfile.TemporaryDirectory() as d:
+            outer = os.path.join(d, 'outer')
+            out = os.path.join(outer, 'inner', 'out')
+            ins = os.path.join(d, 'in')
+            os.makedirs(ins)
+            args = self.inputs(ins, scenes=[{'id': '../../evil', 'layer': 'deep', 'box': self.w.box, 'y': self.scene['y']}])
+            for flag, val in (('--tag', '../../x'), ('--tag', '/abs'), ('--tag', 'a/b'), ('--style', '../../x'),
+                              ('--style', '/abs/side'), ('--size', '../1x1')):
+                extra = [flag, val] + ([] if flag == '--style' else ['--style', 'side'])
+                for cmd in (['frame'], ['seq', '--frames', '1']):
+                    try:
+                        code, err = run_cli(cmd + args + ['--out', out] + extra)
+                    except Exception as e:                      # caught late (the containment check, the OS): a miss
+                        self.fail(f'{cmd[0]} {flag} {val!r} was not refused up front: {type(e).__name__}: {e}')
+                    self.assertTrue(str(code).startswith('tl_under: ' + flag), (cmd[0], flag, val, code))
+            self.assertFalse(os.path.exists(outer), 'a refused name writes nothing, not even a folder')
+            root = os.path.join(outer, 'inner', 'root')
+            try:
+                code, err = run_cli(['frame'] + args + ['--root', root, '--style', 'side', '--tag', 'ok-1'])
+            except ValueError as e:
+                self.fail(f'the scene id reached the path unsanitised: {e}')
+            self.assertIsNone(code, err)
+            self.assertEqual(os.listdir(outer), ['inner'])
+            self.assertEqual(os.listdir(os.path.join(outer, 'inner')), ['root'])
+            got = tree(root)
+            self.assertEqual(len(got), 3, got)
+            for p in got:
+                self.assertTrue(p.startswith(('frames/______evil_side/', 'under-framing/______evil_side.json')), p)
+            self.assertEqual(U.camera_name({'id': '/etc/passwd'}, 'side'), '_etc_passwd_side')
+            self.assertLessEqual(len(U.camera_name({'id': 'x' * 500}, 'plantrails')), 80)
 
 
 class Budget(unittest.TestCase):

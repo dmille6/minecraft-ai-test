@@ -1419,7 +1419,11 @@ def background(world, fr, cache=None):
             info = json.loads(raw[4:4 + n])
             buf = zlib.decompress(raw[4 + n:])
             if len(buf) == W * H * 3:
-                _BG[key] = (buf, info)
+                _bg_put(key, buf, info)
+                try:
+                    os.utime(path)                            # used now: the day-old rule is for entries nobody reads
+                except OSError:
+                    pass
                 return Canvas(W, H, buf=buf), dict(info, cache='disk')
         except (OSError, ValueError, zlib.error, struct.error):
             pass
@@ -1481,9 +1485,7 @@ def background(world, fr, cache=None):
     else:
         info['legend'] = [ax0 + (ax1 - ax0) * 67 // 100, ay0, ax1, ay1]
         info['roster'] = [ax0, ay0, ax0 + (ax1 - ax0) * 65 // 100, ay1]
-    _BG[key] = (bytes(cv.b), info)
-    if len(_BG) > 8:
-        _BG.pop(next(iter(_BG)))
+    _bg_put(key, bytes(cv.b), info)
     if path:
         os.makedirs(cache, exist_ok=True)
         head = json.dumps(info).encode()
@@ -1491,10 +1493,62 @@ def background(world, fr, cache=None):
         with open(tmp, 'wb') as f:
             f.write(struct.pack('>I', len(head)) + head + zlib.compress(bytes(cv.b), 1))
         os.replace(tmp, path)
+        prune_cache(cache, keep=(os.path.basename(path),))
     return cv, dict(info, cache='built')
 
 
 _BG = {}
+BG_MEM_MAX = 8                       # rendered backgrounds kept in memory (6 MB each at 1920x1080)
+CACHE_MAX_FILES = 24                 # ... and on disk: a new one is written whenever a scene's blocks or framing change
+CACHE_MAX_BYTES = 48 * 1024 * 1024
+CACHE_MAX_AGE_S = 86400
+_BG_FILE = re.compile(r'^under-[0-9a-f]{20}\.bg(\.tmp\d+)?$')
+
+
+def _bg_put(key, buf, info):
+    """EVERY insertion into the in-memory cache goes through here: a built background and one read back from disk
+    alike, so a run over many cached scenes holds BG_MEM_MAX of them, not all."""
+    _BG.pop(key, None)
+    _BG[key] = (buf, info)
+    while len(_BG) > BG_MEM_MAX:
+        _BG.pop(next(iter(_BG)))
+
+
+def prune_cache(cache, max_files=None, max_bytes=None, max_age_s=None, now=None, keep=()):
+    """Bound the disk cache: delete entries not used for max_age_s (a day), then the least recently used until at
+    most max_files and max_bytes remain. Only this module's own files (under-<key>.bg and their .tmp) are looked at;
+    `keep` names are never deleted (the entry just written). -> the names deleted."""
+    max_files = CACHE_MAX_FILES if max_files is None else max_files
+    max_bytes = CACHE_MAX_BYTES if max_bytes is None else max_bytes
+    max_age_s = CACHE_MAX_AGE_S if max_age_s is None else max_age_s
+    now = time.time() if now is None else now
+    try:
+        names = [n for n in os.listdir(cache) if _BG_FILE.match(n)]
+    except OSError:
+        return []
+    entries = []
+    for n in names:
+        try:
+            st = os.stat(os.path.join(cache, n))
+            entries.append((st.st_mtime, n, st.st_size))
+        except OSError:
+            pass
+    gone, n_kept, b_kept = [], 0, 0
+    for mtime, n, size in sorted(entries, reverse=True):          # newest first
+        if '.tmp' in n:
+            drop = now - mtime > 600                              # a .tmp that old is a dead writer's; a young one is live
+        else:
+            drop = n not in keep and (now - mtime > max_age_s or n_kept >= max_files or b_kept + size > max_bytes)
+        if drop:
+            try:
+                os.remove(os.path.join(cache, n))
+                gone.append(n)
+            except OSError:
+                pass
+        elif '.tmp' not in n:
+            n_kept += 1
+            b_kept += size
+    return gone
 
 
 def connected(a, b):
@@ -1785,8 +1839,13 @@ def render(world, pos, scene, style, t, size=(1920, 1080), framing=None, trail_m
     return cv, side_car
 
 
-def write_frame(cv, side_car, png_path, level=6):
+def write_frame(cv, side_car, png_path, base, level=6):
+    """The PNG and its sidecar. `base` is the folder the frame must stay inside (--out, or --root): checked here,
+    before a directory is made or a byte is written."""
     t0 = time.time()
+    inside(base, png_path)
+    if not png_path.endswith('.png'):
+        raise ValueError(f'{png_path!r} is not a .png')
     os.makedirs(os.path.dirname(os.path.abspath(png_path)), exist_ok=True)
     data = png_encode(cv.W, cv.H, cv.b, level)
     tmp = png_path + f'.tmp{os.getpid()}'
@@ -1801,15 +1860,61 @@ def write_frame(cv, side_car, png_path, level=6):
 
 
 # ================================================================ CLI
+STYLES = ('side', 'plan', 'trails', 'plantrails')
+_TAG = re.compile(r'^[A-Za-z0-9_-]{0,40}$')
+_NAME = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}$')
+
+
+def _fail(msg):
+    raise SystemExit('tl_under: ' + msg)
+
+
 def camera_name(scene, style):
-    """frames/<camera>/...: letters, digits and '_' only (tl_showcase's camera names carry no '-')."""
-    return re.sub(r'[^A-Za-z0-9_]', '_', f"{scene['id']}_{style}")
+    """frames/<camera>/...: letters, digits and '_' only (tl_showcase's camera names carry no '-'), at most 80."""
+    return re.sub(r'[^A-Za-z0-9_]', '_', f"{str(scene['id'])[:60]}_{style}")
+
+
+def inside(base, path):
+    """`path`, which must lie inside `base` once every link and '..' is resolved. A file name is built from a scene
+    id, a style and a tag that other programs and people supply: this is the check that none of them, however it was
+    spelled, puts a file anywhere else. Raises ValueError. Pure given the filesystem (tested)."""
+    b, q = os.path.realpath(base), os.path.realpath(path)
+    if os.path.commonpath([b, q]) != b or q == b:
+        raise ValueError(f'{path!r} is not inside {base!r}')
+    return path
+
+
+def parse_size(s):
+    m = re.match(r'^(\d{3,4})x(\d{3,4})$', s or '')
+    if not m or not (320 <= int(m.group(1)) <= 7680 and 320 <= int(m.group(2)) <= 4320):
+        _fail(f'--size {s!r}: WIDTHxHEIGHT, 320x320 to 7680x4320')
+    return int(m.group(1)), int(m.group(2))
+
+
+def parse_styles(arg, default):
+    styles = list(default) if arg == 'all' else arg.split(',')
+    for st in styles:
+        if st not in STYLES:
+            _fail(f'--style {st!r}: one of {", ".join(STYLES)}' + (' (or all)' if len(default) > 1 else ''))
+    return styles
+
+
+def check_names(a):
+    """Everything that becomes part of a file name, checked BEFORE anything is read or written."""
+    if not _TAG.match(a.tag or ''):
+        _fail(f'--tag {a.tag!r}: letters, digits, _ and - only, at most 40')
+
+
+def _state_file(root, camera, ext):
+    if not _NAME.match(camera):
+        raise ValueError(f'camera name {camera!r}')
+    return inside(root, os.path.join(root, 'under-framing', camera + ext))
 
 
 def kept_framing(root, camera, scene, size, style):
     """The framing this camera used last, if it is still for this scene box, y range, size and look."""
     try:
-        fr = read_json(os.path.join(root, 'under-framing', camera + '.json'))
+        fr = read_json(_state_file(root, camera, '.json'))
     except (OSError, ValueError):
         return None
     ok = (fr.get('box') == list(scene['box']) and fr.get('scene_y') == list(scene['y']) and fr.get('size') == list(size)
@@ -1818,15 +1923,18 @@ def kept_framing(root, camera, scene, size, style):
 
 
 def keep_framing(root, camera, fr):
-    d = os.path.join(root, 'under-framing')
-    os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, camera + '.json'), 'w') as f:
+    p = _state_file(root, camera, '.json')
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p + '.part', 'w') as f:
         json.dump(dict(fr, version=VERSION), f, indent=1)
+    os.replace(p + '.part', p)
 
 
 def busiest_slot(pos, scene, trail_min, slot_min=15):
     """The slot (a multiple of slot_min) whose trail window holds the most weighted samples of the scene."""
     hi = last_time(pos)
+    if hi is None:
+        return None
     lo = min(r[0][0] for r in pos.values())
     best = None
     t = math.floor(hi / (slot_min * 60)) * slot_min * 60
@@ -1838,13 +1946,19 @@ def busiest_slot(pos, scene, trail_min, slot_min=15):
     return best[1] if best else hi
 
 
-def _when(arg, pos, scene, trail_min):
-    if arg == 'latest':
-        return math.floor(last_time(pos) / 300) * 300
-    if arg == 'busiest':
-        return busiest_slot(pos, scene, trail_min)
+def _when(arg, pos, scene, trail_min, now=None):
+    """The frame's time. With no position at all, `latest` and `busiest` are the clock's last five minutes: a scene
+    nobody is in is still drawn (rock only, and the caption says no bots), not a crash."""
+    if arg in ('latest', 'busiest'):
+        last = last_time(pos)
+        if last is None:
+            return math.floor((time.time() if now is None else now) / 300) * 300
+        return math.floor(last / 300) * 300 if arg == 'latest' else busiest_slot(pos, scene, trail_min)
     p = parse_stamp(arg)
-    return (p or dt.datetime.fromisoformat(arg).replace(tzinfo=UTC)).timestamp()
+    try:
+        return (p or dt.datetime.fromisoformat(arg).replace(tzinfo=UTC)).timestamp()
+    except ValueError:
+        _fail(f'--at {arg!r}: latest, busiest, a stamp like 20261116T1245Z or an ISO time')
 
 
 def _inputs(a):
@@ -1861,10 +1975,22 @@ def _inputs(a):
     return world, pos, scenes
 
 
+def _target(a, camera, stamp, flat):
+    """Where one frame goes, and the folder it must stay in: --root's frames/<camera>/<day>/<stamp>.png, else
+    --out's <flat>.png."""
+    if a.root:
+        return inside(a.root, frame_path(a.root, camera, stamp)), a.root
+    return inside(a.out, os.path.join(a.out, flat + '.png')), a.out
+
+
 def cmd_frame(a):
+    check_names(a)
+    size = parse_size(a.size)
+    styles = parse_styles(a.style, ('side', 'plan', 'trails'))
     world, pos, scenes = _inputs(a)
-    size = tuple(int(v) for v in a.size.split('x'))
-    styles = ['side', 'plan', 'trails'] if a.style == 'all' else a.style.split(',')
+    if not scenes:
+        print('tl_under: no scenes in the input: nothing drawn', file=sys.stderr)
+        return []
     rows = []
     for n, sc in enumerate(scenes):
         t = _when(a.at, pos, sc, a.trail_min)
@@ -1874,10 +2000,10 @@ def cmd_frame(a):
             cv, sd = render(world, pos, sc, st, t, size, fr, a.trail_min, a.cache, a.slab, a.mode, a.ghost)
             sd['camera'] = cam
             sd['framing_kept'] = fr is not None
-            p = frame_path(a.root, cam, sd['stamp']) if a.root else os.path.join(a.out, f'scene{n + 1}-{st}{a.tag}.png')
+            p, base = _target(a, cam, sd['stamp'], f'scene{n + 1}-{st}{a.tag}')
             if a.root and fr is None:
                 keep_framing(a.root, cam, sd['framing'])
-            write_frame(cv, sd, p)
+            write_frame(cv, sd, p, base)
             rows.append({'png': p, 'caption': sd['label'], 'render_s': sd['render_s'], 'bytes': sd['bytes'],
                          'bots': len(sd['bots']), 'ppb': sd['framing']['ppb']})
             print(json.dumps(rows[-1]))
@@ -1885,18 +2011,32 @@ def cmd_frame(a):
 
 
 def cmd_seq(a):
+    check_names(a)
+    size = parse_size(a.size)
+    style = parse_styles(a.style, ('trails',))
+    if len(style) != 1:
+        _fail('seq draws one style')
+    style = style[0]
     world, pos, scenes = _inputs(a)
-    size = tuple(int(v) for v in a.size.split('x'))
+    if not 0 <= a.pick < len(scenes):
+        _fail(f'seq --pick {a.pick}: the input has {len(scenes)} scene(s); nothing drawn')
     sc = scenes[a.pick]
     t1 = _when(a.at, pos, sc, a.trail_min)
-    fr = None
+    cam = camera_name(sc, style)
+    fr = kept_framing(a.root, cam, sc, size, style) if a.root else None
+    rows = []
     for i in range(a.frames):
         t = t1 - (a.frames - 1 - i) * a.step_min * 60
-        cv, sd = render(world, pos, sc, a.style, t, size, fr, a.trail_min, a.cache, a.slab, a.mode, a.ghost)
+        cv, sd = render(world, pos, sc, style, t, size, fr, a.trail_min, a.cache, a.slab, a.mode, a.ghost)
+        if a.root and fr is None:
+            keep_framing(a.root, cam, sd['framing'])
         fr = sd['framing']
-        p = os.path.join(a.out, f"seq-scene{a.pick + 1}-{a.style}-{i + 1:02d}-{sd['stamp']}.png")
-        write_frame(cv, sd, p)
-        print(json.dumps({'png': p, 'caption': sd['label'], 'render_s': sd['render_s'], 'bots': len(sd['bots'])}))
+        sd['camera'] = cam
+        p, base = _target(a, cam, sd['stamp'], f"seq-scene{a.pick + 1}-{style}{a.tag}-{i + 1:02d}-{sd['stamp']}")
+        write_frame(cv, sd, p, base)
+        rows.append({'png': p, 'caption': sd['label'], 'render_s': sd['render_s'], 'bots': len(sd['bots'])})
+        print(json.dumps(rows[-1]))
+    return rows
 
 
 def cmd_scenes(a):
@@ -1981,6 +2121,8 @@ def main(argv=None):
     p = sub.add_parser('bench'); p.add_argument('--size', default='1920x1080')
     p = sub.add_parser('video'); p.add_argument('glob'); p.add_argument('out'); p.add_argument('--fps', type=float, default=4)
     a = ap.parse_args(argv)
+    if getattr(a, 'root', None) and a.out != '.':
+        ap.error('--root and --out are two different places: give one')
     if a.cmd == 'frame':
         cmd_frame(a)
     elif a.cmd == 'seq':
@@ -1990,7 +2132,7 @@ def main(argv=None):
     elif a.cmd == 'palette':
         cmd_palette(a)
     elif a.cmd == 'bench':
-        print(json.dumps(bench(tuple(int(v) for v in a.size.split('x'))), indent=1))
+        print(json.dumps(bench(parse_size(a.size)), indent=1))
     elif a.cmd == 'video':
         import tl2
         tl2.encode(a.glob, a.fps, a.out, dissolve=False)
