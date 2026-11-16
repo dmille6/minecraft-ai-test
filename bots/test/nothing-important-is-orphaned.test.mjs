@@ -97,6 +97,10 @@ const REQUIRED = [
   'infra/showcase/tl2/tl2.py',
   'infra/showcase/tl2/tl2trails.py',
   'infra/showcase/tl2/tl2run.py',
+  // camunder-01 (11-16): the underground pictures (side cut, roof off, depth trails) + their tests and mutants; not wired
+  'infra/showcase/tl_under.py',
+  'infra/showcase/test_tl_under.py',
+  'infra/showcase/test_tl_under_mutants.py',
   'infra/showcase/files/nas-sync.sh',
   'infra/showcase/files/showcase-tl-event.service',
   'infra/showcase/files/showcase-tl-event.timer',
