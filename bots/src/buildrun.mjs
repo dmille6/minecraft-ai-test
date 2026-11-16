@@ -230,7 +230,7 @@ export function stalkFell (read, at, { mayDig = () => true, listed = () => false
   }
   return { ok: true, dig: { at: p0, name: n0 }, n, why: null, hard: false }
 }
-export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FOREIGN_CLEAR, isCell = () => false, listed = () => false, mayDig = () => true } = {}) {
+export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FOREIGN_CLEAR, isCell = () => false, listed = () => false, mayDig = () => true, stalk = false } = {}) {
   const digs = []
   for (let i = 1; ; i++) {
     const p = [at[0], at[1] + i, at[2]]
@@ -239,6 +239,13 @@ export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FO
     const n = nm(b)
     if (AIR(n)) break
     if (i > max) return { ok: false, digs: [], why: `deep ${max}+ above`, hard: true }
+    // monustuck-01 (`stalk`): a stalk from here up is ONE dig, its lowest block (stalkFell); the column ends there
+    if (stalk && STALK.test(n)) {
+      const sf = stalkFell(read, [p[0], p[1] - 1, p[2]], { mayDig, listed, isCell })
+      if (!sf.ok) return { ok: false, digs: [], why: sf.why, hard: sf.hard }
+      digs.push({ at: p, name: n })
+      break
+    }
     if (listed(p)) return { ok: false, digs: [], why: `listed ${n} ${kOf(p)}`, hard: false }
     if (isCell(p)) return { ok: false, digs: [], why: `record_cell ${kOf(p)}`, hard: true }
     const kind = foreignKind(n, scaffold)
@@ -258,6 +265,13 @@ export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FO
  * `max`, never a record cell, never the clears' own, never vetoed). Digging it highest first opens each cell's top face in turn.
  */
 export function sealedAbove (read, at, { isOpenForeign = () => false, isOpenAbove = () => false, ...ob } = {}) {
+  // monustuck-01 (`stalk`): a stalk standing on the cell is felled at its foot, the cell's own top (stalkFell), then the cell is
+  // dug through that face -- two digs, however tall the stalk and whatever open cells of this or a waiting segment it grows
+  // through; a stalk that cannot be felled (a veto, another record's cell in it, unread) falls back to the column below
+  if (ob.stalk) {
+    const sf = stalkFell(read, at, { mayDig: ob.mayDig, listed: ob.listed, isCell: ob.isCell, own: q => isOpenForeign(q) || isOpenAbove(q) })
+    if (sf.ok) return { ok: true, digs: [{ ...sf.dig, kind: 'stalk' }, { at, name: nm(read(...at)), kind: 'foreign' }], why: null, hard: false, stalk: sf.n }
+  }
   const chain = [at]
   let top = at
   for (let y = at[1] + 1; y <= at[1] + 64; y++) {
@@ -798,7 +812,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
   PJ.closeOwn(dir, key, me, { conn, acked: e.acked?.() ?? 0, now: now() })
   const stands = p.stands ?? null
-  settlePendingStand(stands, now())
+  const lastWalk = settlePendingStand(stands, now())
+  if (lastWalk && monuStuckOn()) e.log('_build', { op: 'stand_banned', cell: lastWalk.cell.split(',').map(Number), kind: lastWalk.op ?? 'click', why: `walk_ended ${lastWalk.stand}` })
 
   // ---- the click (placements and saplings) -----------------------------------------------------------------------------------
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand' | 'late' (`cutoff` only)
@@ -953,13 +968,22 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // was dug anyway). An unconfirmed dig asks the server (the probe): air confirms, any other name means it stands, nothing leaves
   // the cell unknown.
   const digNamed = async (at, name, held, nodes = null, safe = null) => {
-    const stand = digStand(rd, at, nodes ?? nodesFor())
+    // monustuck-01 (DIG_BANS_MAX): the stands this cell's dig walks failed from are not walked again; with DIG_BANS_MAX of them
+    // the cell has no stand from here
+    const banOn = monuStuckOn() && !!stands
+    const bans = banOn ? standBans(stands, kOf(at), now(), DIG_BAN_MS) : new Set()
+    if (bans.size >= DIG_BANS_MAX) return 'no_stand'
+    const stand = digStand(rd, at, nodesWithout(nodes ?? nodesFor(), bans))
     if (!stand) return 'no_stand'
     if (!renewSlot() || !held()) return 'fence'
+    if (banOn) stands.pending = { cell: kOf(at), stand: kOf(stand), at: now(), op: 'dig' }
     await e.walkTo(stand)
-    if (e.aborted()) return 'aborted'
+    if (e.aborted()) return 'aborted'          // (monustuck-01) the pending walk stays: the next visit bans its stand (settlePendingStand)
+    if (banOn) stands.pending = null
     // THE WALK ENDED OUT OF REACH (zigtidy-02, LIVE showcase 10-30 22:27Z Frost: its walk stuck 47 blocks from the ziggurat, four
     // tidy digs sent from there, every one `unknown`, the clear lease held all the while so the completing visit dug none): no dig
+    // (monustuck-01: and that stand is banned for this cell -- on its own line: zigtidy2.test's mutant anchors on the return below)
+    if (banOn && !digReachFrom(e.feet?.(), at)) { banStand(stands, kOf(at), kOf(stand), now()); e.log('_build', { op: 'stand_banned', cell: at, kind: 'dig', why: `unreached ${kOf(stand)}` }) }
     if (!digReachFrom(e.feet?.(), at)) return 'unreached'
     if (nm(rd(...at)) !== name) return 'gone'
     if (!renewSlot() || !held()) return 'fence'
@@ -1844,7 +1868,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             // wait on F-W, `clear_failed no_stand` + `blocked` every visit for 8 h): the open cells above that this segment or a
             // segment waiting on it owns are part of the column (those segments cannot be leased while this one is open, fell r4)
             const aboveK = new Set(record.cells.filter(q => q.at[0] === f.at[0] && q.at[2] === f.at[2] && q.at[1] > f.at[1] && (q.seg === seg || dependsOn(record, q.seg, seg)) && !isDone(q)).map(q => kOf(q.at)))
-            const sa = sealedAbove(rd, f.at, { isOpenForeign: q => openK.has(kOf(q)) && foreignKind(nm(rd(...q)), scaffoldRe) === 'scaffold', isOpenAbove: q => aboveK.has(kOf(q)), isCell: q => cellKeys.has(kOf(q)), listed: listedNow, mayDig: p.sealed.mayDig ?? (() => true), scaffold: scaffoldRe })
+            const sa = sealedAbove(rd, f.at, { isOpenForeign: q => openK.has(kOf(q)) && foreignKind(nm(rd(...q)), scaffoldRe) === 'scaffold', isOpenAbove: q => aboveK.has(kOf(q)), isCell: q => cellKeys.has(kOf(q)), listed: listedNow, mayDig: p.sealed.mayDig ?? (() => true), scaffold: scaffoldRe, stalk: monuStuckOn() })
             let dug = 0, sv = sa.ok ? null : 'refused'
             if (sa.ok && sa.digs.length > 1) {
               for (const d of sa.digs) {
