@@ -48,6 +48,7 @@ const CASES = {
   abort5:      { what: '7e interrupted after the 5th click sent', abortAfter: 5, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   abort6:      { what: '7f interrupted after the 6th click sent', abortAfter: 6, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   newchest:    { what: 'every chest full: the DEPOSIT verb places a carried chest and banks into it', skill: 'deposit', readAt: [X - 2, Y + 1, Z - 4], c1: { set: [] }, bag: [['coal', 30], ['chest', 2]] },
+  swap:        { what: 'THE SWAP: the destination partial is replaced by NAMED coal x5 between the pickup and the merge click (SWAP_DELAY_MS after the SWAP_AT-th click is sent)', swap: true, c1: { set: [[4, 'coal', 20]] }, bag: [['coal', 30]] },
   chests13:    { what: 'carried chests: 13 held, banked in halves, one stays', c1: { set: [], empty: [20, 21, 22, 23, 24, 25, 26] }, bag: [['chest', 13]] },
 }
 const argv = process.argv.slice(2)
@@ -146,15 +147,26 @@ const rowsOf = name => {
 async function deposit (bot, label) {
   const ac = new AbortController()
   const sent0 = bot.sent ?? 0   // the Nth click THIS deposit sends (r1's cursor probes count: each is a click)
+  // THE SWAP CASE: a persistent RCON pipe (sandbox/drown/rconpipe.py on the worlds host), so the replace lands a few ms after a chosen click
+  let pipe = null, swapLog = null
+  if (DEF.swap && label === 'A') {
+    pipe = spawn('ssh', ['-o', 'BatchMode=yes', 'mike@10.0.0.30', `python3 -u /tmp/bagfix-rconpipe.py ${SERVER}`], { stdio: ['pipe', 'pipe', 'inherit'] })
+    const at = Number(process.env.SWAP_AT ?? 2), delay = Number(process.env.SWAP_DELAY_MS ?? 3)
+    await new Promise(res => { pipe.stdout.once('data', res); pipe.stdin.write(JSON.stringify({ id: 0, cmds: ['list'] }) + '\n') })   // the pipe is warm
+    pipe.stdout.on('data', d => { try { const m = JSON.parse(String(d).trim().split('\n').pop()); if (m.id === 1) { bot.clicks.push({ t: Date.now(), srv: `RCON ANSWERED (server clock ${m.ts[0].toFixed(0)}): ${m.replies[0]}` }) } } catch { /* partial */ } })
+    swapLog = { at, delay }
+    bot.onClick = n => { if (n - sent0 === at) setTimeout(() => { bot.clicks.push({ t: Date.now(), srv: 'RCON SENT: item replace slot 4 with NAMED coal x5' }); pipe.stdin.write(JSON.stringify({ id: 1, cmds: [`item replace block ${C1[0]} ${C1[1]} ${C1[2]} container.4 with minecraft:${NAMED} 5`] }) + '\n') }, delay) }
+  }
   if (DEF.abortAfter) bot.onClick = n => { if (n - sent0 === DEF.abortAfter) setTimeout(() => ac.abort(), 0) }
   const plan = TD.townDepositPlan(bot.inventory.items(), { wanted: [], noSwords: true, ...(DEF.args?.room ? { room: true } : {}) }).steps.map(s => `${s.name}x${s.count}${s.half ? '(half)' : ''}@${s.slot}`)
   const c0 = bot.clicks.length, t = Date.now()
   let res
   try { const r = await SK.SKILLS[DEF.skill ?? 'town_deposit'].run({ bot }, { ...(DEF.args ?? {}) }, ac.signal); res = { status: r.status, detail: r.detail } } catch (e) { res = { threw: String(e?.message ?? e).slice(0, 200), aborted: !!(e?.aborted || ac.signal.aborted) } }
   const ms = Date.now() - t
+  if (pipe) { await sleep(600); try { pipe.stdin.end() } catch { /* gone */ } }
   const clicks = bot.clicks.slice(c0)
   const tc = clicks.filter(c => c.slot != null)
-  return { label, plan, ...res, ms, clickMs: tc.length ? tc[tc.length - 1].t - tc[0].t : 0, clicks: clicks.map(c => (c.srv ? `+${c.t - t}ms   <- ${c.srv}` : c.close != null ? `close(win ${c.close})` : `+${c.t - t}ms slot ${c.slot} button ${c.button} mode ${c.mode} client_cursor_after ${c.clientCursor ?? 'empty'}`)),
+  return { label, plan, ...res, ms, ...(swapLog ? { swap: swapLog } : {}), clickMs: tc.length ? tc[tc.length - 1].t - tc[0].t : 0, clicks: clicks.map(c => (c.srv ? `+${c.t - t}ms   <- ${c.srv}` : c.close != null ? `close(win ${c.close})` : `+${c.t - t}ms slot ${c.slot} button ${c.button} mode ${c.mode} client_cursor_after ${c.clientCursor ?? 'empty'}`)),
            cursorAfter: bot.currentWindow?.selectedItem ? 'WINDOW OPEN, CURSOR HELD' : bot.inventory.selectedItem ? `${bot.inventory.selectedItem.name}x${bot.inventory.selectedItem.count}` : 'empty', windowOpen: !!bot.currentWindow }
 }
 
