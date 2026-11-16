@@ -154,7 +154,7 @@ await t('WIRED (A, B): the deposit\'s zone, the ask\'s gate, the visit\'s walk a
   one(sk, 'BAGFIX\\.reach \\? ROOM_REACH_WALK_MS : ROOM_BASE_WALK_MS', 'the walk\'s bound')
   one(sk, 'stop: roomStop\\(\\{ status: r\\?\\.status, inReach, target, arrived, detail: r\\?\\.detail \\}\\), near: roomNear\\(\\{ inReach, target \\}\\)', 'the row')
   one(sk, "logEvent\\(\\{ kind: 'bagfix', status: 'success', snapshot: snapshot\\(bot\\), detail: bagfixModeDetail\\(BAGFIX\\) \\}\\)", 'the licence row')
-  one(sk, 'tidyOpen: BAGFIX\\.light && work', 'the tidy read')
+  one(sk, 'if \\(BAGFIX\\.light\\) \\{ const r = tidyWorkBase\\(b\\); return \\{ \\.\\.\\.r, tidyOpen: !!b && \\(r\\.tidyWork \\|\\| tidyRecWork\\(\\)\\) \\} \\}', 'the tidy read')
 })
 
 // ---- M: merging deposits -------------------------------------------------------------------------------------------------------

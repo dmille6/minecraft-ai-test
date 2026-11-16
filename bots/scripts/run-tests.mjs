@@ -180,7 +180,7 @@ if (failed.length) {
   console.log(`\n${'='.repeat(60)}\nFAILING DETAIL\n${'='.repeat(60)}`)
   for (const r of failed) {
     console.log(`\n--- ${r.file} (exit ${r.code}${SERIAL.has(r.file) ? ', serial' : ''}) ---`)
-    console.log(r.out.trim().split('\n').slice(-40).join('\n'))
+    console.log(r.out.trim().split('\n').filter((l, i, a) => /^not ok|^\s+FAIL|Error|actual|expected|^\s+at /.test(l) || i > a.length - 30).slice(-160).join('\n'))
   }
 }
 

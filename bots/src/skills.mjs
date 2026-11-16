@@ -27683,12 +27683,16 @@ setIdleNow(plot => {
 })
 /** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
 // gkroom-01: the keeper's tidy read for shop.mjs roomFallback -- the lease itself (never a helper) and a tidy record open or due
+const tidyRecWork = () => { try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)) } catch { return false } }
+function tidyWorkBase (b) {
+  if (!b || !keeperLeaseNow(b)) return { keeper: false, tidyWork: false }
+  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return { keeper: true, tidyWork: !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)) } } catch { return { keeper: true, tidyWork: false } }
+}
 setTidyWork(() => {
   const b = activeMem?.bot ?? null
-  const keeper = !!b && keeperLeaseNow(b)
-  if (!b || (!keeper && !BAGFIX.light)) return { keeper: false, tidyWork: false }
-  // bagfix-01 B: `tidyOpen` -- the tidy's record has work, read for any bot (shop.mjs roomFallback `light`); the keeper's read as before
-  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; const work = !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)); return { keeper, tidyWork: keeper && work, tidyOpen: BAGFIX.light && work } } catch { return { keeper, tidyWork: false } }
+  // bagfix-01 B: `tidyOpen` -- the tidy's record has work, read for ANY bot (shop.mjs roomFallback `light`); the keeper's read as before
+  if (BAGFIX.light) { const r = tidyWorkBase(b); return { ...r, tidyOpen: !!b && (r.tidyWork || tidyRecWork()) } }
+  return tidyWorkBase(b)
 })
 function keeperLeaseNow (bot, now = Date.now()) {
   if (!GROUNDS.on || !bot) return false
