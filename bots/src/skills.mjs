@@ -187,20 +187,29 @@ import {
   clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable, CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS,
   CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS,
 } from './storehub.mjs'   // storehub-01: the clerk throw's keep
-import {
-  STOREHUB, ENCHANTSHOP, COTTAGE as COTTAGE_SW, COTTAGE2 as COTTAGE2_SW, TOWNHALL as TOWNHALL_SW, REROOF as REROOF_SW, setCopperAsk,
-  COPPERHALL as COPPERHALL_ON, setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN, SHOP, SHOP_BLUEPRINT, tidyIsRepair,
-  stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R,
-  STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter,
-  shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox,
-  saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf,
-  setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded, setExpeditionAsk, noteWait,
-  waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, setRoomAsk, setTidyWork, roomFallbackPick, setEnchantAsk, setMarketAsk, GROUNDS,
-  setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet, SINKS, FORESTP, DECORATE, PROJTURN, turnExempt, turnOwnNeed,
-  turnPickInfo, setTurnNow, stuckWindowOf, SHOP_SITE_RETRY_MS, PRODSERVE, IDLE_NOT_A_VISIT, starveMark, starveOn, PROJECT_VISIT_HOLD,
-  LIGHT_BANK_MIN_MS, bankBackDue, setUnlockAsk, unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf, buildNextOn, nextBreakerOn,
-  nextNote, nextHeld, nextBackoff, setNextHoldOf, NEXT_K, NEXT_HOLD_MS, LIGHT_PLOTS,
-} from './shop.mjs'   // storehub-01's switches
+import { STOREHUB } from './shop.mjs'   // storehub-01's switches
+import { ENCHANTSHOP, COTTAGE as COTTAGE_SW, COTTAGE2 as COTTAGE2_SW, TOWNHALL as TOWNHALL_SW, REROOF as REROOF_SW } from './shop.mjs'   // enchantshop-01's switches; townstyle-01's
+import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
+import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
+import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
+import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
+import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
+import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
+import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
+import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
+import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { SINKS } from './shop.mjs'   // picker-01
+import { FORESTP } from './shop.mjs'   // forest-01: its switch (and the in-wall farm's retirement)
+import { DECORATE } from './shop.mjs'   // decorator-01: its switch
+import { PROJTURN, turnExempt, turnOwnNeed, turnPickInfo, setTurnNow, stuckWindowOf, SHOP_SITE_RETRY_MS } from './shop.mjs'   // projturn-01: the switch, the lanes, the order's hooks
+import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the service tier's switch; a stop that was no visit
+import { starveMark, starveOn } from './shop.mjs'   // starve-01
+import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
+import { setUnlockAsk } from './shop.mjs'   // villageunlock-01 (T3a): the order's ask
+import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
+import { buildNextOn, nextBreakerOn, nextNote, nextHeld, nextBackoff, setNextHoldOf, NEXT_K, NEXT_HOLD_MS } from './shop.mjs'   // buildnext-01: never idle on a blocked project
+import { LIGHT_PLOTS } from './shop.mjs'   // workboard-01: the job's bag rule
 import {
   ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan,
   enchantRecordOf, enchantVisitOpts, ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord,
@@ -211,14 +220,14 @@ import {
   recordPalette, isCottagePlot, COTTAGE_PLOTS, cottage2Styles, furnitureCrafted, furnishWaits, bedColourFor, cottageChestKeys, SHEAR, sheepWool,
   shearDue, bedsOwed, cottage2StylesAll,
 } from './cottage.mjs'   // townstyle-01
-import {
-  HOMEPLOTS, resolveHomePlots, homePlotZones, houseOffer, siteOverPlots, failNoted, homePlotRowDetail, homeRowDue, laterHomeHeld, chainWaits,
-  homePlotAt, pathInputsWithHomes, HOMESEARCH, HOMEPLOT, homeZones, plotSig, refusalKind, searchNoted, searchPlotLooks,
-} from './homeplots.mjs'   // homes-01show: the layout's home plots, the rotation
+import { HOMEPLOTS, resolveHomePlots, homePlotZones, houseOffer, siteOverPlots, failNoted, homePlotRowDetail, homeRowDue } from './homeplots.mjs'   // homes-01show: the layout's home plots, the rotation
+import { laterHomeHeld, chainWaits, homePlotAt, pathInputsWithHomes } from './homeplots.mjs'   // homes-01show review r1: the switch's hold, the chain's wait, the plots kept off
+import { HOMESEARCH, HOMEPLOT, homeZones, plotSig, refusalKind, searchNoted, searchPlotLooks } from './homeplots.mjs'   // homes-02show: the search resumes; unfinished roads yield
 import { placeRefFor, opensOnClick } from './placeref.mjs'   // spentpick-01show: a placement never clicks a block that opens
-import {
-  installServerBlockWitness, botBuildEffects, connEnded, visitGone, cellZone,
-} from './buildbot.mjs'   // homes-02show r1: the connection's witness drops a kept walk the world moved under
+import { installServerBlockWitness } from './buildbot.mjs'   // homes-02show r1: the connection's witness drops a kept walk the world moved under
+import { botBuildEffects } from './buildbot.mjs'
+import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
+import { cellZone } from './buildbot.mjs'   // zonesite-01show: the zone guard's own answer for a build's placement at a cell
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
 import {
   woodPartsPlan, woodPartCraftable, oriented as orientedBlock,
