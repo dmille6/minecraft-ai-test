@@ -219,7 +219,7 @@ import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CR
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
 import { fellDoneOn, fellAlsoDone, fellDone, fellDoneRow, fellPhase, fellStampStale } from './felldone.mjs'   // felldone-01: a felling stair whose tree is gone is done
-import { sealedCoreOn, sealedCoreWaived, zigAlsoDone, sealedCoreDue, withSealedCore, SEALED_WHY } from './sealedcore.mjs'   // sealedcore-01: a monument core cell sealed inside its own finished body is waived
+import { sealedCoreOn, sealedCoreWaived, zigAlsoDone, sealedCoreDue, sealedCoreMerge, SEALED_WHY } from './sealedcore.mjs'   // sealedcore-01: a monument core cell sealed inside its own finished body is waived
 import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSteps, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { LEAFFELL_ON, rowDue as leafRowDue, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
 import { replantFor as siteReplantFor, overlay as siteOverlay } from './buildsite.mjs'   // leaffell-01show: the saplings owed for a tree felled for its leaves
@@ -25212,9 +25212,11 @@ async function buildMonument (ctx, args, signal) {
       ...tempStandOf(bot, c, MONUMENT_PLOT),   // tempstand-01
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // sealedcore-01: THE WAIVER (sealedcore.mjs sealedCoreDue; the wall's machinery: the record's `waived` map, an `op=waived` row) -- a
-    // FILL cell this visit deferred, counted SEALED_CORE.after deferring visits, for which this visit's void access found no plan, and
-    // that a fresh read proves enclosed by the monument's own finished cells and the ground under its base, is named on the record;
-    // every later test reads it done. A fill cell the rule refuses is named with its reason (`op=waive_held`), once a visit.
+    // FILL cell this visit deferred, counted SEALED_CORE.after deferring visits, for which THIS visit's void access found no plan
+    // (`r.access`: with VOIDFILL off, or the access never reached, there is none and nothing is waived), and that a fresh read proves
+    // enclosed by the monument's own finished cells and the ground under its base, is named on the record; every later test reads it
+    // done. The bound is kept on the CURRENT record inside the publication (sealedCoreMerge, every attempt): only the cells it TOOK
+    // are this visit's waivers. A fill cell the rule or the bound refuses is named with its reason (`op=waive_held`), once a visit.
     let waivedN = 0
     if (sealedCoreOn() && (r.deferred ?? []).length) {
       try {
@@ -25222,12 +25224,20 @@ async function buildMonument (ctx, args, signal) {
         const openK = new Set(rec.cells.filter(q => !sealedCoreWaived(rec, q)).map(q => q.at.join(',')))
         // (a boundary cell is done by the order's own cell test: its palette, its state, zigHidden, the waived map -- read now)
         const sc = sealedCoreDue(rec, r.deferred, { read: rdNow, palette, isDone: q => recordCellDone(bot, rec, q),
-          access: zigAccessOf(bot, c) ? r.access : null, counts: sinkDeferCounts(dir, key, me, r.deferred, k => openK.has(k)) })
+          access: r.access ?? null, counts: sinkDeferCounts(dir, key, me, r.deferred, k => openK.has(k)) })
+        let capped = []
         if (sc.due.length) {
-          const pub = publishRecord(dir, key, cur => (cur && isZigBlueprint(cur.blueprint) && cur.cells.length === rh.head.rec.cells.length ? withSealedCore(cur, sc.due, { by: me }) : null), { by: me })
-          if (pub.result === 'accepted') { waivedN = sc.due.length; for (const d of sc.due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, n: d.n, visits: d.visits, why: SEALED_WHY }) }) } catch { /* telemetry */ } } }
-          bot.shopDamage = null
-        } else if (sc.held.length) { const d = sc.held[0]; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'waive_held', cell: d.k.split(',').map(Number), n: sc.held.length, visits: d.visits, why: `${SEALED_WHY} ${d.why}` }) }) } catch { /* telemetry */ } }
+          let mg = null
+          const pub = publishRecord(dir, key, cur => { mg = cur && isZigBlueprint(cur.blueprint) && cur.cells.length === rh.head.rec.cells.length ? sealedCoreMerge(cur, sc.due, { by: me }) : null; return mg?.rec ?? null }, { by: me })
+          const took = pub.result === 'accepted' ? mg?.took ?? [] : []
+          waivedN = took.length
+          for (const d of took) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, n: d.n, visits: d.visits, why: SEALED_WHY }) }) } catch { /* telemetry */ } }
+          if (took.length) bot.shopDamage = null
+          // the cells the current record refused (the bound reached by another visit's waivers): not waived, named below
+          capped = (mg?.refused ?? []).filter(q => q.why !== 'already_waived').map(q => ({ ...q, visits: sc.due.find(d => d.k === q.k)?.visits ?? null }))
+        }
+        const held = [...capped, ...(waivedN ? [] : sc.held)]
+        if (held.length) { const d = held[0]; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'waive_held', cell: d.k.split(',').map(Number), n: held.length, visits: d.visits, why: `${SEALED_WHY} ${d.why}` }) }) } catch { /* telemetry */ } }
       } catch { /* counted again next visit */ }
     }
     if (r.stop === 'complete') {

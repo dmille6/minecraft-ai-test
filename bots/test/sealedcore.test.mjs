@@ -106,14 +106,14 @@ await t('AFTER THE WAIVER: the record names both cells; L00 reads complete and t
   const before = SC.zigAlsoDone(m.record, {})
   assert.strictEqual(R.segComplete(m.read, m.record, PAL, 'L00', before), false)
   assert.strictEqual(R.workableSeg(m.record, m.read, PAL, () => true, before), 'L00', 'before: the stuck segment is all there is')
-  const next = SC.withSealedCore(m.record, due(m).due, { now: 7, by: 'A' })
+  const next = SC.sealedCoreMerge(m.record, due(m).due, { now: 7, by: 'A' }).rec
   assert.deepStrictEqual(next.waived, { [K1]: { why: 'sealed_core', at: 7, by: 'A', void: 6 }, [K2]: { why: 'sealed_core', at: 7, by: 'A', void: 6 } })
   const after = SC.zigAlsoDone(next, {})
   assert.strictEqual(R.segComplete(m.read, next, PAL, 'L00', after), true)
   assert.strictEqual(R.workableSeg(next, m.read, PAL, () => true, after), 'L04', 'the 13 waiting cells\' segment')
   assert.strictEqual(next.cells.filter(c => !doneOf(next)(c, m.read)).length, 13, 'the 13 stay open: they are built, never waived')
   assert.strictEqual(W.wallWaived(next, { at: C1 }), true, 'the map is the wall\'s shape')
-  assert.strictEqual(SC.withSealedCore(next, due(m).due), null, 'nothing new: no generation')
+  assert.deepStrictEqual(SC.sealedCoreMerge(next, due(m).due), { rec: null, took: [], refused: [{ k: K1, why: 'already_waived' }, { k: K2, why: 'already_waived' }] }, 'nothing new: no generation')
   assert.deepStrictEqual(due({ ...m, record: next }).due, [], 'a waived cell is never due again')
 })
 
@@ -125,14 +125,21 @@ await t('young: under 5 deferring visits it waits (the lifetime tally counts whe
   assert.strictEqual(due(m, { deferred: DEFERRED(1), counts: { [K1]: { visits: 9 }, [K2]: { visits: 5 } } }).due.length, 2)
   assert.strictEqual(due(m, { deferred: DEFERRED(1), counts: { [K1]: { visits: 9 } } }).due.length, 1)
 })
-await t('the access: only a refusal with NO PLAN for this cell THIS visit -- or a visit that has no void access at all', () => {
+// (review r1 blocker 2: this test used to assert that a visit with NO access (`access: null`) waives -- "not applicable". That was the
+// defect: with VOIDFILL off a fillable cell was waived for good with the access never tried. It now asserts the opposite.)
+await t('the access: only THIS visit\'s explicit result -- refused, with NO PLAN, naming the cell; no access result never waives', () => {
   const m = mound()
-  assert.deepStrictEqual(due(m, { access: undefined }).held.map(h => h.why), ['access_untried', 'access_untried'])
+  for (const none of [null, undefined]) {
+    const d = due(m, { access: none })
+    assert.deepStrictEqual(d.due, [], `access ${none}`); assert.deepStrictEqual(d.held.map(h => h.why), ['no_access_result', 'no_access_result'])
+  }
+  assert.deepStrictEqual(due(m, { access: {} }).held.map(h => h.why), ['access_unknown', 'access_unknown'], 'an empty result is no refusal')
   for (const result of ['young', 'spent', 'late', 'done', 'failed']) assert.deepStrictEqual(due(m, { access: { result, noPlan: false, cells: [K1, K2] } }).due, [], result)
   assert.deepStrictEqual(due(m, { access: { result: 'refused', noPlan: false, cells: [K1, K2] } }).due, [], 'a bag that was short is no refusal of the plan')
   assert.deepStrictEqual(due(m, { access: { ...REFUSED, cells: [K1] } }).due.map(o => o.k), [K1], 'only the cells the access was asked for')
-  assert.strictEqual(due(m, { access: null }).due.length, 2, 'no void access on this visit: not applicable')
-  assert.strictEqual(due(m).due.length, 2, 'the positive control')
+  assert.deepStrictEqual(due(m, { access: { ...REFUSED, cells: [k([CX - 2, BASE, CZ]), k([CX + 2, BASE, CZ])] } }).due, [], 'a refusal that names a DIFFERENT cell set waives neither')
+  assert.deepStrictEqual(due(m, { access: { ...REFUSED, cells: [] } }).due, [])
+  assert.deepStrictEqual(due(m).due.map(o => o.k), [K1, K2], 'the positive control: refused + noPlan naming the cells, every other condition holding')
 })
 await t('ONE OPENING to the outside air: never waived (the void does not stay small)', () => {
   // the cap's cell over C1 is no record cell and open, as are the two core cells under it: a chimney to the sky
@@ -179,6 +186,59 @@ await t('the CAP: at most 8 waived cells a record, ever', () => {
   assert.deepStrictEqual(due(seven).due.map(o => o.k), [K1]); assert.deepStrictEqual(due(seven).held.map(h => h.why), ['cap 8'])
   assert.strictEqual(SC.SEALED_CORE.max, 8)
 })
+// ---- review r1 blocker 1: THE BOUND IS KEPT ON THE CURRENT RECORD, INSIDE THE PUBLICATION -------------------------------------------
+// two rows of five open core cells (each row its own enclosed void), far enough apart to be two visits' work
+const ROW_A = [-2, -1, 0, 1, 2].map(dx => [CX + dx, BASE, CZ - 2]), ROW_B = [-2, -1, 0, 1, 2].map(dx => [CX + dx, BASE, CZ + 2])
+const rows = () => mound({ pocket: [], set: { [K1]: 'dirt', [K2]: 'dirt', ...Object.fromEntries([...ROW_A, ...ROW_B].map(c => [k(c), 'air'])) } })
+const dueOf = (m, row, Mod = SC) => due(m, { Mod, deferred: row.map(c => ({ k: k(c), why: 'no_stand', visits: 5 })), access: { ...REFUSED, cells: row.map(k) } }).due
+await t('TWO VISITS, each eligible for 5 cells on the SAME generation: the record ends with 8, and the second visit is told which 2 were refused', () => {
+  const m = rows()
+  const pr = project(m.record)
+  const g0 = PJ.recordHead(pr.dir, pr.key).head
+  const dA = dueOf({ ...m, record: g0.rec }, ROW_A), dB = dueOf({ ...m, record: g0.rec }, ROW_B)
+  assert.deepStrictEqual([dA.length, dB.length], [5, 5], 'each visit, on its own reading of generation g, is eligible for all five (the stale decision)')
+  assert.strictEqual(SC.sealedCoreMerge(g0.rec, dB).took.length, 5, 'positive control: merged into the STALE record the second visit would take all five (10 in all)')
+  let mA = null, mB = null
+  const pA = PJ.publishRecord(pr.dir, pr.key, cur => (mA = SC.sealedCoreMerge(cur, dA, { by: 'A', now: 1 })).rec, { by: 'A' })
+  const pB = PJ.publishRecord(pr.dir, pr.key, cur => (mB = SC.sealedCoreMerge(cur, dB, { by: 'B', now: 2 })).rec, { by: 'B' })
+  assert.deepStrictEqual([pA.result, pB.result], ['accepted', 'accepted'])
+  assert.deepStrictEqual(mA.took.map(d => d.k), ROW_A.map(k)); assert.deepStrictEqual(mA.refused, [])
+  assert.deepStrictEqual(mB.took.map(d => d.k), ROW_B.slice(0, 3).map(k), 'three fit under the bound')
+  assert.deepStrictEqual(mB.refused, ROW_B.slice(3).map(c => ({ k: k(c), why: 'cap 8' })), 'the two refused are named')
+  const head = PJ.recordHead(pr.dir, pr.key).head.rec
+  assert.strictEqual(Object.keys(head.waived).length, 8, 'never more than the bound')
+  assert.deepStrictEqual(Object.keys(head.waived).sort(), [...ROW_A, ...ROW_B.slice(0, 3)].map(k).sort())
+  // the refused two read OPEN on the head; the taken eight read done
+  const also = SC.zigAlsoDone(head, {})
+  assert.deepStrictEqual(ROW_B.map(c => also({ at: c, role: 'core' }, m.read)), [true, true, true, false, false])
+  // a third attempt (the same visit again, or a retried publication): nothing is written, every cell answered
+  let mC = null
+  const pC = PJ.publishRecord(pr.dir, pr.key, cur => (mC = SC.sealedCoreMerge(cur, dB, { by: 'B', now: 3 })).rec, { by: 'B' })
+  assert.strictEqual(pC.result, 'nothing')
+  assert.deepStrictEqual(mC.refused.map(q => q.why), ['already_waived', 'already_waived', 'already_waived', 'cap 8', 'cap 8'])
+  assert.strictEqual(PJ.recordHead(pr.dir, pr.key).head.gen, pB.gen, 'no new generation')
+})
+await t('the merge is idempotent: a cell the current record already names is never written again, never counted, never `took`', () => {
+  const m = rows()
+  const dA = dueOf(m, ROW_A)
+  const g1 = SC.sealedCoreMerge(m.record, dA, { by: 'A', now: 1 }).rec
+  const again = SC.sealedCoreMerge(g1, dA, { by: 'B', now: 99 })
+  assert.deepStrictEqual(again, { rec: null, took: [], refused: ROW_A.map(c => ({ k: k(c), why: 'already_waived' })) })
+  // mixed: two already there, five new, room for three
+  const mixed = SC.sealedCoreMerge(g1, [...dA.slice(0, 2), ...dueOf(m, ROW_B)], { by: 'B', now: 99 })
+  assert.deepStrictEqual(mixed.took.map(d => d.k), ROW_B.slice(0, 3).map(k))
+  assert.deepStrictEqual(mixed.refused.map(q => q.why), ['already_waived', 'already_waived', 'cap 8', 'cap 8'])
+  assert.deepStrictEqual(mixed.rec.waived[k(ROW_A[0])], { why: 'sealed_core', at: 1, by: 'A', void: 5 }, 'the first visit\'s entry is untouched')
+  assert.strictEqual(Object.keys(mixed.rec.waived).length, 8)
+  assert.deepStrictEqual(SC.sealedCoreMerge(null, dA), { rec: null, took: [], refused: [] }); assert.strictEqual(SC.sealedCoreMerge(g1, []).rec, null)
+})
+await t('only SEALED-CORE waivers count for the bound (the map may hold another kind): in the rule and in the merge', () => {
+  const other = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`${CX - 4},${BASE},${CZ - 4 + i}`, { why: 'other_kind' }]))
+  const m = mound({ waived: other })
+  assert.strictEqual(due(m).due.length, 2, 'eight entries of another kind use none of the room')
+  const mg = SC.sealedCoreMerge(m.record, due(m).due, { by: 'A' })
+  assert.strictEqual(mg.took.length, 2); assert.strictEqual(Object.keys(mg.rec.waived).length, 10)
+})
 await t('STRUCTURE: an open visible cell that rests on the void, or a boundary cell that is not done, holds the waiver', () => {
   // the cell over C1 is a visible-role cell of the record and open (sealed too): C1 is what it would be placed on
   const over = k([CX, BASE + 1, CZ])
@@ -212,8 +272,9 @@ await t('the boundary is the record\'s own DONE cells or solid ground under the 
 await t('never a cell that holds a block, a cell of another blueprint, a cell this visit did not defer', () => {
   const m = mound()
   const solid = k([CX - 2, BASE, CZ])
-  assert.deepStrictEqual(due(m, { deferred: [{ k: solid, why: 'sealed no_stand', visits: 9 }], access: null }).due, [])
-  assert.deepStrictEqual(due(m, { deferred: [], access: null }).due, [])
+  const d = due(m, { deferred: [{ k: solid, why: 'sealed no_stand', visits: 9 }], access: { ...REFUSED, cells: [solid] } })
+  assert.deepStrictEqual(d.due, []); assert.deepStrictEqual(d.held.map(h => h.why), ['not_open'])
+  assert.deepStrictEqual(due(m, { deferred: [] }).due, [])
   assert.deepStrictEqual(due({ ...m, record: { ...m.record, blueprint: 'wall@1' } }).due, [])
   assert.deepStrictEqual(due(m, { deferred: [{ k: '0,0,0', visits: 9 }] }).due, [])
 })
@@ -280,7 +341,8 @@ await M('a liquid in the void is passed', 'if (LIQUIDISH.test(nm(read(...c)))) r
   assert.strictEqual(voidOf(mound({ set: { [k(RUN[3])]: 'water' } }), C1, { Mod }).ok, false)
 })
 await M('a cell that holds a block is flooded from', "if (wallBlock(b0)) return { ok: false, why: 'not_open' }", '', Mod => {
-  assert.deepStrictEqual(due(mound(), { Mod, deferred: [{ k: k([CX - 2, BASE, CZ]), why: 'sealed no_stand', visits: 9 }], access: null }).due, [])
+  const solid = k([CX - 2, BASE, CZ])
+  assert.deepStrictEqual(due(mound(), { Mod, deferred: [{ k: solid, why: 'sealed no_stand', visits: 9 }], access: { ...REFUSED, cells: [solid] } }).due, [])
 })
 await M('the deferring visits are not counted', 'if (visits < after) {', 'if (false) {', Mod => {
   assert.deepStrictEqual(due(mound(), { Mod, deferred: DEFERRED(4) }).due, [])
@@ -288,7 +350,7 @@ await M('the deferring visits are not counted', 'if (visits < after) {', 'if (fa
 await M('the lifetime tally is not read', 'Math.max(Number(counts?.[k]?.visits) || 0, Number(d?.visits) || 0)', 'Number(d?.visits) || 0', Mod => {
   assert.strictEqual(due(mound(), { Mod, deferred: DEFERRED(1), counts: { [K1]: { visits: 5 }, [K2]: { visits: 5 } } }).due.length, 2)
 })
-await M('the access is not asked', "if (access !== null && !(access?.result === 'refused' && access.noPlan === true && (access.cells ?? []).includes(k))) {", 'if (false) {', Mod => {
+await M('the access is not asked', "if (!(access?.result === 'refused' && access.noPlan === true && (access.cells ?? []).includes(k))) {", 'if (false) {', Mod => {
   assert.deepStrictEqual(due(mound(), { Mod, access: undefined }).due, [])
 })
 await M('a short bag counts as no plan', "access?.result === 'refused' && access.noPlan === true && ", "access?.result === 'refused' && ", Mod => {
@@ -297,12 +359,39 @@ await M('a short bag counts as no plan', "access?.result === 'refused' && access
 await M('the access\'s own cells are not asked', ' && (access.cells ?? []).includes(k))) {', ')) {', Mod => {
   assert.deepStrictEqual(due(mound(), { Mod, access: { ...REFUSED, cells: [K1] } }).due.map(o => o.k), [K1])
 })
-await M('a visit with no void access never waives', 'if (access !== null && !(', 'if (!(', Mod => {
-  assert.strictEqual(due(mound(), { Mod, access: null }).due.length, 2)
+await M('a visit with NO access result waives (the r1 defect, put back)', "if (!(access?.result === 'refused' && access.noPlan === true", "if (access != null && !(access?.result === 'refused' && access.noPlan === true", Mod => {
+  assert.deepStrictEqual(due(mound(), { Mod, access: null }).due, [])
+  assert.deepStrictEqual(due(mound(), { Mod, access: undefined }).due, [])
 })
-await M('the cap is not kept', 'if (room <= 0) {', 'if (false) {', Mod => {
+await M('a refusal is not asked for (any access result with a plan-less flag)', "if (!(access?.result === 'refused' && ", 'if (!(', Mod => {
+  assert.deepStrictEqual(due(mound(), { Mod, access: { result: 'spent', noPlan: true, cells: [K1, K2] } }).due, [])
+})
+await M('the cap is not kept by the rule', 'if (room <= 0) { hold(`cap ${max}`); continue }', '', Mod => {
   const full = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`${CX - 2},${BASE},${CZ - 2 + i}`, { why: 'sealed_core' }]))
   assert.deepStrictEqual(due(mound({ waived: full }), { Mod }).due, [])
+})
+await M('the merge does not keep the bound (the r1 race): two visits of five end with ten on the record', "    if (room <= 0) { out.refused.push({ k: d.k, why: `cap ${max}` }); continue }\n", '', Mod => {
+  const m = rows(), pr = project(m.record)
+  const g0 = PJ.recordHead(pr.dir, pr.key).head.rec
+  const dA = dueOf({ ...m, record: g0 }, ROW_A, Mod), dB = dueOf({ ...m, record: g0 }, ROW_B, Mod)
+  PJ.publishRecord(pr.dir, pr.key, cur => Mod.sealedCoreMerge(cur, dA, { by: 'A' }).rec, { by: 'A' })
+  PJ.publishRecord(pr.dir, pr.key, cur => Mod.sealedCoreMerge(cur, dB, { by: 'B' }).rec, { by: 'B' })
+  assert.ok(Object.keys(PJ.recordHead(pr.dir, pr.key).head.rec.waived).length <= Mod.SEALED_CORE.max)
+})
+await M('the merge counts the visit\'s stale record, not the one it is given (the bound read once)', '  let room = max - sealedCount(w)\n  for (const d of due) {', '  let room = max\n  for (const d of due) {', Mod => {
+  const m = rows()
+  const g1 = Mod.sealedCoreMerge(m.record, dueOf(m, ROW_A, Mod), { by: 'A' }).rec
+  assert.strictEqual(Mod.sealedCoreMerge(g1, dueOf(m, ROW_B, Mod), { by: 'B' }).took.length, 3)
+})
+await M('the merge writes a cell the record already names again', "    if (Object.prototype.hasOwnProperty.call(w, d.k)) { out.refused.push({ k: d.k, why: 'already_waived' }); continue }\n", '', Mod => {
+  const m = rows(), dA = dueOf(m, ROW_A, Mod)
+  const g1 = Mod.sealedCoreMerge(m.record, dA, { by: 'A', now: 1 }).rec
+  const again = Mod.sealedCoreMerge(g1, dA, { by: 'B', now: 99 })
+  assert.strictEqual(again.rec, null); assert.deepStrictEqual(again.took, [])
+})
+await M('every waived entry counts for the bound, whatever its kind', 'Object.values(w ?? {}).filter(v => v?.why === SEALED_WHY).length', 'Object.values(w ?? {}).length', Mod => {
+  const other = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`${CX - 4},${BASE},${CZ - 4 + i}`, { why: 'other_kind' }]))
+  assert.strictEqual(due(mound({ waived: other }), { Mod }).due.length, 2)
 })
 await M('another blueprint\'s waived map reads as the monument\'s', 'return sealedCoreOn(env) && isZigBlueprint(rec?.blueprint) && !!rec?.waived', 'return sealedCoreOn(env) && !!rec?.waived', Mod => {
   assert.strictEqual(Mod.sealedCoreWaived({ blueprint: 'wall@1', waived: { [K1]: {} } }, { at: C1 }, {}), false)
@@ -336,18 +425,19 @@ function body (srv, inv) {
   e.log = (kk, d) => (kk === '_build' && d?.op === 'access_refused' ? e.logs.push([kk, d]) : log0(kk, d))
   return e
 }
-async function visit (Mod, pr, srv, mem, { inv } = {}) {
+async function visit (Mod, pr, srv, mem, { inv, access = true } = {}) {
   const h = PJ.recordHead(pr.dir, pr.key), rec = h.head.rec
   const e = body(srv, inv)
   const r = await Mod.runVisit({ ...pr.p('A'), palette: PAL, record: rec, recordGen: h.head.gen, domain: () => true, walkR: 64, feetIn: () => true,
-    alsoDone: SC.zigAlsoDone(rec, {}), access: { mem, mayDig: () => true } }, e, { maxSteps: 4000 })
+    alsoDone: SC.zigAlsoDone(rec, {}), ...(access ? { access: { mem, mayDig: () => true } } : {}) }, e, { maxSteps: 4000 })   // `access: false`: VOIDFILL=off (skills.mjs zigAccessOf -> null)
   return { r, rec, rows: e.logs.filter(([kk]) => kk === '_build').map(([, d]) => d), read: srv.read }
 }
 /** The visit's waiver as skills.mjs buildMonument runs it after runVisit. */
-function waive (pr, v, { access = v.r.access } = {}) {
-  const sc = SC.sealedCoreDue(v.rec, v.r.deferred ?? [], { read: v.read, palette: PAL, isDone: doneOf(v.rec), access })
-  if (sc.due.length) PJ.publishRecord(pr.dir, pr.key, cur => SC.withSealedCore(cur, sc.due, { by: 'A' }), { by: 'A' })
-  return sc
+function waive (pr, v, { by = 'A' } = {}) {
+  const sc = SC.sealedCoreDue(v.rec, v.r.deferred ?? [], { read: v.read, palette: PAL, isDone: doneOf(v.rec), access: v.r.access ?? null })
+  let mg = null
+  const pub = sc.due.length ? PJ.publishRecord(pr.dir, pr.key, cur => (mg = SC.sealedCoreMerge(cur, sc.due, { by })).rec, { by }) : null
+  return { ...sc, took: pub?.result === 'accepted' ? mg.took : [], refused: mg?.refused ?? [], result: pub?.result ?? null }
 }
 await t('five visits defer the two cells (stuck from the third, 15 cells waiting); the access finds no plan; the fifth waives; the sixth builds the 13 and completes', async () => {
   const m = mound({ pocket: WIDE })
@@ -397,6 +487,25 @@ await t('positive control (SEALEDCORE off: nothing waived): a sixth visit is stu
   assert.strictEqual(v.r.stop, 'stuck_on_cell')
   assert.ok(DEPS.every(c => srv.read(...c).name === 'air'))
   assert.strictEqual(PJ.recordHead(pr.dir, pr.key).head.rec.waived, undefined)
+})
+await t('VOIDFILL=off (the visit is given no access): no access result ever reaches the rule -- the same void, ten visits, never waived', async () => {
+  const m = mound({ pocket: WIDE })
+  const srv = server(m.world), pr = project(m.record)
+  const whys = new Set()
+  let v = null
+  for (let i = 1; i <= 2 * SC.SEALED_CORE.after; i++) {
+    v = await visit(R, pr, srv, {}, { access: false })
+    assert.strictEqual(v.r.access, undefined, 'runVisit names no access when the visit has none')
+    const sc = waive(pr, v)
+    assert.deepStrictEqual(sc.due, [], `visit ${i}`)
+    for (const h of sc.held) whys.add(h.why.replace(/\d+\/\d+$/, 'n/5'))
+  }
+  assert.deepStrictEqual([...whys].sort(), ['no_access_result', 'young n/5'], 'young first, then held for want of an access result -- the reason op=waive_held carries')
+  assert.deepStrictEqual(v.r.deferred.map(d => [d.k, d.visits]), [[K1, 10], [K2, 10]], 'positive control: ten deferring visits were counted')
+  assert.strictEqual(PJ.recordHead(pr.dir, pr.key).head.rec.waived, undefined)
+  // ...and the positive control for the rule itself: the SAME visit's reading with an explicit refusal naming the cells is waived
+  const sc = SC.sealedCoreDue(v.rec, v.r.deferred, { read: v.read, palette: PAL, isDone: doneOf(v.rec), access: { result: 'refused', seg: 'L00', noPlan: true, cells: [K1, K2] } })
+  assert.deepStrictEqual(sc.due.map(o => o.k), [K1, K2])
 })
 await t('the same bot again inside the access window (`spent`): no refusal this visit, so no waiver this visit', async () => {
   const m = mound({ pocket: WIDE })
@@ -469,10 +578,12 @@ const WIRES = [
   ['...and to the progress the visit row names', /const pal = zigPaletteOf\(rec\), also = zigAlsoDone\(rec\)/],
   ['the waiver runs only with the switch on, on what the visit deferred', /if \(sealedCoreOn\(\) && \(r\.deferred \?\? \[\]\)\.length\) \{/],
   ['a boundary cell is judged by the order\'s own cell test', /const sc = sealedCoreDue\(rec, r\.deferred, \{ read: rdNow, palette, isDone: q => recordCellDone\(bot, rec, q\),/],
-  ['the waiver reads a fresh world, the visit\'s access (none configured: not applicable) and the lifetime tally', /access: zigAccessOf\(bot, c\) \? r\.access : null, counts: sinkDeferCounts\(dir, key, me, r\.deferred, k => openK\.has\(k\)\) \}\)/],
-  ['the record\'s next generation names the cells (a monument record of the same cells only)', /cur && isZigBlueprint\(cur\.blueprint\) && cur\.cells\.length === rh\.head\.rec\.cells\.length \? withSealedCore\(cur, sc\.due, \{ by: me \}\) : null/],
+  ['the waiver reads a fresh world, THIS visit\'s access result as runVisit gave it (none: null, never waived) and the lifetime tally', /access: r\.access \?\? null, counts: sinkDeferCounts\(dir, key, me, r\.deferred, k => openK\.has\(k\)\) \}\)/],
+  ['the bound is kept on the CURRENT record, inside the publication, on every attempt', /const pub = publishRecord\(dir, key, cur => \{ mg = cur && isZigBlueprint\(cur\.blueprint\) && cur\.cells\.length === rh\.head\.rec\.cells\.length \? sealedCoreMerge\(cur, sc\.due, \{ by: me \}\) : null; return mg\?\.rec \?\? null \}, \{ by: me \}\)/],
+  ['only the cells the publication TOOK are this visit\'s waivers (their rows, its cell_waived stop)', /const took = pub\.result === 'accepted' \? mg\?\.took \?\? \[\] : \[\]\n\s*waivedN = took\.length\n\s*for \(const d of took\) \{/],
+  ['a cell the current record refused for the bound is named, never waived', /capped = \(mg\?\.refused \?\? \[\]\)\.filter\(q => q\.why !== 'already_waived'\)/],
   ['the row: op=waived why=sealed_core', /op: 'waived', cell: d\.k\.split\(','\)\.map\(Number\), gen: pub\.gen, n: d\.n, visits: d\.visits, why: SEALED_WHY \}/],
-  ['a refusal of the rule is named once a visit', /op: 'waive_held', cell: d\.k\.split\(','\)\.map\(Number\), n: sc\.held\.length, visits: d\.visits, why: `\$\{SEALED_WHY\} \$\{d\.why\}` \}/],
+  ['a refusal of the rule is named once a visit', /op: 'waive_held', cell: d\.k\.split\(','\)\.map\(Number\), n: held\.length, visits: d\.visits, why: `\$\{SEALED_WHY\} \$\{d\.why\}` \}/],
   ['a visit that waived ends cell_waived', /const stopZ = gkStopAfterWaive\(r\.stop, waivedN\)/],
   ['a waived cell is done for the order\'s cell test', /if \(mon && sealedCoreWaived\(r, c\)\) return true/],
   ['...and no damage of a complete monument', /if \(mon && sealedCoreWaived\(r, c\)\) continue/],

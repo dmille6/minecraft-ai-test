@@ -22,8 +22,11 @@
 //             cells as its support or its way in: such a void is work, never waived) -- and an open cell that holds the wrong
 //             block on the boundary is a boundary cell not done, refused the same way;
 //   STUCK     this visit deferred it and the stuck map has counted `after` deferring visits (the wall's 5);
-//   NO ACCESS the void access was tried for it THIS visit and found no plan (runVisit `access`: `noPlan`), or the visit has none;
-//   BOUNDED   at most `max` waived cells a record, ever.
+//   NO ACCESS the void access was tried for it THIS visit and found no plan (runVisit `access`: `refused`, `noPlan`, the cell among
+//             its `cells`). A visit with no access result -- VOIDFILL off, the access never reached -- waives NOTHING (review r1:
+//             else a cell the access could fill would be waived for good without the access ever having been tried);
+//   BOUNDED   at most `max` sealed-core waivers a record, ever -- decided again on the CURRENT record inside the publication
+//             (sealedCoreMerge: two visits that each read the same generation never add up past the bound; review r1).
 // The void's other cells (the air run under the base) are no record cells: nothing is done about them.
 // SEALEDCORE=off|0|false|no is the rollback: nothing is waived, and a cell already waived reads open again (as before).
 
@@ -44,6 +47,8 @@ export const FILL_MARK = '*solid'
 
 /** Is `role` an interior FILL role of this palette (the blueprint's own mark: any solid is done there)? Pure. */
 export const fillRole = (palette, role) => Array.isArray(palette?.[role]) && palette[role].includes(FILL_MARK)
+/** The record's sealed-core waivers (its `waived` map may hold other kinds one day: only these count for the bound). Pure. */
+const sealedCount = w => Object.values(w ?? {}).filter(v => v?.why === SEALED_WHY).length
 /** A boundary block: a full cube. (Leaves are one too, and never a legal boundary: a record cell of leaves is not done, and leaves
  *  under the base are no solid floor -- a void that touches leaves is refused.) Pure. */
 const wallBlock = b => fullCube(b)
@@ -100,7 +105,7 @@ export function sealedVoid (rec, at, read, { palette, isDone, voidMax = SEALED_C
  * visit deferred that the rule refuses, each with its reason -- the visit names the first on a row). Pure.
  *   rec       the monument record;  deferred  runVisit's `deferred` [{ k, why, visits }]
  *   read, palette, isDone   as sealedVoid
- *   access    runVisit's `access` ({ result, noPlan, cells }) | undefined (none tried) -- or null: the visit has no void access
+ *   access    runVisit's `access` ({ result, noPlan, cells }) of THIS visit; null / undefined (no access result): never waived
  *   counts    { k: { visits } }: a lifetime tally of the deferrals (the stuck map forgets after 24 h), the larger count taken
  */
 export function sealedCoreDue (rec, deferred = [], { read, palette, isDone, access, counts = {}, after = SEALED_CORE.after, max = SEALED_CORE.max, voidMax = SEALED_CORE.voidMax } = {}) {
@@ -108,14 +113,14 @@ export function sealedCoreDue (rec, deferred = [], { read, palette, isDone, acce
   if (!isZigBlueprint(rec?.blueprint) || typeof read !== 'function' || typeof isDone !== 'function') return out
   const cellAt = new Map((rec.cells ?? []).map(c => [kOf(c.at), c]))
   const have = rec.waived ?? {}
-  let room = max - Object.keys(have).length
+  let room = max - sealedCount(have)
   for (const d of deferred ?? []) {
     const k = String(d?.k ?? ''), c = cellAt.get(k)
     if (!c || have[k] || out.due.some(o => o.k === k) || !fillRole(palette, c.role)) continue
     const visits = Math.max(Number(counts?.[k]?.visits) || 0, Number(d?.visits) || 0)
     const hold = why => out.held.push({ k, why, visits })
     if (visits < after) { hold(`young ${visits}/${after}`); continue }
-    if (access !== null && !(access?.result === 'refused' && access.noPlan === true && (access.cells ?? []).includes(k))) { hold(`access_${access?.result ?? 'untried'}`); continue }
+    if (!(access?.result === 'refused' && access.noPlan === true && (access.cells ?? []).includes(k))) { hold(access == null ? 'no_access_result' : `access_${access.result ?? 'unknown'}`); continue }
     const v = sealedVoid(rec, c.at, read, { palette, isDone, voidMax })
     if (!v.ok) { hold(v.why); continue }
     if (room <= 0) { hold(`cap ${max}`); continue }
@@ -123,11 +128,23 @@ export function sealedCoreDue (rec, deferred = [], { read, palette, isDone, acce
   }
   return out
 }
-/** The record's next generation with the cells waived -> record | null (nothing new). Pure. */
-export function withSealedCore (cur, due = [], { now = Date.now(), by = null } = {}) {
-  if (!cur || !Array.isArray(due) || !due.length) return null
+/**
+ * THE MERGE INTO THE CURRENT RECORD (the publication's own callback, run again on every attempt against the head it is given) ->
+ * { rec: the next generation | null (nothing taken), took: [due entry], refused: [{ k, why }] }. Pure. `due` was decided on the
+ * visit's own, possibly stale, record: here each cell is asked again of `cur` -- one `cur` already names is `already_waived` (never
+ * written twice, never counted), and one past the bound (`max` sealed-core waivers on `cur`, the ones taken here counted) is
+ * `cap <max>`. The visit names only `took` as waived.
+ */
+export function sealedCoreMerge (cur, due = [], { now = Date.now(), by = null, max = SEALED_CORE.max } = {}) {
+  const out = { rec: null, took: [], refused: [] }
+  if (!cur || !Array.isArray(due) || !due.length) return out
   const w = { ...(cur.waived ?? {}) }
-  let n = 0
-  for (const d of due) if (!w[d.k]) { w[d.k] = { why: SEALED_WHY, at: now, by, void: d.n }; n++ }
-  return n ? { ...cur, waived: w } : null
+  let room = max - sealedCount(w)
+  for (const d of due) {
+    if (Object.prototype.hasOwnProperty.call(w, d.k)) { out.refused.push({ k: d.k, why: 'already_waived' }); continue }
+    if (room <= 0) { out.refused.push({ k: d.k, why: `cap ${max}` }); continue }
+    w[d.k] = { why: SEALED_WHY, at: now, by, void: d.n }; out.took.push(d); room--
+  }
+  if (out.took.length) out.rec = { ...cur, waived: w }
+  return out
 }
