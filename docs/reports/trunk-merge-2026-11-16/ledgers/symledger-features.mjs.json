@@ -1,0 +1,122 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 46,
+  "t": 79,
+  "b": 26
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "showchatUntap",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "installShowchat",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "requestsUntap",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "installRequests",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "installAtlasFeature",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "PRUNE_FIRST_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PRUNE_EVERY_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "installPoolPrune",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "takebackFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "installFeatures",
+  "why": "both changed: 3 block(s) took the showcase side",
+  "protected": false,
+  "o": 105,
+  "t": 143,
+  "b": 58
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "installShowchat#2",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ }
+]

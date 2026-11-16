@@ -1,0 +1,1282 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 23,
+  "t": 24,
+  "b": 21
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 3,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__head__#3",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "__imports__#3",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "__head__#4",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#4",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 4
+ },
+ {
+  "sym": "__head__#5",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#5",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 3,
+  "t": 1,
+  "b": 2
+ },
+ {
+  "sym": "__head__#6",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#6",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 3
+ },
+ {
+  "sym": "__head__#7",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#7",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 7,
+  "t": 4,
+  "b": 2
+ },
+ {
+  "sym": "__head__#8",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "__imports__#8",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "pkgGoals",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FOOD_PRIORITY",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "SURVEY_BLOCKS",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "DANGER_BLOCKS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "recoveryArmsMayRun",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "ESCAPE_MIN_INTERVAL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "ESCAPE_GIVE_UP_AFTER",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MAROON_CHECK_MS",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "MAROON_PREREQ_COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "LAST_RESORT_STRANDED_MS",
+  "why": "same",
+  "protected": true,
+  "o": 39,
+  "t": 39,
+  "b": 39
+ },
+ {
+  "sym": "SEALED_ESCAPE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "STRANDED_EPS",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "STEP_OFF_PROBE",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "stepOffEdges",
+  "why": "same",
+  "protected": true,
+  "o": 36,
+  "t": 36,
+  "b": 36
+ },
+ {
+  "sym": "STEP_OFF_COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 45,
+  "t": 45,
+  "b": 45
+ },
+ {
+  "sym": "drowningRelease",
+  "why": "same",
+  "protected": true,
+  "o": 60,
+  "t": 60,
+  "b": 60
+ },
+ {
+  "sym": "CLIMB_CEILING",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "climbNeedAbove",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 16,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "maroonState",
+  "why": "same",
+  "protected": true,
+  "o": 31,
+  "t": 31,
+  "b": 31
+ },
+ {
+  "sym": "scaffoldPrereq",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "ESCAPE_PICKAXES_NEEDED",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "pickaxePrereq",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "REFLEX_ERROR_ALARM",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "REFLEX_ERROR_GIVE_UP",
+  "why": "same",
+  "protected": true,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "noteReflexInventory",
+  "why": "same",
+  "protected": true,
+  "o": 42,
+  "t": 42,
+  "b": 42
+ },
+ {
+  "sym": "assessAir",
+  "why": "same",
+  "protected": true,
+  "o": 134,
+  "t": 134,
+  "b": 134
+ },
+ {
+  "sym": "breathingAgain",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "airConsequenceEvidence",
+  "why": "same",
+  "protected": true,
+  "o": 153,
+  "t": 153,
+  "b": 153
+ },
+ {
+  "sym": "airCriticalTransition",
+  "why": "same",
+  "protected": true,
+  "o": 38,
+  "t": 38,
+  "b": 38
+ },
+ {
+  "sym": "waterPosture",
+  "why": "same",
+  "protected": true,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "drowningControls",
+  "why": "same",
+  "protected": true,
+  "o": 81,
+  "t": 81,
+  "b": 81
+ },
+ {
+  "sym": "scanBreathableRoute",
+  "why": "same",
+  "protected": true,
+  "o": 68,
+  "t": 68,
+  "b": 68
+ },
+ {
+  "sym": "breathableRoute",
+  "why": "same",
+  "protected": true,
+  "o": 40,
+  "t": 40,
+  "b": 40
+ },
+ {
+  "sym": "seizeBody",
+  "why": "same",
+  "protected": true,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "takeBody",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "giveBody",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "makeThrottle",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "RELEASE_DWELL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "DROWN_FAIL_SUPPRESS",
+  "why": "same",
+  "protected": true,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "DROWN_MOVED_BLOCKS",
+  "why": "same",
+  "protected": true,
+  "o": 46,
+  "t": 46,
+  "b": 46
+ },
+ {
+  "sym": "drownRescueSuppressed",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "RESCUE_CEILING_MS",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "RESCUE_CEILING_MAX_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PROGRESS_STALL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "startReflexes",
+  "why": "both changed: 8 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 2798,
+  "t": 2401,
+  "b": 2214
+ },
+ {
+  "sym": "stuckDecision",
+  "why": "same",
+  "protected": true,
+  "o": 45,
+  "t": 45,
+  "b": 45
+ },
+ {
+  "sym": "notAWall",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "passableFor",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "isEntombed",
+  "why": "same",
+  "protected": true,
+  "o": 53,
+  "t": 53,
+  "b": 53
+ },
+ {
+  "sym": "SOFT_BLOCK",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "safeEmptyHand",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "scaffoldFor",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "PLACEABLE",
+  "why": "same",
+  "protected": true,
+  "o": 45,
+  "t": 45,
+  "b": 45
+ },
+ {
+  "sym": "scaffoldCandidate",
+  "why": "same",
+  "protected": true,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "canFinishClimb",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "mayDigForEscape",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 47,
+  "t": 49,
+  "b": 49
+ },
+ {
+  "sym": "bestTool",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 12,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "shaftCap",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "shaftCapNeedsTool",
+  "why": "same",
+  "protected": true,
+  "o": 23,
+  "t": 23,
+  "b": 82
+ },
+ {
+  "sym": "noteHandCap",
+  "why": "same",
+  "protected": true,
+  "o": 84,
+  "t": 84,
+  "b": null
+ },
+ {
+  "sym": "witnessText",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "drowningCouldBeReal",
+  "why": "same",
+  "protected": true,
+  "o": 26,
+  "t": 26,
+  "b": 26
+ },
+ {
+  "sym": "scoopWouldHelp",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "waterCellsAround",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "observeEscapeState",
+  "why": "same",
+  "protected": true,
+  "o": 128,
+  "t": 128,
+  "b": 128
+ },
+ {
+  "sym": "ESCAPE_ROUTINES",
+  "why": "same",
+  "protected": true,
+  "o": 147,
+  "t": 147,
+  "b": 147
+ },
+ {
+  "sym": "surfaceSwim",
+  "why": "same",
+  "protected": true,
+  "o": 40,
+  "t": 40,
+  "b": 40
+ },
+ {
+  "sym": "stepOff",
+  "why": "same",
+  "protected": true,
+  "o": 54,
+  "t": 54,
+  "b": 54
+ },
+ {
+  "sym": "harvestUnderfoot",
+  "why": "same",
+  "protected": true,
+  "o": 127,
+  "t": 127,
+  "b": 125
+ },
+ {
+  "sym": "HARVEST_OFFSETS",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "SCAFFOLD_SELF_SOURCE",
+  "why": "same",
+  "protected": true,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "harvestAdjacent",
+  "why": "same",
+  "protected": true,
+  "o": 95,
+  "t": 95,
+  "b": 93
+ },
+ {
+  "sym": "ESCAPE_CARDINALS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "escapeBearings",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "ESCAPE_STAIR_LOOKAHEAD",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "ESCAPE_STAIR_MAX_STEPS",
+  "why": "same",
+  "protected": true,
+  "o": 26,
+  "t": 26,
+  "b": 26
+ },
+ {
+  "sym": "escapeStairUp",
+  "why": "same",
+  "protected": true,
+  "o": 855,
+  "t": 855,
+  "b": 846
+ },
+ {
+  "sym": "poolEscape",
+  "why": "both changed, merged cleanly inside",
+  "protected": true,
+  "o": 287,
+  "t": 286,
+  "b": 286
+ },
+ {
+  "sym": "FALLING_SETTLE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "FLOW_SETTLE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "BREACH_MAX_SWINGS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "REFILL_MAX_RECUTS",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "unburySelf",
+  "why": "same",
+  "protected": true,
+  "o": 66,
+  "t": 66,
+  "b": 66
+ },
+ {
+  "sym": "rampStatus",
+  "why": "same",
+  "protected": true,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "refusalEscalation",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "refusalStreak",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "PILLAR_MAX_BLOCKS",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "climbPrereqFor",
+  "why": "same",
+  "protected": true,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "bmap",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "upwardDigFloodRisk",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "targetFloodRisk",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "unburyDigFor",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "ceilingFloodRisk",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "plugStreaks",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "plugStreakClear",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "plugStreakTouch",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "floodBranch",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 49,
+  "t": 46,
+  "b": 40
+ },
+ {
+  "sym": "zoneGateSaid",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "zoneWalkBest",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ZONE_WALK_RETRY_MS",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "zoneClimbGate",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "zoneWalkTry",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 73,
+  "b": null
+ },
+ {
+  "sym": "guardBranch",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 34,
+  "t": 33,
+  "b": null
+ },
+ {
+  "sym": "pillarOut",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 178,
+  "t": 175,
+  "b": 165
+ },
+ {
+  "sym": "POCKET_RUNG_COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "POCKET_WANT_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "POCKET_OXYGEN_ABORT",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "pocketPlanFor",
+  "why": "same",
+  "protected": true,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "WATERLIKE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "floodedPocketRung",
+  "why": "same",
+  "protected": true,
+  "o": 152,
+  "t": 152,
+  "b": 152
+ },
+ {
+  "sym": "digPriceOf",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "sameBlock",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "key3",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "RETRY_JUMP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "stepTaken",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "plugBlocks",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "plugCeiling",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "plugFaces",
+  "why": "same",
+  "protected": true,
+  "o": 76,
+  "t": 76,
+  "b": 76
+ },
+ {
+  "sym": "digBounded",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 15,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "digStraightUp",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 78,
+  "t": 80,
+  "b": 76
+ },
+ {
+  "sym": "walkToOpening",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "pickFood",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "escape",
+  "why": "same",
+  "protected": true,
+  "o": 28,
+  "t": 28,
+  "b": 28
+ },
+ {
+  "sym": "standableAt",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "escapeCandidates",
+  "why": "same",
+  "protected": true,
+  "o": 37,
+  "t": 37,
+  "b": 37
+ },
+ {
+  "sym": "UNSTICK_MEMORY_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "UNSTICK_TABU_MAX",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "OSCILLATION_TRIES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "OSCILLATION_RADIUS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "unstickHistory",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "cellKey",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "unstickMemory",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "canStartAPath",
+  "why": "same",
+  "protected": true,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "unstick",
+  "why": "same",
+  "protected": true,
+  "o": 139,
+  "t": 139,
+  "b": 139
+ },
+ {
+  "sym": "sleep",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "round1",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "deepTripOnStair",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "pinClocks",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "pinTick",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 9,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "pinnedMsOf",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "pinnedNow",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "restRoofFloodRisk",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 23,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "columnCapRisk",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 21,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "capFloodRisk",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 7,
+  "t": null,
+  "b": null
+ }
+]

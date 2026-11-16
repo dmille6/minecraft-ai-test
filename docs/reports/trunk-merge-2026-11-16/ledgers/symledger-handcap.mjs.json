@@ -1,0 +1,66 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "onOff",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "handCapSwitch",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "HANDCAP",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "handBreaksCap",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "handCapModeDetail",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ }
+]

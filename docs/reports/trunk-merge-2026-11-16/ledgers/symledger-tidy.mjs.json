@@ -1,0 +1,978 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 24,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 4,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TIDY_PLOT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TIDY_BLUEPRINT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TIDY_BUILDERS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "TIDY",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "SPOIL",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "TIDY_PALETTE",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "TIDY_RESURVEY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "TIDY_CUT_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "TIDY_CLEAR_MAX",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "TIDY_DEFAULT_OFF_POOLS",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "tidyOn",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "nm",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "AIRN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LEAVES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TREE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "k2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "N8",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "N4",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "tidyColumn",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 25,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "tidyWater",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "isWaterB",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isLavaB",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "loggedB",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "anyLiquid",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "fillIntoOk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "cutWater",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "cutSafeNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "waterColumn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "surveyTidy",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 151,
+  "t": 115,
+  "b": null
+ },
+ {
+  "sym": "tidyRecord",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 37,
+  "t": 40,
+  "b": null
+ },
+ {
+  "sym": "cutStanding",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 5,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tidyProgress",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "tidyNoteCuts",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "tidyGivenUp",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "tidyCuts",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "tidyDue",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "tidyNothing",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "pathsRetryNow",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tidyWalkR",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tidyAvoid",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 9,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "tidyOverlay",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tidyRoughness",
+  "why": "same",
+  "protected": false,
+  "o": 31,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "GRADE_SEG_COLS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "fillable",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "wetAt",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "gradeLim",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 4,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "GRADE_CUT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TIDY_GRADES",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "GRADE_FRONT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "gradeTidy",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 59,
+  "t": 70,
+  "b": null
+ },
+ {
+  "sym": "siteTidy",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 61,
+  "t": 64,
+  "b": null
+ },
+ {
+  "sym": "legacyStage",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "PREV_SEG",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PREV_MAX",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stageCarry",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "ROAD_LIGHT_EVERY",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "SAPLING_OF",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SOIL_RE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "REPLANT_AIR",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LOG_RE",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "roadWork",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 60,
+  "t": 67,
+  "b": null
+ },
+ {
+  "sym": "replantCells",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 35,
+  "t": 61,
+  "b": null
+ },
+ {
+  "sym": "roadLights",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 30,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "INWALL",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "inwallBoxes",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "roughIn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "PLOTPREP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "LEVEL_CUT",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PLOT_NOT_SITED",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "plotSited",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "plotPrep",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 98,
+  "b": null
+ },
+ {
+  "sym": "platformTeardown",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 30,
+  "b": null
+ },
+ {
+  "sym": "plotsSitedNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "plotEntryRetired",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "plotRetire",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "claimOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "CLAIM_PLOTS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CLAIM_RING",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "buildingClaims",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "claimedAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "claimEntry",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "claimRetire",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "platformUp",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "inwallBox",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "NO_LITTER_PLOTS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "inwallNoLitter",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "BUILD_WHY",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ACCESS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "FOOTPRINT_SKIP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "accessNoStair",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "STAIR_FROM",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "fillWant",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "TIDY_VISIT_FILLS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "earthDirt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "soilSkip",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "planAccessStair",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 35,
+  "b": null
+ },
+ {
+  "sym": "climbSpots",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "spotStair",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 44,
+  "b": null
+ },
+ {
+  "sym": "mergeSurveys",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "surveyInwall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 108,
+  "b": null
+ },
+ {
+  "sym": "OUTBANDS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "outbandsOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "bandTrees",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 74,
+  "b": null
+ },
+ {
+  "sym": "litterOut",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "siteStage",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 70,
+  "t": 251,
+  "b": null
+ },
+ {
+  "sym": "coreFills",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "chainCuts",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "townEdge",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "GK_CLEAR_VISITS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "clearWaived",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "tidyClearsLeft",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "dropWaivedClears",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "tidyLeftKeys",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "GK_WAIVE_AFTER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "GK_WAIVE_SHARE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "gkWaiveOpts",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "gkWaivable",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "gkStopAfterWaive",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "dropDeadSurvey",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 15,
+  "t": null,
+  "b": null
+ }
+]

@@ -1,0 +1,898 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "SHAFT_BLUEPRINT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SHAFT_PLOT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STAIR_BOTTOM_FEET",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LANDING_FEET",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LANDING_MIN_DEPTH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MIN_STEPS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STUB",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LANDING_CELL",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PERIM",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PILLAR",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "RING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OUTSIDE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SITE_GAP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TORCH_EVERY",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "toWorld",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "toLocal",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "awayFrom",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "originFor",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "nm",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "WET",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FALLING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "NOT_LINING",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "isWet",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isLava",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isFalling",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "isOpen",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "isFull",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "goodSolid",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "LINING_ITEMS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "k3",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "N6",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "stairShape",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "MINE_BLUEPRINT",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "MINE_BOTTOM_FEET",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BAY_EVERY",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BAY_DEPTH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BAY_MIN_BELOW",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BAY_LANDING_GAP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HALL",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HALL_FIXTURES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SIDE_OUT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HALL_DIR",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "extKb",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "bayFeet",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "mineRooms",
+  "why": "same",
+  "protected": false,
+  "o": 55,
+  "t": 55,
+  "b": null
+ },
+ {
+  "sym": "mineExt",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "planStair",
+  "why": "same",
+  "protected": false,
+  "o": 74,
+  "t": 74,
+  "b": null
+ },
+ {
+  "sym": "standOf",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stubEnd",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "airState",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "solidState",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "stepDone",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "colDone",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "stubDone",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "firstUndone",
+  "why": "same",
+  "protected": false,
+  "o": 37,
+  "t": 37,
+  "b": null
+ },
+ {
+  "sym": "nextOp",
+  "why": "same",
+  "protected": false,
+  "o": 52,
+  "t": 52,
+  "b": null
+ },
+ {
+  "sym": "replaceable",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "unitCells",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "standFor",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "step0Stand",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "supportFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 25,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "siteCandidates",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "collarExit",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "groundTop",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "surveySite",
+  "why": "same",
+  "protected": false,
+  "o": 46,
+  "t": 46,
+  "b": null
+ },
+ {
+  "sym": "betterSurvey",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "stairRecord",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "NO_SITE_RETRY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "noSiteRecord",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "truncatedRecord",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "droppedLandingRecord",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "planOf",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "isStairRecord",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "stairDamaged",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "stairDue",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "landingUsable",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "DESCENT_MIN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "NEAR_STAIR",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "chooseLanding",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "SURFACE_SLACK",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stairStartRefusal",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "nearStair",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "roofed",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_HOP",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_STEP_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_BASE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_CLEARS_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "egressReserveMs",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "cheb3",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "stairStepAt",
+  "why": "same",
+  "protected": false,
+  "o": 41,
+  "t": 41,
+  "b": null
+ },
+ {
+  "sym": "egressNext",
+  "why": "same",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": null
+ },
+ {
+  "sym": "egressDetail",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 14,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "stairKeepOut",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "stairCellKeys",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "shaftRowDetail",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "shaftUseDetail",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "CHAIN_MAX",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "supportChain",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 31,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairTrapOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_RETRY_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_REFLEX_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 8,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "egressHandoff",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 10,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "egressDue",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 7,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairWalkThroughNow",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "handoffDetail",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 20,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "STAIR_KEEP",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairUseOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairEntryClass",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 10,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "landingRoute",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 25,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "descentNext",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 31,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "descentDetail",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 11,
+  "t": null,
+  "b": null
+ }
+]

@@ -1,0 +1,114 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "__imports__",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 20,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "REPEAT_WINDOW",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MAX_VETO_STREAK",
+  "why": "same",
+  "protected": true,
+  "o": 47,
+  "t": 47,
+  "b": 47
+ },
+ {
+  "sym": "tableRoute",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "recipeCost",
+  "why": "same",
+  "protected": true,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "affordsBootstrap",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "heldCounts",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "inWater",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "DEPOSIT_WILDCARDS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "depositItemArg",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 8,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "AdmissionControl",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 828,
+  "t": 672,
+  "b": 628
+ },
+ {
+  "sym": "gatherAreaHit",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 5,
+  "t": null,
+  "b": null
+ }
+]

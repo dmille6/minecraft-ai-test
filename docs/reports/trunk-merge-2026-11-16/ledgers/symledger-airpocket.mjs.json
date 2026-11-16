@@ -1,0 +1,554 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "AP_RESERVE_HP",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_ENVELOPE_PEACEFUL",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_ENVELOPE_DEFAULT",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_MARGIN",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_LATENCY_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_BREACH_WINDOW_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_BREACH_HP",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_CONFIRM_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_RISE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_TRIGGER_AFTER_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_FAIL_COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_REFUSE_COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_ICE_ENABLED",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_EQUIP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_NOT_CLOSING_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_WANT_LAPSE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AP_BREATHE_HOLD_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 2
+ },
+ {
+  "sym": "AP_WINDOW_WAIT_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "AP_WINDOW_SETTLE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "AP_SEAL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 4,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "AP_SEAL_MS#2",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "WATERLIKE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LAVALIKE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FALLING",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "NO_DIG",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "INTERACTIVE",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "ICE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SEALABLE",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "AIRLIKE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "waterlogged",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "isWater",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isLiquid",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isAir",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isSolid",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 13
+ },
+ {
+  "sym": "sealable",
+  "why": "same",
+  "protected": true,
+  "o": 23,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "airPocketPlan",
+  "why": "same",
+  "protected": true,
+  "o": 57,
+  "t": 57,
+  "b": 47
+ },
+ {
+  "sym": "airPocketEnvelope",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "airPocketBudgetMs",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "airPocketAdmit",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 10
+ },
+ {
+  "sym": "envelopeBreached",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "airPocketConfirmed",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "airPocketTrigger",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "airPocketPreempt",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "airPocketPreemptDecision",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "DIG_TOOL",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "airPocketTools",
+  "why": "same",
+  "protected": true,
+  "o": 26,
+  "t": 26,
+  "b": 9
+ },
+ {
+  "sym": "windowHandoff",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "windowOwned",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "admissionTools",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "equipClicks",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "awaitWindowHandoff",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "pickFastestTool",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "airPocketInputs",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "airPocketAfter",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": 14
+ },
+ {
+  "sym": "airPocketStep",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 295,
+  "t": 214,
+  "b": 151
+ },
+ {
+  "sym": "standInPocket",
+  "why": "same",
+  "protected": true,
+  "o": 42,
+  "t": 42,
+  "b": 38
+ },
+ {
+  "sym": "SIDES",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "standRef",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "standCandidates",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "digGate",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "standGate",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 7
+ },
+ {
+  "sym": "sealRoof",
+  "why": "same",
+  "protected": true,
+  "o": 42,
+  "t": 42,
+  "b": null
+ },
+ {
+  "sym": "sealGate",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "AP_ROW_MAX",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "r1",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "airPocketRow",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 14
+ },
+ {
+  "sym": "airPocketDetail",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ }
+]

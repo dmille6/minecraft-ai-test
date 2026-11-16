@@ -1,0 +1,418 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 5,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "__head__#2",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 3,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WELL_DEEP_ROW_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "VISIT_SKILLS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "__imports__#3",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "VISIT_SKILLS#2",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#4",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 2,
+  "t": 4,
+  "b": 14
+ },
+ {
+  "sym": "VISIT_SKILLS#3",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#5",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 9,
+  "t": 2,
+  "b": 4
+ },
+ {
+  "sym": "VISIT_SKILLS#4",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#6",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 2,
+  "t": 14,
+  "b": 6
+ },
+ {
+  "sym": "VISIT_SKILLS#5",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#7",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 15,
+  "t": 4,
+  "b": 1
+ },
+ {
+  "sym": "VISIT_SKILLS#6",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "__imports__#8",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 4,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "VISIT_SKILLS#7",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "WEAR_OUT_COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WEAR_OUT_BACKOFF_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#9",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 6,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "WEAR_OUT_BACKOFF_MS#2",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "__imports__#10",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 1,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "WEAR_OUT_BACKOFF_MS#3",
+  "why": "same",
+  "protected": true,
+  "o": 34,
+  "t": 34,
+  "b": 34
+ },
+ {
+  "sym": "EVIDENCE_ABOUT_THE_ACTION",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "EVIDENCE_ONLY_IF_STUCK",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "HAS_BOARD",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "SKILL_NAMES",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "OUTCOME_CHARS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "formatOutcome",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "evidenceScope",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "PREREQ_TTL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "LIVELOCK_MIN_MOVE",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "FIXATION",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "livelockFixated",
+  "why": "same",
+  "protected": true,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "LIVELOCK_LATCH_MS",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "refundDeclined",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": 20
+ },
+ {
+  "sym": "VISIT_YIELDS_TO",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "visitYieldsTo",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "visitDisplacedRefund",
+  "why": "same",
+  "protected": true,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "livelockNext",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "LIVELOCK_BLOCK_RESERVE",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "LADDER_MAX_LATCHES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LADDER_WINDOW_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LADDER_EXHAUSTED_REST_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ladderExhausted",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "prereqHave",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "DIG_TOOL",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "applyPrereq",
+  "why": "same",
+  "protected": true,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "CognitiveLoop",
+  "why": "both changed: 11 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 2142,
+  "t": 1917,
+  "b": 1564
+ },
+ {
+  "sym": "__head__#3",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "__imports__#11",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 9,
+  "t": null,
+  "b": null
+ }
+]

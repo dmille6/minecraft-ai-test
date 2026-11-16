@@ -1,0 +1,586 @@
+[
+ {
+  "sym": "__head__",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 37,
+  "t": 53,
+  "b": 37
+ },
+ {
+  "sym": "__imports__",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 6,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "__head__#2",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 7,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ZONES_FILE",
+  "why": "fleet-only change",
+  "protected": true,
+  "o": 2,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ZONES_VERSION",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "RELOAD_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MAX_ZONES",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "MAX_SPAN",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "EXIT_PAD",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "ZONE_COST",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 1,
+  "t": 4,
+  "b": 1
+ },
+ {
+  "sym": "zoneGuardOn",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "BASELINE_FILE",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SHOWCASE_BASELINE",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "S_CELL",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DIG_MASK",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PLACE_MASK",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ANY_MASK",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "SUPPORTED",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "COVERED",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "MAX_GUARD_CELLS",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "ORDINARY_TERRAIN",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "DEEP_NATURAL_BLOCKS",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "bare",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "parseBaseline",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "structGuardOf",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 30,
+  "b": null
+ },
+ {
+  "sym": "structFlagsIn",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "structAt",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "deepStructureName",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "deepNameBlocked",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "LIQUID_SPREAD",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "LIQUID_MAX_NODES",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "liquidReaches",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "liquidFlowReaches",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 49,
+  "b": null
+ },
+ {
+  "sym": "withBaseline",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "isInt",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "parseZones",
+  "why": "same",
+  "protected": true,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "zoneAt",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "zoneAtPos",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "blocked",
+  "why": "both changed: 3 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 17,
+  "t": 14,
+  "b": 10
+ },
+ {
+  "sym": "blockedIn",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 11,
+  "t": 13,
+  "b": 12
+ },
+ {
+  "sym": "placeBlocked",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 8,
+  "t": 11,
+  "b": 8
+ },
+ {
+  "sym": "overFootprint",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "zonesNear",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "exitPoint",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "sideOf",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "awayPoint",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "zoneWithin",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "zoneRemedy",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 15,
+  "t": 21,
+  "b": 15
+ },
+ {
+  "sym": "ProtectedZoneError",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "SURVIVAL_OPS",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "zoneDecision",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 11,
+  "t": 18,
+  "b": 11
+ },
+ {
+  "sym": "structMask",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "zoneCost",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 16,
+  "t": 20,
+  "b": 16
+ },
+ {
+  "sym": "zoneKeepOut",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "zoneExitColumns",
+  "why": "same",
+  "protected": true,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "zoneReader",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 31,
+  "t": 62,
+  "b": 31
+ },
+ {
+  "sym": "baselinePathFor",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "protectZoneModeDetail",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 5,
+  "t": 9,
+  "b": 5
+ },
+ {
+  "sym": "protectZoneCounters",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "noteProtectZone",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "cellOf",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "standableY",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "attachProtectZone",
+  "why": "both changed: 4 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 124,
+  "t": 153,
+  "b": 109
+ },
+ {
+  "sym": "zonesFileIn",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "UNLOCKABLE",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "unlockStore",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "withUnlockScope",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "unlockAllowed",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "NATURAL_TERRAIN",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "DEEP_SCAN",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "DEEP_COVER",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 7,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "terrainDeep",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 22,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "DEEP_MEMO_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ }
+]

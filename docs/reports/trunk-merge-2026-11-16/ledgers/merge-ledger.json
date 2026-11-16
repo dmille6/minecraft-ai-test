@@ -1,0 +1,5750 @@
+{
+ "summary": {
+  "bots/scripts/landplan-offline.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/scripts/wall-offline.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/scripts/yard-offline.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/admission.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/src/airpocket.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/src/boardwalk.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/buildbot.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 4,
+   "aa": false
+  },
+  "bots/src/buildproj.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 13,
+   "aa": false
+  },
+  "bots/src/buildrun.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 44,
+   "aa": false
+  },
+  "bots/src/buildsite.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 15,
+   "aa": false
+  },
+  "bots/src/cognitive.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 14,
+   "aa": false
+  },
+  "bots/src/composter.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/src/copperhall.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/craftroom.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/src/deepmine.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/escapeguard.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/expedition.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/features.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 5,
+   "aa": false
+  },
+  "bots/src/fewerdec.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/gkwork.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/glass.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/groundskeeper.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/handcap.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/index.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 8,
+   "aa": false
+  },
+  "bots/src/landplan.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/lidrule.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/src/mats.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 13,
+   "aa": false
+  },
+  "bots/src/merchantscout.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/oretunnel.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/src/paths.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/placeaudit.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/planahead.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/prompt.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/src/protectzone.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 8,
+   "aa": false
+  },
+  "bots/src/reflex.mjs": {
+   "mode": "ours",
+   "why": "whole file in protected scope: fleet side",
+   "blocks": 14,
+   "aa": false
+  },
+  "bots/src/roughground.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/shaftgeom.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/shaftvisit.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/shop.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 17,
+   "aa": false
+  },
+  "bots/src/showchat.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/skills.mjs": {
+   "mode": "bysym",
+   "why": "protected per symbol",
+   "blocks": 77,
+   "aa": false
+  },
+  "bots/src/tidy.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/towndeposit.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/src/townmine.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/treefarm.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/wall.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/src/well.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/src/withdrawpick.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 3,
+   "aa": false
+  },
+  "bots/src/yard.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/boardwalk3.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/body-claim.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/test/buildcorner.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/test/coalrun-mine.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/cobblekeep.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/test/copperhall.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/deepmine.test.mjs": {
+   "mode": "ours",
+   "why": "test of a protected module: fleet side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/escapeguard.test.mjs": {
+   "mode": "ours",
+   "why": "test of a protected module: fleet side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/expedition.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/expwater.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/gklease.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/gkstay.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/gkwork.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/glass.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/groundskeeper.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/handcap.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/house.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/kitsearch.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/merchantscout.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/paths-build.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/paths-wiring.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/pipeline.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/place-airborne.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/planahead.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/regrade.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/roughground.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/sandbox-registry.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/shop.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 2,
+   "aa": false
+  },
+  "bots/test/showcase-on-fleet.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/showchat.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/smeltsearch.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/stoneworks.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/tidy.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/tombexit.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/town-stair-stuck.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/town-stair-wiring.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/towndeposit.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/townmine.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/townsearch.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": false
+  },
+  "bots/test/voidfill.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/wall-wiring.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/wall.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/wallstuck.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/yardsite.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/zigbamboo.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/ziggurat-project.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/ziggurat-tidy.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/zigsealed.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "bots/test/zigtidy2.test.mjs": {
+   "mode": "theirs",
+   "why": "outside protected scope: showcase side",
+   "blocks": 1,
+   "aa": true
+  },
+  "config/protected-paths.txt": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": false
+  },
+  "docs/reports/STATE.md": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 4,
+   "aa": false
+  },
+  "docs/reports/learnloop-c2-2026-10-31.md": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "docs/reports/shop-01-2026-10-25/shopread-mutants.py.txt": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": false
+  },
+  "docs/reports/shop-01-2026-10-25/shopread.py.txt": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 11,
+   "aa": false
+  },
+  "infra/showcase/test_showcase.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 2,
+   "aa": false
+  },
+  "infra/showcase/tl_video.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 8,
+   "aa": false
+  },
+  "sandbox/craft/airpocket-ab.cjs": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": false
+  },
+  "sandbox/scaftown/scaf-proof.jsonl": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/host/fleetstatus.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 2,
+   "aa": false
+  },
+  "scripts/host/modelcompare.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/host/modelread.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/host/modelrollout.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/host/test_funmode_loop.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 3,
+   "aa": false
+  },
+  "scripts/host/test_modelcompare.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/host/test_modelread.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/host/test_modelrollout.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/learnloop/build_clean.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/learnloop/prompt_transform.mjs": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/learnloop/teacher/pilot_agreement.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/learnloop/teacher/teacher_pilot.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/learnloop/teacher/test_teacher.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/learnloop/train/train_sft.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": true
+  },
+  "scripts/test_fleetstatus.py": {
+   "mode": "ours",
+   "why": "tooling/docs outside bots/: main carries the current tooling",
+   "blocks": 1,
+   "aa": false
+  }
+ },
+ "ledger": [
+  {
+   "file": "bots/scripts/landplan-offline.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "L",
+    "R",
+    "after",
+    "all",
+    "argv"
+   ],
+   "ours_lines": 111,
+   "theirs_lines": 122,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/scripts/wall-offline.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIRB",
+    "EXT",
+    "PLOT",
+    "R",
+    "R0"
+   ],
+   "ours_lines": 213,
+   "theirs_lines": 235,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/scripts/yard-offline.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "LP",
+    "R",
+    "all",
+    "argv",
+    "bands"
+   ],
+   "ours_lines": 133,
+   "theirs_lines": 133,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/admission.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "AdmissionControl"
+   ],
+   "ours_lines": 40,
+   "theirs_lines": 31,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/airpocket.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "airPocketStep"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/airpocket.mjs",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "airPocketRow"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/boardwalk.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "BOT_MAT",
+    "BW3",
+    "BW3_PALETTE",
+    "BW3_PLOT",
+    "DIRT",
+    "N4"
+   ],
+   "ours_lines": 199,
+   "theirs_lines": 203,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildbot.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "botBuildEffects"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 16,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildbot.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "botBuildEffects"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 17,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildbot.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "botBuildEffects"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildbot.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "botBuildEffects"
+   ],
+   "ours_lines": 44,
+   "theirs_lines": 35,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "LIST_MAX_MS",
+    "LIST_RACY_MS",
+    "LIST_TTL_MS",
+    "WFS_MUTATORS",
+    "dirMtime",
+    "dirNames"
+   ],
+   "ours_lines": 23,
+   "theirs_lines": 51,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "gensOf"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "writeSynced"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "leaseState",
+    "liveLeases",
+    "releasedAtOf"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 27,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "takeLease"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 6,
+   "took": "theirs",
+   "owners": [
+    "mutexTake"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 7,
+   "took": "theirs",
+   "owners": [
+    "presenceWrite"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 8,
+   "took": "theirs",
+   "owners": [
+    "stuckNames"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 9,
+   "took": "theirs",
+   "owners": [
+    "TURN_RE",
+    "TURN_STALE_MS",
+    "stuckWrite",
+    "turnFile",
+    "turnHome",
+    "turnNum"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 42,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 10,
+   "took": "theirs",
+   "owners": [
+    "PANTRY_RE",
+    "drawnWrite",
+    "pantryFile",
+    "pantryWrite"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 17,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 11,
+   "took": "theirs",
+   "owners": [
+    "appendSynced",
+    "intentFile"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 12,
+   "took": "theirs",
+   "owners": [
+    "openIntents"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 0,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildproj.mjs",
+   "block": 13,
+   "took": "theirs",
+   "owners": [
+    "barrierTake"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 4,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 2,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "AIR",
+    "DUG",
+    "WET_CLEAR"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "COVER_MAX",
+    "FOOTING_MAX",
+    "OVERBURDEN_MAX",
+    "STALK",
+    "STALK_MAX",
+    "coverAbove"
+   ],
+   "ours_lines": 134,
+   "theirs_lines": 141,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "blockFamily",
+    "roleFirst"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 12,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 6,
+   "took": "theirs",
+   "owners": [
+    "SOLID_ANY",
+    "blockFor",
+    "cellDone"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 11,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 7,
+   "took": "theirs",
+   "owners": [
+    "segComplete",
+    "segmentsOf"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 8,
+   "took": "theirs",
+   "owners": [
+    "nodesWithout",
+    "workableSeg"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 9,
+   "took": "theirs",
+   "owners": [
+    "workableSeg"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 3,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 10,
+   "took": "theirs",
+   "owners": [
+    "byColumn"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 9,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 11,
+   "took": "theirs",
+   "owners": [
+    "BODY_WAITS",
+    "BREATHE_MS",
+    "LEAF_MEM",
+    "PLAN_KEEP_MS",
+    "byColumn",
+    "loopYieldOn"
+   ],
+   "ours_lines": 94,
+   "theirs_lines": 19,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 12,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 19,
+   "theirs_lines": 80,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 13,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 14,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 6,
+   "base_lines": 5,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 15,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 5,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 16,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 17,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 4,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 18,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 179,
+   "theirs_lines": 451,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 19,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 5,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 20,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 5,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 21,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 11,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 22,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 23,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 12,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 24,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 20,
+   "theirs_lines": 34,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 25,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 63,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 26,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 27,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 5,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 28,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 20,
+   "theirs_lines": 20,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 29,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 30,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 8,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 31,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 32,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 23,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 33,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 17,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 34,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 35,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 33,
+   "theirs_lines": 37,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 36,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 3,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 37,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 92,
+   "theirs_lines": 95,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 38,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 6,
+   "theirs_lines": 9,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 39,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 40,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 41,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 98,
+   "theirs_lines": 87,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 42,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 76,
+   "theirs_lines": 57,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 43,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 4,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildrun.mjs",
+   "block": 44,
+   "took": "theirs",
+   "owners": [
+    "visitInner"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "columnAt",
+    "levelAltsOf",
+    "levelFor"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "screenSite",
+    "topFloorLevel"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "screenSite"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "overlay",
+    "walkFrom"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "SUPPORTS",
+    "stepFor"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 6,
+   "took": "theirs",
+   "owners": [
+    "blockFor",
+    "proveSite",
+    "proveSiteSteps"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 18,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 7,
+   "took": "theirs",
+   "owners": [
+    "proveSiteSteps"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 5,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 8,
+   "took": "theirs",
+   "owners": [
+    "proveSiteSteps"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 9,
+   "took": "theirs",
+   "owners": [
+    "proveSiteSteps"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 4,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 10,
+   "took": "theirs",
+   "owners": [
+    "SITE_SEARCH_MS",
+    "setSiteSearchHook",
+    "siteBlueprint",
+    "siteBlueprintAsync",
+    "siteBlueprintSteps",
+    "siteBox"
+   ],
+   "ours_lines": 23,
+   "theirs_lines": 79,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 11,
+   "took": "theirs",
+   "owners": [
+    "siteBlueprintSteps"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 14,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 12,
+   "took": "theirs",
+   "owners": [
+    "siteBlueprintSteps"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 11,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 13,
+   "took": "theirs",
+   "owners": [
+    "siteBlueprintSteps"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 14,
+   "took": "theirs",
+   "owners": [
+    "siteBlueprintSteps"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 33,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/buildsite.mjs",
+   "block": 15,
+   "took": "theirs",
+   "owners": [
+    "siteBlueprintSteps"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 4,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "(imports)",
+    "VISIT_SKILLS"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 8,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 3,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 4,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 24,
+   "theirs_lines": 16,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 5,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 26,
+   "theirs_lines": 18,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 6,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 2,
+   "base_lines": 13,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 7,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 12,
+   "theirs_lines": 15,
+   "base_lines": 14,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 8,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 12,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 9,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 13,
+   "theirs_lines": 13,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 10,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 11,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 12,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 6,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 13,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 6,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/cognitive.mjs",
+   "block": 14,
+   "took": "ours",
+   "owners": [
+    "CognitiveLoop"
+   ],
+   "ours_lines": 182,
+   "theirs_lines": 170,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/composter.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "compostAllowance",
+    "decorFeedNow",
+    "isCompostInput",
+    "setDecorFeed"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 6,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/composter.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "compostAllowance"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 4,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/copperhall.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "COPPERRUN",
+    "COPPER_KINDS",
+    "COPPER_ORE_RADIUS",
+    "COPPER_RUN_BACKOFF_MS",
+    "COPPER_RUN_CARRY"
+   ],
+   "ours_lines": 295,
+   "theirs_lines": 308,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/craftroom.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "MIN_SURVIVOR_USES",
+    "PICKAXE_HEAD",
+    "WOOD_LOG",
+    "craftRoomRemedy",
+    "pickaxeStockHeld",
+    "survivorUses"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 32,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/deepmine.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)",
+    "BEARINGS",
+    "BRANCHES_MAX",
+    "BRANCH_LEN",
+    "CALLS_MAX",
+    "COAL_ORE_KINDS"
+   ],
+   "ours_lines": 393,
+   "theirs_lines": 702,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/escapeguard.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)",
+    "AIR_GUARD_SECONDS",
+    "AIR_REFLEXES",
+    "DEEP_NATURAL",
+    "ESCAPE_GUARD_GRANT_MS",
+    "ESCAPE_GUARD_HELP_MS"
+   ],
+   "ours_lines": 322,
+   "theirs_lines": 364,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/expedition.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIM_OFFSETS",
+    "AIM_STEP",
+    "AQUATIC",
+    "BEARINGS",
+    "BENDS"
+   ],
+   "ours_lines": 745,
+   "theirs_lines": 919,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/features.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 16,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/features.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "installAtlasFeature",
+    "installRequests",
+    "installShowchat",
+    "requestsUntap",
+    "showchatUntap"
+   ],
+   "ours_lines": 47,
+   "theirs_lines": 88,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/features.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "installFeatures"
+   ],
+   "ours_lines": 26,
+   "theirs_lines": 58,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/features.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "installFeatures"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/features.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "installFeatures"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 10,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/fewerdec.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "FEWERDEC_DEFAULTS",
+    "PAUSE_WAKE_CAP_MS",
+    "bucket",
+    "continueAfterRun",
+    "continueOrder",
+    "continueSchedule"
+   ],
+   "ours_lines": 185,
+   "theirs_lines": 185,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/gkwork.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CLOSING_MS",
+    "GKL",
+    "GKW",
+    "RETRY_MS",
+    "gkwClosing"
+   ],
+   "ours_lines": 165,
+   "theirs_lines": 274,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/glass.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FALLING",
+    "GLASS",
+    "GLASS_PLOTS",
+    "GLASS_V",
+    "GLAZE_NONE_MS"
+   ],
+   "ours_lines": 296,
+   "theirs_lines": 301,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/groundskeeper.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FILLSHARE",
+    "FLOOR_DEPTH",
+    "GK",
+    "GK_FIT",
+    "GK_LEASE"
+   ],
+   "ours_lines": 169,
+   "theirs_lines": 399,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/handcap.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "HANDCAP",
+    "handBreaksCap",
+    "handCapModeDetail",
+    "handCapSwitch",
+    "onOff"
+   ],
+   "ours_lines": 64,
+   "theirs_lines": 61,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 6,
+   "theirs_lines": 7,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 2,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 3,
+   "took": "ours",
+   "owners": [
+    "connect"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 4,
+   "took": "ours",
+   "owners": [
+    "connect"
+   ],
+   "ours_lines": 28,
+   "theirs_lines": 49,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 5,
+   "took": "ours",
+   "owners": [
+    "connect"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 6,
+   "took": "ours",
+   "owners": [
+    "connect"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 7,
+   "took": "ours",
+   "owners": [
+    "connect"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/index.mjs",
+   "block": 8,
+   "took": "ours",
+   "owners": [
+    "connect"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/landplan.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BRUSH",
+    "INWALL_STAGE",
+    "LAND",
+    "LAND_BLUEPRINT",
+    "LAND_CYCLE_MS"
+   ],
+   "ours_lines": 494,
+   "theirs_lines": 565,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/lidrule.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "LID_BREAKABLE",
+    "LID_GROUND",
+    "LID_WOOD",
+    "lidGroundOn",
+    "lidMaterialRefusal",
+    "lidRecordGated"
+   ],
+   "ours_lines": 45,
+   "theirs_lines": 24,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "KINDS"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 15,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "CUT_KINDS",
+    "KINDS",
+    "KIND_ORDER",
+    "KIND_ORDER_BASE",
+    "KIND_ORDER_STONEWORKS",
+    "STATION_KIND"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 13,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "BILL_CAP",
+    "BILL_MARGIN",
+    "BILL_PARTS",
+    "BRICKS_BUFFER_STONEWORKS",
+    "BRICKS_PROJECT_BUFFER",
+    "CUT_BUFFERS"
+   ],
+   "ours_lines": 14,
+   "theirs_lines": 53,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "reserveKeyOf"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "orderInputs",
+    "pickLog"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 6,
+   "took": "theirs",
+   "owners": [
+    "orderInputs"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 5,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 7,
+   "took": "theirs",
+   "owners": [
+    "COAL_FUEL_KEEP",
+    "CUT_BRICK_KEEP",
+    "DEEPSLATE_RESERVE",
+    "FUEL_RUNGS",
+    "LADDER_KINDS",
+    "SAPLINGS"
+   ],
+   "ours_lines": 38,
+   "theirs_lines": 102,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 8,
+   "took": "theirs",
+   "owners": [
+    "materialOrder"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 9,
+   "took": "theirs",
+   "owners": [
+    "materialOrder"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 7,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 10,
+   "took": "theirs",
+   "owners": [
+    "materialOrder"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 11,
+   "took": "theirs",
+   "owners": [
+    "familyUnits"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 8,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 12,
+   "took": "theirs",
+   "owners": [
+    "matsDetail"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/mats.mjs",
+   "block": 13,
+   "took": "theirs",
+   "owners": [
+    "effectiveReserve"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/merchantscout.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BABY",
+    "MAX_ROWS_PER_SCAN",
+    "PROFESSIONS",
+    "RADIUS",
+    "REFRESH_MS"
+   ],
+   "ours_lines": 125,
+   "theirs_lines": 122,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/oretunnel.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "COPPER_TUNNEL_KINDS",
+    "DIAMOND_KINDS",
+    "IRON_KINDS",
+    "tunnelKindsFor"
+   ],
+   "ours_lines": 17,
+   "theirs_lines": 13,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/paths.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIRN",
+    "BRUSH",
+    "COST",
+    "CUT_MAX",
+    "DIRS"
+   ],
+   "ours_lines": 693,
+   "theirs_lines": 732,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/placeaudit.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CLIMB",
+    "N",
+    "PLACE_MARGIN",
+    "PLACE_TOWN_DEPTH",
+    "PLACE_TOWN_R"
+   ],
+   "ours_lines": 156,
+   "theirs_lines": 158,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/planahead.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIR",
+    "LIT",
+    "PA",
+    "PUT",
+    "SOFT_PLOTS"
+   ],
+   "ours_lines": 290,
+   "theirs_lines": 292,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/prompt.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "atlasLine",
+    "bucketSituation",
+    "buildUserPrompt",
+    "gatherAreaLine",
+    "townWoodSituation"
+   ],
+   "ours_lines": 20,
+   "theirs_lines": 13,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "blocked",
+    "zoneAtPos"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "blocked"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 3,
+   "took": "ours",
+   "owners": [
+    "blocked",
+    "blockedIn"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 7,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 4,
+   "took": "ours",
+   "owners": [
+    "SURVIVAL_OPS",
+    "zoneDecision"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 12,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 5,
+   "took": "ours",
+   "owners": [
+    "DEEP_MEMO_MS",
+    "attachProtectZone",
+    "standableY"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 6,
+   "took": "ours",
+   "owners": [
+    "attachProtectZone"
+   ],
+   "ours_lines": 13,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 7,
+   "took": "ours",
+   "owners": [
+    "attachProtectZone"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 7,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/protectzone.mjs",
+   "block": 8,
+   "took": "ours",
+   "owners": [
+    "attachProtectZone"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 4,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 2,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 4,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 3,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 6,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 4,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 14,
+   "theirs_lines": 6,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 5,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 19,
+   "theirs_lines": 8,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 6,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 7,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 8,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 35,
+   "theirs_lines": 35,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 9,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 16,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 10,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 17,
+   "theirs_lines": 7,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 11,
+   "took": "ours",
+   "owners": [
+    "startReflexes"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 12,
+   "took": "ours",
+   "owners": [
+    "ZONE_WALK_RETRY_MS",
+    "capFloodRisk",
+    "columnCapRisk",
+    "floodBranch",
+    "guardBranch",
+    "restRoofFloodRisk"
+   ],
+   "ours_lines": 94,
+   "theirs_lines": 142,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 13,
+   "took": "ours",
+   "owners": [
+    "pillarOut"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 6,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/reflex.mjs",
+   "block": 14,
+   "took": "ours",
+   "owners": [
+    "digStraightUp"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/roughground.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIR",
+    "EARTH",
+    "FLAT_PLOTS",
+    "LIQ",
+    "LOG"
+   ],
+   "ours_lines": 402,
+   "theirs_lines": 558,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shaftgeom.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "BAY_DEPTH",
+    "BAY_EVERY",
+    "BAY_LANDING_GAP",
+    "BAY_MIN_BELOW",
+    "CHAIN_MAX",
+    "DESCENT_MIN"
+   ],
+   "ours_lines": 1008,
+   "theirs_lines": 829,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shaftvisit.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CELL_TRIES",
+    "INTERACTABLE",
+    "N6",
+    "PROPS",
+    "SUPPORT_TRIES"
+   ],
+   "ours_lines": 438,
+   "theirs_lines": 301,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 13,
+   "theirs_lines": 31,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "CANEFARM",
+    "CITYWALL",
+    "CIVIC",
+    "COPPERHALL",
+    "COTTAGE",
+    "COTTAGE2"
+   ],
+   "ours_lines": 74,
+   "theirs_lines": 161,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "PROJECTS"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 32,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "PROJECTS",
+    "buildersOf",
+    "projectsGuarded",
+    "projectsOn"
+   ],
+   "ours_lines": 11,
+   "theirs_lines": 37,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "buildersOf"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 5,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 6,
+   "took": "theirs",
+   "owners": [
+    "activeProject"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 30,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 7,
+   "took": "theirs",
+   "owners": [
+    "activeProject"
+   ],
+   "ours_lines": 12,
+   "theirs_lines": 7,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 8,
+   "took": "theirs",
+   "owners": [
+    "BELOW_PLOTS",
+    "IDLE_MS",
+    "IDLE_NOT_A_VISIT",
+    "REPAIR_TRIES",
+    "REPAIR_WINDOW_MS",
+    "SINK_SURFACE_DY"
+   ],
+   "ours_lines": 11,
+   "theirs_lines": 191,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 9,
+   "took": "theirs",
+   "owners": [
+    "recordZones"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 3,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 10,
+   "took": "theirs",
+   "owners": [
+    "SHAFT_STUCK_RETRY_MS",
+    "SHOP_LEAF_RETRY_MS",
+    "SHOP_STUCK_RETRY_MS",
+    "WAIT_STOPS",
+    "noteWait",
+    "setTurnNow"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 50,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 11,
+   "took": "theirs",
+   "owners": [
+    "IDLE_STOPS",
+    "LIGHT_PLOTS",
+    "MONUMENT_BAG_SLOTS_MIN",
+    "NEXT_GAP_MS",
+    "NEXT_HOLD_MS",
+    "NEXT_K"
+   ],
+   "ours_lines": 144,
+   "theirs_lines": 127,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 12,
+   "took": "theirs",
+   "owners": [
+    "buildOrder",
+    "buildOrderOwn",
+    "setUnlockAsk",
+    "spendableFor",
+    "unlockAskOf"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 12,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 13,
+   "took": "theirs",
+   "owners": [
+    "buildOrderOwn"
+   ],
+   "ours_lines": 18,
+   "theirs_lines": 29,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 14,
+   "took": "theirs",
+   "owners": [
+    "buildOrderOwn"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 11,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 15,
+   "took": "theirs",
+   "owners": [
+    "buildOrderOwn"
+   ],
+   "ours_lines": 11,
+   "theirs_lines": 19,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 16,
+   "took": "theirs",
+   "owners": [
+    "buildOrderOwn"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 19,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/shop.mjs",
+   "block": 17,
+   "took": "theirs",
+   "owners": [
+    "buildSegDetail",
+    "buildVisitDetail"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/showchat.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "COMPASS",
+    "DEATH_DELAY_MS",
+    "DEATH_WORDS",
+    "DIG_SKILLS",
+    "KILL_FILE"
+   ],
+   "ours_lines": 459,
+   "theirs_lines": 523,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 2,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 3,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 6,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 4,
+   "took": "theirs",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 5,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "DEPOSIT_TOOL_RE"
+   ],
+   "ours_lines": 34,
+   "theirs_lines": 129,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 6,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 11,
+   "theirs_lines": 8,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 7,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 9,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 8,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 15,
+   "theirs_lines": 37,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 9,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 10,
+   "took": "union-imports",
+   "owners": [
+    "(imports)",
+    "isPillarItem"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 11,
+   "took": "theirs",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 3,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 12,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 11,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 13,
+   "took": "theirs",
+   "owners": [
+    "valveProof"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 14,
+   "took": "ours",
+   "owners": [
+    "TUNNEL_TRIES",
+    "tunnelToOre"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": "protected symbol TUNNEL_TRIES"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 15,
+   "took": "ours",
+   "owners": [
+    "tunnelToOre"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": "protected symbol tunnelToOre"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 16,
+   "took": "ours",
+   "owners": [
+    "tunnelEligibleOf",
+    "tunnelToOre"
+   ],
+   "ours_lines": 19,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": "protected symbol tunnelToOre"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 17,
+   "took": "ours",
+   "owners": [
+    "gather"
+   ],
+   "ours_lines": 18,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": "protected symbol gather"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 18,
+   "took": "ours",
+   "owners": [
+    "gatherRun"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": "protected symbol gatherRun"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 19,
+   "took": "ours",
+   "owners": [
+    "gatherRun"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": "protected symbol gatherRun"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 20,
+   "took": "ours",
+   "owners": [
+    "gatherRun"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": "protected symbol gatherRun"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 21,
+   "took": "ours",
+   "owners": [
+    "gatherRun"
+   ],
+   "ours_lines": 14,
+   "theirs_lines": 11,
+   "base_lines": 1,
+   "note": "protected symbol gatherRun"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 22,
+   "took": "theirs",
+   "owners": [
+    "lidJudge"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 23,
+   "took": "ours",
+   "owners": [
+    "ESCAPE_RECORD_TTL_MS",
+    "escapeRecordAt",
+    "escapeRecordCache",
+    "escapeRecordSnapshot",
+    "lidJudge",
+    "lidRecordAt"
+   ],
+   "ours_lines": 96,
+   "theirs_lines": 119,
+   "base_lines": 0,
+   "note": "protected symbol escapeRecordSnapshot"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 24,
+   "took": "theirs",
+   "owners": [
+    "bankInto",
+    "mergeInto"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 25,
+   "took": "theirs",
+   "owners": [
+    "bankInto"
+   ],
+   "ours_lines": 18,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 26,
+   "took": "theirs",
+   "owners": [
+    "bankInto"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 27,
+   "took": "theirs",
+   "owners": [
+    "townDeposit"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 7,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 28,
+   "took": "theirs",
+   "owners": [
+    "townDeposit"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 29,
+   "took": "theirs",
+   "owners": [
+    "throwPhase"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 7,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 30,
+   "took": "theirs",
+   "owners": [
+    "disposeWell"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 31,
+   "took": "theirs",
+   "owners": [
+    "disposeWell"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 32,
+   "took": "theirs",
+   "owners": [
+    "withdrawSweep"
+   ],
+   "ours_lines": 14,
+   "theirs_lines": 15,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 33,
+   "took": "theirs",
+   "owners": [
+    "withdrawSweep"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 34,
+   "took": "theirs",
+   "owners": [
+    "withdrawVerb"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 35,
+   "took": "theirs",
+   "owners": [
+    "pruneWellRule"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 36,
+   "took": "theirs",
+   "owners": [
+    "townSearchNext"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 6,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 37,
+   "took": "theirs",
+   "owners": [
+    "smeltInner"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 4,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 38,
+   "took": "theirs",
+   "owners": [
+    "glassBpCache",
+    "glassBuildings",
+    "glassGlaze",
+    "glassRead",
+    "glassReading",
+    "glassReserved"
+   ],
+   "ours_lines": 258,
+   "theirs_lines": 262,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 39,
+   "took": "theirs",
+   "owners": [
+    "makeMaterial"
+   ],
+   "ours_lines": 14,
+   "theirs_lines": 15,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 40,
+   "took": "theirs",
+   "owners": [
+    "makeMaterial"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 5,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 41,
+   "took": "theirs",
+   "owners": [
+    "makeMaterial"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 7,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 42,
+   "took": "ours",
+   "owners": [
+    "mine"
+   ],
+   "ours_lines": 9,
+   "theirs_lines": 7,
+   "base_lines": 0,
+   "note": "protected symbol mine"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 43,
+   "took": "theirs",
+   "owners": [
+    "blueprintOf",
+    "bpCache"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 6,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 44,
+   "took": "theirs",
+   "owners": [
+    "SHOP_PRIME_FRESH_MS",
+    "SHOP_PRIME_MS",
+    "activeMem",
+    "activeSig",
+    "countryDemandNow",
+    "shopActive"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 18,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 45,
+   "took": "theirs",
+   "owners": [
+    "shopActivePrime"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 46,
+   "took": "theirs",
+   "owners": [
+    "shopActivePrime"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 47,
+   "took": "theirs",
+   "owners": [
+    "STARVE_PICK_MS",
+    "STARVE_READ_MS",
+    "boardClaim",
+    "boardJobNow",
+    "boardLight",
+    "boardPin"
+   ],
+   "ours_lines": 235,
+   "theirs_lines": 161,
+   "base_lines": 10,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 48,
+   "took": "theirs",
+   "owners": [
+    "hallOpenNow",
+    "projectHeads",
+    "shopActive"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 7,
+   "base_lines": 5,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 49,
+   "took": "theirs",
+   "owners": [
+    "COUNTRY_ON",
+    "LANDP",
+    "SITEPREP",
+    "buildersFor",
+    "gkNextInner",
+    "hallOpenNow"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 184,
+   "base_lines": 4,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 50,
+   "took": "theirs",
+   "owners": [
+    "landHead",
+    "projStuckLive",
+    "recordCellDone",
+    "recordCellOpen",
+    "shopLikeBp",
+    "shopRecordHead"
+   ],
+   "ours_lines": 104,
+   "theirs_lines": 96,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 51,
+   "took": "theirs",
+   "owners": [
+    "shopSlotsFree"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 52,
+   "took": "theirs",
+   "owners": [
+    "shopCtx"
+   ],
+   "ours_lines": 8,
+   "theirs_lines": 8,
+   "base_lines": 4,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 53,
+   "took": "ours",
+   "owners": [
+    "BW3S",
+    "COPPER_OPEN",
+    "DEEP_HOP_MS",
+    "DEEP_REPAIR_MS",
+    "DEEP_STEP_MS",
+    "EGRESS_HOP_MS"
+   ],
+   "ours_lines": 4005,
+   "theirs_lines": 24,
+   "base_lines": 16,
+   "note": "protected symbol deepBranch"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 54,
+   "took": "theirs",
+   "owners": [
+    "BRIDGE_DESIGN_ON",
+    "BRIDGE_TRAFFIC_ON",
+    "CROSS_SAMPLE_MS",
+    "EXPEDITION",
+    "EX_TOWN_R",
+    "TRAFFIC_R_LOG"
+   ],
+   "ours_lines": 14,
+   "theirs_lines": 237,
+   "base_lines": 22,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 55,
+   "took": "ours",
+   "owners": [
+    "BRIDGE_AT",
+    "BRIDGE_WOOD_ON",
+    "BW3S",
+    "CITYWALL_NOSITE_MS",
+    "CITYWALL_RINGS",
+    "COPPER_OPEN"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 12068,
+   "base_lines": 16,
+   "note": "protected symbol deepGallery"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 56,
+   "took": "theirs",
+   "owners": [
+    "STEPWELL_NOSITE_MS",
+    "STEPWELL_POSTS_CRAFT",
+    "STEPWELL_SITE_MS",
+    "STEPWELL_TIMEOUT_WAIT_MS",
+    "STEPWELL_WALK_MS",
+    "farmDueFor"
+   ],
+   "ours_lines": 0,
+   "theirs_lines": 29,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 57,
+   "took": "theirs",
+   "owners": [
+    "stepwellInputs"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 3,
+   "base_lines": 4,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 58,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell",
+    "buildTreeFarm",
+    "farmHarvest",
+    "stepwellInputs",
+    "stepwellSite",
+    "swSaplingAbsent"
+   ],
+   "ours_lines": 54,
+   "theirs_lines": 41,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 59,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 2,
+   "base_lines": 4,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 60,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 61,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 62,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 63,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 6,
+   "theirs_lines": 11,
+   "base_lines": 10,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 64,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 65,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 66,
+   "took": "theirs",
+   "owners": [
+    "buildStepwell",
+    "buildStepwellRun",
+    "stepwellMineKeep",
+    "swFellDoneRow",
+    "swListCanopy"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 79,
+   "base_lines": 8,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 67,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 24,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 68,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 6,
+   "theirs_lines": 3,
+   "base_lines": 10,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 69,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 70,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 32,
+   "theirs_lines": 6,
+   "base_lines": 64,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 71,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 72,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 26,
+   "theirs_lines": 100,
+   "base_lines": 27,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 73,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 0,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 74,
+   "took": "theirs",
+   "owners": [
+    "buildStepwellRun"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 4,
+   "note": ""
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 75,
+   "took": "ours",
+   "owners": [
+    "SKILL_CONTRACTS"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 7,
+   "base_lines": 0,
+   "note": "protected symbol deep_mine"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 76,
+   "took": "ours",
+   "owners": [
+    "GoalOpenSky",
+    "LOG_SURFACE_GATHER_MS",
+    "LOG_SURFACE_MS",
+    "ROOF_CLIMB",
+    "ROOF_GROUND",
+    "ROOF_RECORD_PASS"
+   ],
+   "ours_lines": 42,
+   "theirs_lines": 189,
+   "base_lines": 0,
+   "note": "protected symbol hasCeiling"
+  },
+  {
+   "file": "bots/src/skills.mjs",
+   "block": 77,
+   "took": "ours",
+   "owners": [
+    "SKILLS"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 7,
+   "base_lines": 0,
+   "note": "protected symbol deep_mine"
+  },
+  {
+   "file": "bots/src/tidy.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "ACCESS",
+    "AIRN",
+    "BUILD_WHY",
+    "CLAIM_PLOTS",
+    "CLAIM_RING"
+   ],
+   "ours_lines": 808,
+   "theirs_lines": 1840,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/towndeposit.mjs",
+   "block": 1,
+   "took": "union-imports",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/towndeposit.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "townDepositPlan"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/townmine.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BUILD_COOLDOWN_MS",
+    "BUILD_UNITS_CALL",
+    "BUILD_USES",
+    "FIXTURE_ITEMS",
+    "GALLERY"
+   ],
+   "ours_lines": 278,
+   "theirs_lines": 287,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/treefarm.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIRN",
+    "CUTTABLE",
+    "FARM",
+    "FARM_FOREIGN",
+    "FARM_PALETTE"
+   ],
+   "ours_lines": 528,
+   "theirs_lines": 535,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/wall.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "DIRS4",
+    "FLOAT_MAX",
+    "FLOAT_SPOIL",
+    "LOG",
+    "PIT_MAX"
+   ],
+   "ours_lines": 752,
+   "theirs_lines": 1314,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/src/well.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "wellOrderAtTown"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/well.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "wellOrderAtTown"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/withdrawpick.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "townSearchOrder"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/withdrawpick.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "townSearchOrder"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 15,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/withdrawpick.mjs",
+   "block": 3,
+   "took": "theirs",
+   "owners": [
+    "townSearchOrder"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/src/yard.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BAMBOO_PER_BLOCK",
+    "KEEP_IN_AISLE",
+    "PICK_RANK",
+    "YARD_BAG_KEEP_COBBLE",
+    "YARD_BAMBOO_KEEP"
+   ],
+   "ours_lines": 364,
+   "theirs_lines": 445,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/boardwalk3.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "DOC",
+    "SK",
+    "W",
+    "W_PATH",
+    "asLine"
+   ],
+   "ours_lines": 319,
+   "theirs_lines": 328,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/body-claim.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "strip"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/body-claim.test.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "strip"
+   ],
+   "ours_lines": 5,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/test/buildcorner.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "R"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/buildcorner.test.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "R",
+    "cav",
+    "cread"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 39,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/test/coalrun-mine.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "C",
+    "OT",
+    "TD",
+    "drop",
+    "it"
+   ],
+   "ours_lines": 78,
+   "theirs_lines": 77,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/cobblekeep.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "chain"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 2,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/cobblekeep.test.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "chain"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/copperhall.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "B",
+    "BP",
+    "BR",
+    "FX",
+    "G"
+   ],
+   "ours_lines": 274,
+   "theirs_lines": 274,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/deepmine.test.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)",
+    "CG",
+    "COG_CONT",
+    "COG_START",
+    "D",
+    "DEEPEN_CALL"
+   ],
+   "ours_lines": 378,
+   "theirs_lines": 378,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/escapeguard.test.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)",
+    "ALLREC",
+    "BARE_HANDED",
+    "CLIMBFLOOD_PATH",
+    "COBBLE",
+    "DIG_MS"
+   ],
+   "ours_lines": 470,
+   "theirs_lines": 473,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/expedition.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CHAMBERS",
+    "E",
+    "EX_PATH",
+    "FEAT_PATH",
+    "HOME"
+   ],
+   "ours_lines": 517,
+   "theirs_lines": 517,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/expwater.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AIR",
+    "E",
+    "EX_PATH",
+    "HOME",
+    "POS"
+   ],
+   "ours_lines": 294,
+   "theirs_lines": 294,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/gklease.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "GK",
+    "GK_PATH",
+    "HOME",
+    "MIN",
+    "NOW"
+   ],
+   "ours_lines": 133,
+   "theirs_lines": 146,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/gkstay.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FLEET",
+    "GK",
+    "GK_PATH",
+    "IW",
+    "T0"
+   ],
+   "ours_lines": 97,
+   "theirs_lines": 97,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/gkwork.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BOARD_B",
+    "DEF",
+    "EMPTY",
+    "SHOP",
+    "SHOWCASE"
+   ],
+   "ours_lines": 198,
+   "theirs_lines": 207,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/glass.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "G",
+    "GLASS_PATH",
+    "HOME",
+    "M",
+    "MATS_PATH"
+   ],
+   "ours_lines": 248,
+   "theirs_lines": 267,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/groundskeeper.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "ACK",
+    "BR",
+    "BUILDRUN_PATH",
+    "CH",
+    "EX"
+   ],
+   "ours_lines": 465,
+   "theirs_lines": 506,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/handcap.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BARE_HANDED",
+    "BUCKET",
+    "COBBLE",
+    "DIG_MS",
+    "FEATURES_PATH"
+   ],
+   "ours_lines": 235,
+   "theirs_lines": 233,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/house.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "P",
+    "plan"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/kitsearch.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "planksMovesOn"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 3,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/test/merchantscout.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "HERE",
+    "M",
+    "V",
+    "pass",
+    "t"
+   ],
+   "ours_lines": 132,
+   "theirs_lines": 123,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/paths-build.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CORE",
+    "P",
+    "SHOVEL",
+    "done",
+    "pass"
+   ],
+   "ours_lines": 154,
+   "theirs_lines": 155,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/paths-wiring.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "HOME",
+    "P",
+    "PATH_CELLS",
+    "PJ",
+    "S"
+   ],
+   "ours_lines": 126,
+   "theirs_lines": 130,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/pipeline.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "ADM_PATH",
+    "COG",
+    "COG_PATH",
+    "FD",
+    "ON"
+   ],
+   "ours_lines": 359,
+   "theirs_lines": 384,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/place-airborne.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "EXEC"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/test/planahead.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "B",
+    "BP",
+    "BS_PATH",
+    "CTX",
+    "FLAT"
+   ],
+   "ours_lines": 246,
+   "theirs_lines": 285,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/regrade.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "LP",
+    "RD",
+    "RD_PATH",
+    "RG",
+    "T"
+   ],
+   "ours_lines": 171,
+   "theirs_lines": 186,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/roughground.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "INWALL",
+    "LP",
+    "ON",
+    "RG",
+    "RG_PATH"
+   ],
+   "ours_lines": 126,
+   "theirs_lines": 408,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/sandbox-registry.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "driverCode"
+   ],
+   "ours_lines": 26,
+   "theirs_lines": 16,
+   "base_lines": 11,
+   "note": ""
+  },
+  {
+   "file": "bots/test/shop.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "W"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/shop.test.mjs",
+   "block": 2,
+   "took": "theirs",
+   "owners": [
+    "CANE_FN",
+    "CROP_FN",
+    "FARM_FN",
+    "FOREST_FN",
+    "PATHS_FN",
+    "PENS_FN"
+   ],
+   "ours_lines": 24,
+   "theirs_lines": 48,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/showcase-on-fleet.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "E",
+    "F",
+    "S",
+    "pass",
+    "t"
+   ],
+   "ours_lines": 44,
+   "theirs_lines": 51,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/showchat.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CASES",
+    "F",
+    "NAMES",
+    "POOLDIR",
+    "ROWS"
+   ],
+   "ours_lines": 296,
+   "theirs_lines": 362,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/smeltsearch.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "lidReady"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "bots/test/stoneworks.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FULL",
+    "M",
+    "MATS_PATH",
+    "R",
+    "ST"
+   ],
+   "ours_lines": 243,
+   "theirs_lines": 481,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/tidy.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "P",
+    "RES",
+    "SHOPM",
+    "SHOP_PATH",
+    "SKILLS_PATH"
+   ],
+   "ours_lines": 298,
+   "theirs_lines": 297,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/tombexit.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FEET",
+    "INDEX_PATH",
+    "NOW",
+    "REFLEX_PATH",
+    "RX"
+   ],
+   "ours_lines": 318,
+   "theirs_lines": 317,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/town-stair-stuck.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BASE",
+    "N6",
+    "REC",
+    "SITE",
+    "fakeRunner"
+   ],
+   "ours_lines": 252,
+   "theirs_lines": 248,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/town-stair-wiring.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FULL",
+    "G",
+    "G0",
+    "K",
+    "P"
+   ],
+   "ours_lines": 342,
+   "theirs_lines": 171,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/towndeposit.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "FP",
+    "VERB_BANKED",
+    "VERB_REFUSED",
+    "fpMutant",
+    "fpRows",
+    "kitSwitch"
+   ],
+   "ours_lines": 258,
+   "theirs_lines": 96,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/townmine.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "AStar",
+    "Block",
+    "FIX",
+    "MINED",
+    "Move"
+   ],
+   "ours_lines": 399,
+   "theirs_lines": 453,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/townsearch.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "trips"
+   ],
+   "ours_lines": 2,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "bots/test/voidfill.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "CX",
+    "FX",
+    "REC",
+    "SHAFT",
+    "SKILLS"
+   ],
+   "ours_lines": 283,
+   "theirs_lines": 283,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/wall-wiring.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "HOME",
+    "PJ",
+    "S",
+    "SK",
+    "SRC"
+   ],
+   "ours_lines": 136,
+   "theirs_lines": 143,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/wall.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "PLAN",
+    "SHOP",
+    "W",
+    "cellsAt",
+    "colAt"
+   ],
+   "ours_lines": 270,
+   "theirs_lines": 270,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/wallstuck.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "FX",
+    "REMEDIES",
+    "S",
+    "W",
+    "box"
+   ],
+   "ours_lines": 252,
+   "theirs_lines": 249,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/yardsite.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "BP1",
+    "FAR",
+    "RING",
+    "SK",
+    "SKP"
+   ],
+   "ours_lines": 139,
+   "theirs_lines": 139,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/zigbamboo.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "Z",
+    "done",
+    "pass",
+    "project",
+    "run"
+   ],
+   "ours_lines": 70,
+   "theirs_lines": 70,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/ziggurat-project.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "HOME",
+    "PJ",
+    "S",
+    "SK",
+    "Z"
+   ],
+   "ours_lines": 133,
+   "theirs_lines": 139,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/ziggurat-tidy.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "RPATH",
+    "built",
+    "litter",
+    "pass",
+    "t"
+   ],
+   "ours_lines": 116,
+   "theirs_lines": 116,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/zigsealed.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "B",
+    "FX",
+    "GRASS",
+    "GROUND",
+    "S"
+   ],
+   "ours_lines": 188,
+   "theirs_lines": 188,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "bots/test/zigtidy2.test.mjs",
+   "block": 1,
+   "took": "theirs",
+   "owners": [
+    "(imports)",
+    "PJ",
+    "S",
+    "built",
+    "pass",
+    "pillars"
+   ],
+   "ours_lines": 139,
+   "theirs_lines": 139,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "config/protected-paths.txt",
+   "block": 1,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 3,
+   "theirs_lines": 1,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/STATE.md",
+   "block": 1,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/STATE.md",
+   "block": 2,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 12,
+   "theirs_lines": 7,
+   "base_lines": 6,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/STATE.md",
+   "block": 3,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 2,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/STATE.md",
+   "block": 4,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 21,
+   "theirs_lines": 3,
+   "base_lines": 4,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/learnloop-c2-2026-10-31.md",
+   "block": 1,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 336,
+   "theirs_lines": 295,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread-mutants.py.txt",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 26,
+   "theirs_lines": 7,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 144,
+   "theirs_lines": 10,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 597,
+   "theirs_lines": 36,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 3,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 67,
+   "theirs_lines": 5,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 4,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 7,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 5,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 12,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 6,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 3,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 7,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 48,
+   "theirs_lines": 3,
+   "base_lines": 3,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 8,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 34,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 9,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 99,
+   "theirs_lines": 9,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 10,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 18,
+   "theirs_lines": 12,
+   "base_lines": 5,
+   "note": ""
+  },
+  {
+   "file": "docs/reports/shop-01-2026-10-25/shopread.py.txt",
+   "block": 11,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 717,
+   "theirs_lines": 62,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/test_showcase.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 3,
+   "theirs_lines": 3,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/test_showcase.py",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 423,
+   "theirs_lines": 40,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 41,
+   "theirs_lines": 5,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 18,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 3,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 108,
+   "theirs_lines": 82,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 4,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 4,
+   "theirs_lines": 3,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 5,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 10,
+   "theirs_lines": 8,
+   "base_lines": 9,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 6,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 81,
+   "theirs_lines": 2,
+   "base_lines": 2,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 7,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 43,
+   "theirs_lines": 12,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "infra/showcase/tl_video.py",
+   "block": 8,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 4,
+   "theirs_lines": 2,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "sandbox/craft/airpocket-ab.cjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "SPEC"
+   ],
+   "ours_lines": 36,
+   "theirs_lines": 16,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "sandbox/scaftown/scaf-proof.jsonl",
+   "block": 1,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 24,
+   "theirs_lines": 24,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/fleetstatus.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 104,
+   "theirs_lines": 68,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/fleetstatus.py",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 1,
+   "theirs_lines": 1,
+   "base_lines": 1,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/modelcompare.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 527,
+   "theirs_lines": 403,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/modelread.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 404,
+   "theirs_lines": 394,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/modelrollout.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 1672,
+   "theirs_lines": 1290,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/test_funmode_loop.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [],
+   "ours_lines": 8,
+   "theirs_lines": 6,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/test_funmode_loop.py",
+   "block": 2,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 7,
+   "theirs_lines": 3,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/test_funmode_loop.py",
+   "block": 3,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 32,
+   "theirs_lines": 24,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/test_modelcompare.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 152,
+   "theirs_lines": 129,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/test_modelread.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 108,
+   "theirs_lines": 105,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/host/test_modelrollout.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 988,
+   "theirs_lines": 579,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/learnloop/build_clean.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 527,
+   "theirs_lines": 368,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/learnloop/prompt_transform.mjs",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)",
+    "HAZ",
+    "IDENT",
+    "IDENT_ANY",
+    "IDENT_USER",
+    "SEEN"
+   ],
+   "ours_lines": 74,
+   "theirs_lines": 65,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/learnloop/teacher/pilot_agreement.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 167,
+   "theirs_lines": 164,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/learnloop/teacher/teacher_pilot.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 452,
+   "theirs_lines": 413,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/learnloop/teacher/test_teacher.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 320,
+   "theirs_lines": 289,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/learnloop/train/train_sft.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 193,
+   "theirs_lines": 188,
+   "base_lines": 0,
+   "note": ""
+  },
+  {
+   "file": "scripts/test_fleetstatus.py",
+   "block": 1,
+   "took": "ours",
+   "owners": [
+    "(imports)"
+   ],
+   "ours_lines": 172,
+   "theirs_lines": 96,
+   "base_lines": 0,
+   "note": ""
+  }
+ ]
+}

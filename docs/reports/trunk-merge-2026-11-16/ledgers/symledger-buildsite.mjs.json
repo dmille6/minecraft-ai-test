@@ -1,0 +1,778 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "__imports__",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 3,
+  "t": 6,
+  "b": 3
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "k3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "k2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "nm",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "DOMAIN",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "EARTH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LITTER_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "REACH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "DIG_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "EYE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TREE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "REPLANT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "WALK_R",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TOWN_R",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PROOF_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SOIL",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "LOG",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LEAVES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "STEM",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BUILT",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "USES",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 2,
+  "t": 3,
+  "b": 2
+ },
+ {
+  "sym": "PARTIAL",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "GRAVITY",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "SAPLING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "NEEDS_2X2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PLACED_MAT",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "AIR",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SOLID",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ROLE_BOX",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "slabTopFloor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "fullCube",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "naturalSolid",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "solidFloor",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "refUsable",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "groundOf",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "here",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "loadBlueprint",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 3,
+  "t": 9,
+  "b": 3
+ },
+ {
+  "sym": "dirOf",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "placeBlueprint",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 4,
+  "t": 5,
+  "b": 4
+ },
+ {
+  "sym": "at2",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "footprint",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "inDomain",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "facesHome",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 15
+ },
+ {
+  "sym": "reservations",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 23,
+  "t": 29,
+  "b": 21
+ },
+ {
+  "sym": "trunkReserved",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "trunkGuard",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "reservationsStrict",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "treeOf",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "speciesOf",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "columnAt",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 39,
+  "t": 40,
+  "b": 39
+ },
+ {
+  "sym": "levelAltsOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "levelFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 24,
+  "t": 28,
+  "b": 24
+ },
+ {
+  "sym": "topFloorLevel",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "screenSite",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 78,
+  "t": 79,
+  "b": 76
+ },
+ {
+  "sym": "overlay",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 11,
+  "t": 12,
+  "b": 10
+ },
+ {
+  "sym": "walkFrom",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 67,
+  "t": 111,
+  "b": 66
+ },
+ {
+  "sym": "walkAgain",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 65,
+  "b": null
+ },
+ {
+  "sym": "walkStats",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "WALK_KEEP_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "colsNear",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "makeWalkCache",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 47,
+  "b": null
+ },
+ {
+  "sym": "siteAgainFresh",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "STEADY_TRIES",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "siteAgainSteady",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "sightClear",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "SUPPORTS",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 9
+ },
+ {
+  "sym": "stepFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 26,
+  "t": 56,
+  "b": 26
+ },
+ {
+  "sym": "STEP_CLASSES",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stepRefusal",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 44,
+  "b": null
+ },
+ {
+  "sym": "byColumn",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "blockFor",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "proveSite",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 54,
+  "t": 13,
+  "b": 53
+ },
+ {
+  "sym": "proveSiteSteps",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 72,
+  "b": null
+ },
+ {
+  "sym": "replantCellAt",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "replantBand",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "replantFor",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "replantAlternative",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "billOf",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "ORIENTS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "REST_ORDER",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "workshopSectors",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "projectSectors",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "plinthCells",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 17,
+  "t": 27,
+  "b": 17
+ },
+ {
+  "sym": "planTownCells",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "siteBlueprint",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 52
+ },
+ {
+  "sym": "siteBlueprintAsync",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 14,
+  "t": 36,
+  "b": null
+ },
+ {
+  "sym": "SITE_SEARCH_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "siteBoxOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "siteSearchHook",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "setSiteSearchHook",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "siteStillBegin",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "siteLoopEnds",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "siteBox",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "siteStillEnd",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "siteBlueprintSteps",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 74,
+  "t": 117,
+  "b": null
+ }
+]

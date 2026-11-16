@@ -1,0 +1,530 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PATHS_PLOT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PATHS_BLUEPRINT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PATHS_BUILDERS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PATH_SEG_CELLS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PATH_DY",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "pathsOn",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "PATH_PALETTE",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "FLATTENABLE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "PATH_FOREIGN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DONE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "nm",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LEAVES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LOG",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LITTER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PLANT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "AIRN",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "pathDone",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "pathUsable",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "pathColumn",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "surfaceNeed",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FILL_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "CUT_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "COST",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "BRUSH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DIRS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "NATURAL",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "columnCost",
+  "why": "same",
+  "protected": false,
+  "o": 35,
+  "t": 35,
+  "b": null
+ },
+ {
+  "sym": "pathGrid",
+  "why": "same",
+  "protected": false,
+  "o": 39,
+  "t": 39,
+  "b": null
+ },
+ {
+  "sym": "gridUnread",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "routeLeg",
+  "why": "same",
+  "protected": false,
+  "o": 46,
+  "t": 46,
+  "b": null
+ },
+ {
+  "sym": "brushesOver",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "hubBrushes",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "atHub",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "pathNetwork",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "pathZones",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "pathRecord",
+  "why": "same",
+  "protected": false,
+  "o": 51,
+  "t": 51,
+  "b": null
+ },
+ {
+  "sym": "frontApproach",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "stairFoot",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "ringCols",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "pathAvoid",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 43,
+  "t": 62,
+  "b": null
+ },
+ {
+  "sym": "chestDests",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "standClears",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "pathSaplingCols",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "pathWalkR",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "PATH_WAIVE_AFTER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "pathWaiveDue",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "pathWaived",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "pathProgress",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "pathDests",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 29,
+  "t": 38,
+  "b": null
+ },
+ {
+  "sym": "PATHS_UNROUTED_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "pathsUnroutedNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "pathsExtendNote",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "newDests",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "pathInputs",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "reachedStandClears",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "sitePaths",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "PATHS_NO_SITE_RETRY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "fleetPathsOn",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "pathsNoSite",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "pathsNoSiteRec",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "pathsSiteStop",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "pathsDue",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "extendPaths",
+  "why": "same",
+  "protected": false,
+  "o": 51,
+  "t": 51,
+  "b": null
+ }
+]

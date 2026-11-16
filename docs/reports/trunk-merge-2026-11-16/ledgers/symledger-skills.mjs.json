@@ -1,0 +1,12090 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 8,
+  "t": 11,
+  "b": 7
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 8,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "__head__#3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#3",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "__head__#4",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#4",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "__head__#5",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#5",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "__head__#6",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#6",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "__head__#7",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#7",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 4,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#8",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#9",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#4",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#10",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#5",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#11",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#6",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#12",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 9,
+  "t": 12,
+  "b": 6
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#7",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#13",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#8",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#14",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#9",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#15",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 76,
+  "t": 192,
+  "b": 13
+ },
+ {
+  "sym": "DEPOSIT_TOOL_RE#10",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isPillarItem",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#16",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "isPillarItem#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#17",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 24,
+  "t": 28,
+  "b": 14
+ },
+ {
+  "sym": "isPillarItem#3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#18",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isPillarItem#4",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#19",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "isPillarItem#5",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#20",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isPillarItem#6",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "townHome",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 30,
+  "t": 1,
+  "b": 30
+ },
+ {
+  "sym": "_gzMemo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "gatherZoneNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "gatherZoneHit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "roofAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "feetYOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "feetLevelsOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "groundAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "topDownHit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "_tdBelow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "tdFromBelowSay",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "_tdModeSaid",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TD_GIVE_UP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "_gzModeSaid",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "towerBlocksHeld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 41,
+  "b": null
+ },
+ {
+  "sym": "UNKNOWN_FAIL_CLASSES",
+  "why": "same",
+  "protected": false,
+  "o": 39,
+  "t": 39,
+  "b": 39
+ },
+ {
+  "sym": "statusFor",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "Aborted",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "check",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "sleep",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": 28
+ },
+ {
+  "sym": "settle",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "watchDigging",
+  "why": "same",
+  "protected": true,
+  "o": 36,
+  "t": 36,
+  "b": 36
+ },
+ {
+  "sym": "withTimeout",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 61,
+  "t": 67,
+  "b": 61
+ },
+ {
+  "sym": "assertInsideBorder",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "bestTool",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "MAX_LEG",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "HOME_BUDGET_MS",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "arrivedAt",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "MAX_HAZARD_RETRIES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "WORTH_TUNNELLING",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "STEP_SETTLE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "STEP_REDIG_MS",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "STEP_IMPULSE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "COLLECT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BARREN_LIMIT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "goto",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "gotoLegs",
+  "why": "same",
+  "protected": true,
+  "o": 469,
+  "t": 469,
+  "b": 469
+ },
+ {
+  "sym": "descendToGround",
+  "why": "same",
+  "protected": true,
+  "o": 81,
+  "t": 81,
+  "b": 81
+ },
+ {
+  "sym": "resolveBlockName",
+  "why": "same",
+  "protected": false,
+  "o": 84,
+  "t": 84,
+  "b": 84
+ },
+ {
+  "sym": "NETHER_ONLY",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "sourceReachCost",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "SMELT_ONLY",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "dedupeGap",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "gapReachCost",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "depthVariant",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "MANUAL_EXACT",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "MANUAL_SUBSTRING",
+  "why": "same",
+  "protected": false,
+  "o": 46,
+  "t": 46,
+  "b": 46
+ },
+ {
+  "sym": "STATION_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "COLLECTBLOCK_ENABLED",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "mustCollectManually",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "CAVEFALL_ON",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "cavefallSkip",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "caveFilter",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "cavefallDigCheck",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "collectManually",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 309,
+  "t": 326,
+  "b": 309
+ },
+ {
+  "sym": "FOOD_SKIP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "foodSkipSaid",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "foodSkipNow",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "cobbleWellCap",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 18,
+  "t": 17,
+  "b": 16
+ },
+ {
+  "sym": "stockWellOpts",
+  "why": "same",
+  "protected": false,
+  "o": 26,
+  "t": 26,
+  "b": 26
+ },
+ {
+  "sym": "pruneStockOpts",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "valveProof",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "wellUsable",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "wellSwordsNow",
+  "why": "same",
+  "protected": false,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "pickupNearbyItems",
+  "why": "same",
+  "protected": false,
+  "o": 65,
+  "t": 65,
+  "b": 65
+ },
+ {
+  "sym": "CANOPY_REMOVABLE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "canopyDrop",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "TUNNEL_STALL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "TUNNEL_TRIES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "tunnelToOre",
+  "why": "both changed: 2 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 139,
+  "t": 129,
+  "b": 128
+ },
+ {
+  "sym": "withKeepout",
+  "why": "same",
+  "protected": true,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "withoutKeepout",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "keepoutCooldown",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "gather",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 34,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "gatherRun",
+  "why": "both changed: 4 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 861,
+  "t": 942,
+  "b": 744
+ },
+ {
+  "sym": "skyRescueRows",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SKY_STAY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SKY_RUN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SKY_WALK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SKY_WALK_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SKY_WAIT_FLAG_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "planksOf",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "skyLogs",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "skyDiggable",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "skyDescend",
+  "why": "same",
+  "protected": false,
+  "o": 177,
+  "t": 177,
+  "b": 177
+ },
+ {
+  "sym": "keepoutExit",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "escapeStepHazard",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "tunnelOut",
+  "why": "same",
+  "protected": true,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "KEEPOUT_EXIT_BUDGET_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "keepoutExitRun",
+  "why": "same",
+  "protected": true,
+  "o": 56,
+  "t": 56,
+  "b": 56
+ },
+ {
+  "sym": "come",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "follow",
+  "why": "same",
+  "protected": false,
+  "o": 43,
+  "t": 43,
+  "b": 43
+ },
+ {
+  "sym": "home",
+  "why": "same",
+  "protected": false,
+  "o": 112,
+  "t": 112,
+  "b": 104
+ },
+ {
+  "sym": "deposit",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 541,
+  "t": 538,
+  "b": 528
+ },
+ {
+  "sym": "RECOVERY_WALK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "OPEN_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "chestWalk",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "FIRST_WALK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "STRIKE_WALK_MIN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "townStatus",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "FAR_SKIP_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "cobbleRoom",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "inChest",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "chestPartner",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "posKey",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "townDir",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "homeTownKey",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "containerKey",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "keyVec",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "capTown",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "COBBLE_SCAN_CAP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "CONTAINER_RE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "capScan",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "capEpoch",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "townCobbleScan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 38,
+  "t": 46,
+  "b": 38
+ },
+ {
+  "sym": "cobbleTownViewFor",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "stockTownViewFor",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "lastScanRec",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "cobbleObserve",
+  "why": "same",
+  "protected": false,
+  "o": 31,
+  "t": 31,
+  "b": 31
+ },
+ {
+  "sym": "indexHk",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "townIndexed",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "indexId",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ixLastAt",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "ixNow",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "indexHalves",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "townIndexObserve",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "townIndexDirty",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "townIndexTransfers",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "ldLastAt",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "ldNow",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "ledgerScope",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "readFurnaceWindow",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 13
+ },
+ {
+  "sym": "ledgerIntent",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "ledgerFurnace",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "ledgerObserve",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 15
+ },
+ {
+  "sym": "drainPickNow",
+  "why": "same",
+  "protected": false,
+  "o": 35,
+  "t": 35,
+  "b": null
+ },
+ {
+  "sym": "ledgerRowFields",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "townIndexEntries",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "indexHold",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "windowGain",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "cobbleReserve",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "ADMITTED_KINDS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "stockReserve",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "bankKind",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "capConn",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "capInst",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "cobbleVoidStale",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "RECONCILE_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "RECONCILE_WALK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "RECONCILE_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "LID_OPEN_RESERVE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "reconcileFailed",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "failKey",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "cobbleReconcilable",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "recountFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "readRecountMisses",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "writeRecountMisses",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "noteRecountMiss",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "clearRecountMiss",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "unknownRefusals",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "stockRecountKeys",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "COUNT_TOWN_BUDGET_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "countTown",
+  "why": "same",
+  "protected": false,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "indexCountFailed",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "countIndexUnknowns",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "resetIndexCount",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "indexRecountKeys",
+  "why": "same",
+  "protected": false,
+  "o": 31,
+  "t": 31,
+  "b": 31
+ },
+ {
+  "sym": "stockCountKeys",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": 37
+ },
+ {
+  "sym": "countSkip",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "stockQualifies",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "refusedSeen",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "stockRefusedRow",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "stockRecoveryRow",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "cobbleStuckNote",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "installCobbleCap",
+  "why": "same",
+  "protected": false,
+  "o": 35,
+  "t": 35,
+  "b": 35
+ },
+ {
+  "sym": "resetCobbleReconcile",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "reconcileCobble",
+  "why": "same",
+  "protected": false,
+  "o": 88,
+  "t": 88,
+  "b": 87
+ },
+ {
+  "sym": "roomCache",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "rememberTown",
+  "why": "same",
+  "protected": false,
+  "o": 38,
+  "t": 38,
+  "b": 38
+ },
+ {
+  "sym": "fullChestRecovery",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 400,
+  "t": 400,
+  "b": 400
+ },
+ {
+  "sym": "filedThisRun",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "boardHandle",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "board",
+  "why": "same",
+  "protected": false,
+  "o": 54,
+  "t": 54,
+  "b": 54
+ },
+ {
+  "sym": "status",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "FOOD_PRIORITY",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "eat",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "MAX_CRAFT_DEPTH",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "PLACE_ACK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "craft",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 63,
+  "t": 52,
+  "b": 52
+ },
+ {
+  "sym": "craftLevel",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 504,
+  "t": 482,
+  "b": 482
+ },
+ {
+  "sym": "CRAFT_READBACK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "craftDeadline",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "craftExecutions",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 176,
+  "t": 176,
+  "b": 176
+ },
+ {
+  "sym": "PICKUP_SETTLE_TICKS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "settlePickup",
+  "why": "same",
+  "protected": false,
+  "o": 46,
+  "t": 46,
+  "b": 46
+ },
+ {
+  "sym": "refusePickup",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "craftRoomNow",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 6,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "craftPlanFor",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "runCraftPlan",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 50,
+  "t": 49,
+  "b": 47
+ },
+ {
+  "sym": "craftsFor",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "CRAFT_ABORTED",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "craftFailureOutcome",
+  "why": "same",
+  "protected": false,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "ingredientsBack",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "watchPlaced",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 22,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "STOP_CLASSES",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "makeCraftRoom",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 34,
+  "t": 34,
+  "b": 34
+ },
+ {
+  "sym": "adviseDeposit",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "depositWorthIt",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "slotRemedy",
+  "why": "same",
+  "protected": false,
+  "o": 40,
+  "t": 40,
+  "b": 40
+ },
+ {
+  "sym": "craftRouteFor",
+  "why": "same",
+  "protected": false,
+  "o": 35,
+  "t": 35,
+  "b": 35
+ },
+ {
+  "sym": "stationWithin",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "wearableSlots",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "craftRoomCheck",
+  "why": "same",
+  "protected": false,
+  "o": 39,
+  "t": 39,
+  "b": 39
+ },
+ {
+  "sym": "DEPOSIT_NEAR_HOME",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "roomRemedy",
+  "why": "same",
+  "protected": false,
+  "o": 26,
+  "t": 26,
+  "b": 26
+ },
+ {
+  "sym": "LADDER_CHEAPEST_FIRST",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ROOM_FUEL_RESERVE",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "townWellTakes",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "roomDepositTarget",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "farFromBank",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "refuseNoRoom",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 20,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "retakeTables",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "retakeWatched",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 93,
+  "t": 82,
+  "b": 82
+ },
+ {
+  "sym": "LID_CHESTS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "lidCell",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "lidCells",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "lidJudge",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 22,
+  "t": 21,
+  "b": 12
+ },
+ {
+  "sym": "lidRecordAt",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "recordUnread",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "treeFarmRecordCells",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "ESCAPE_RECORD_TTL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "escapeRecordCache",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "escapeRecordSnapshot",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 25,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "escapeRecordAt",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 9,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "roofRecordAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "chestHalves",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "lidClearRow",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "lidRefusedBeforeWalk",
+  "why": "same",
+  "protected": false,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "clearChestLid",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "clearOneLid",
+  "why": "same",
+  "protected": false,
+  "o": 60,
+  "t": 60,
+  "b": 60
+ },
+ {
+  "sym": "STATION_ITEMS",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "roomVeto",
+  "why": "same",
+  "protected": false,
+  "o": 56,
+  "t": 56,
+  "b": 56
+ },
+ {
+  "sym": "PLANT_REPLACEABLE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SAPLING_CLEARANCE",
+  "why": "same",
+  "protected": false,
+  "o": 26,
+  "t": 26,
+  "b": 26
+ },
+ {
+  "sym": "SAPLING_CLEARANCE_DEFAULT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "saplingClearance",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "isPlantable",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "plantableSpotNear",
+  "why": "same",
+  "protected": false,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "PLANTABLE_SOIL",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "needsSoil",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "soilOk",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "placementLanded",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "onContainerLid",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "placeSites",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 82,
+  "t": 91,
+  "b": 82
+ },
+ {
+  "sym": "place",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 313,
+  "t": 326,
+  "b": 313
+ },
+ {
+  "sym": "BLUEPRINTS",
+  "why": "same",
+  "protected": false,
+  "o": 49,
+  "t": 49,
+  "b": 49
+ },
+ {
+  "sym": "build",
+  "why": "same",
+  "protected": false,
+  "o": 113,
+  "t": 113,
+  "b": 113
+ },
+ {
+  "sym": "knownTarget",
+  "why": "same",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": 28
+ },
+ {
+  "sym": "explore",
+  "why": "same",
+  "protected": true,
+  "o": 155,
+  "t": 155,
+  "b": 145
+ },
+ {
+  "sym": "wearOut",
+  "why": "same",
+  "protected": false,
+  "o": 47,
+  "t": 47,
+  "b": 47
+ },
+ {
+  "sym": "WEAR_CONFIRM_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WEAR_LATE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "wearOutOne",
+  "why": "same",
+  "protected": false,
+  "o": 111,
+  "t": 111,
+  "b": 111
+ },
+ {
+  "sym": "HK_AWAIT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "HK_PATH_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "HK_CRAFT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "HK_SETTLE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "HOUSEKEEPING_BOUNDS",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "hkGuards",
+  "why": "same",
+  "protected": false,
+  "o": 38,
+  "t": 38,
+  "b": 38
+ },
+ {
+  "sym": "handOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "hotbarOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "applyHand",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "settleAndRestore",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "homeVec",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "blockNameOf",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "findTownComposter",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "shopShareHeld",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 14
+ },
+ {
+  "sym": "shareHeldIn",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "townBuildPlan",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "readCell",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townSiteKey",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "townComposterSite",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "composterWalk",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "BONEMEAL_SETTLE_TICKS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "STATIONARY_SLACK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "pickupGoalOutside",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "compost",
+  "why": "same",
+  "protected": false,
+  "o": 153,
+  "t": 153,
+  "b": 153
+ },
+ {
+  "sym": "isTownContainer",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "SORT",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "sortHomesNow",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "sortKeys",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "blockProps",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "townContainers",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "windowBag",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "openTown",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 25,
+  "t": 24,
+  "b": 24
+ },
+ {
+  "sym": "bankInto",
+  "why": "both changed: 3 block(s) took the showcase side",
+  "protected": false,
+  "o": 93,
+  "t": 78,
+  "b": 71
+ },
+ {
+  "sym": "verifyTown",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 14,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "townDeposit",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 246,
+  "t": 218,
+  "b": 189
+ },
+ {
+  "sym": "STAND_CENTRE_TOL",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "centredOn",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "centreOn",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "othersAround",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "bodiesAround",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "hkStop",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "chainConsumes",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "noRoomToBuild",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "composterCraftFailure",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "buildComposter",
+  "why": "same",
+  "protected": false,
+  "o": 153,
+  "t": 153,
+  "b": 153
+ },
+ {
+  "sym": "wellSiteKey",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "retiredSaid",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "wellNoSiteFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "readWellNoSite",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "writeWellNoSite",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "readWellCell",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "findTownWells",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "findTownWell",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "wellAvoid",
+  "why": "same",
+  "protected": false,
+  "o": 34,
+  "t": 34,
+  "b": 34
+ },
+ {
+  "sym": "chestWellKeepouts",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "townWellSite",
+  "why": "same",
+  "protected": false,
+  "o": 41,
+  "t": 41,
+  "b": 41
+ },
+ {
+  "sym": "capRefusedFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "readCapRefused",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "writeCapRefused",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "clearCapRefused",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "siteAnswer",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "recordedWellSite",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "knownWellCells",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "wellCellAt",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "stationRefusalAt",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "townWellBuildPlan",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "wellBuildPlanOf",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "playersSeen",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "townWellStandY",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "insideTownWell",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "townWellState",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townPitState",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "coverPit",
+  "why": "same",
+  "protected": false,
+  "o": 56,
+  "t": 56,
+  "b": 56
+ },
+ {
+  "sym": "countsOf",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "installWellWatch",
+  "why": "same",
+  "protected": false,
+  "o": 35,
+  "t": 35,
+  "b": 35
+ },
+ {
+  "sym": "serverBag",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "WELL_HOLD_MAX_MS",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "holdInventory",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": 28
+ },
+ {
+  "sym": "setWellOpen",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "wellPickupGoal",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "resendLook",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "DIG_CLICK_GAP_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "DIG_CLICK_MAX_WAITS",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "wellClickedLast",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "throwStacks",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 131,
+  "t": 131,
+  "b": 131
+ },
+ {
+  "sym": "WELL_OPEN_WAIT_TICKS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WELL_FLOOR_TICKS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WELL_SETTLE_TICKS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WELL_SEEN_TICKS",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "retakeMisses",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "throwResults",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "throwAccount",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "wellRefused",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "throwPhase",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 108,
+  "t": 114,
+  "b": 108
+ },
+ {
+  "sym": "spawnedItem",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "capEndOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "phaseDetail",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "FACING_OK",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "_wsModeSaid",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "disposeWell",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 105,
+  "t": 139,
+  "b": 102
+ },
+ {
+  "sym": "coverOpenPit",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "closeWell",
+  "why": "same",
+  "protected": false,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "WELL_WOOD_REMEDY",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "WELL_PIT_PHASES",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WELL_BUILD_STATIONARY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "WELL_RECORD_SETTLE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "wellChainConsumes",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "wellRecordAgeMs",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "buildWell",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 304,
+  "t": 304,
+  "b": 304
+ },
+ {
+  "sym": "plinthKey",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "plinthDir",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "plinthFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "readJsonRecord",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "readPlinth",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "writeRecordAtomic",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "createExclusive",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "LEASE_GEN",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "leaseGenFile",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "leaseCurrent",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "takePlinthLease",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "holdPlinthLease",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "releasePlinthLease",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "plinthPlanHere",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "knownPlinthCaps",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "knownPlinthColumns",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "wellUsableNow",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "townPlinthState",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townShared",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "plinthWantNow",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "plinthKeepOut",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "plinthRow",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "PLINTH_FUND_REMEDY",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "PLINTH_VISIT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LEAF",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "solidCell",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "plinthForbid",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "plinthToStand",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "plinthStandFor",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "coverPlinthPit",
+  "why": "same",
+  "protected": false,
+  "o": 48,
+  "t": 48,
+  "b": 48
+ },
+ {
+  "sym": "plinthPitCap",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "plinthPitState",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "coverPlinthVisitor",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "plinthHandoff",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "plinthNote",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "buildPlinth",
+  "why": "same",
+  "protected": false,
+  "o": 376,
+  "t": 376,
+  "b": 376
+ },
+ {
+  "sym": "WITHDRAW_CONTAINERS",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "WITHDRAW_ALT_RADIUS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "WITHDRAW_WALK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "RECOUNT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TOOLISH",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "openForWithdraw",
+  "why": "same",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": 36
+ },
+ {
+  "sym": "bagSnapshot",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "recountBag",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "CURSOR_SETTLE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "HOLD_TIMING",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "loadedMode",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TIMED_OUT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "within",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "ownClicks",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "trackedClick",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "clicksSettled",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "waitClicks",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "rearrangeFor",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "settleCursor",
+  "why": "same",
+  "protected": false,
+  "o": 75,
+  "t": 75,
+  "b": 75
+ },
+ {
+  "sym": "GUARDED",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ownInventory",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "JUNKSWAP_ITEMS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "junkSwap",
+  "why": "same",
+  "protected": false,
+  "o": 38,
+  "t": 38,
+  "b": 38
+ },
+ {
+  "sym": "holdUnsettled",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 91,
+  "t": 92,
+  "b": 91
+ },
+ {
+  "sym": "clientEnded",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "liveSource",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "stop",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "hotbarStartOf",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "tradeHotbarIndex",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "slotAt",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "transferIn",
+  "why": "same",
+  "protected": false,
+  "o": 128,
+  "t": 128,
+  "b": 128
+ },
+ {
+  "sym": "withdrawVisit",
+  "why": "same",
+  "protected": false,
+  "o": 136,
+  "t": 136,
+  "b": 136
+ },
+ {
+  "sym": "withdrawSweep",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 43,
+  "t": 45,
+  "b": 29
+ },
+ {
+  "sym": "withdrawClock",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "decideTool",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "decideTakes",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "noRoomResult",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "haveIn",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "withdrawRowOut",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "withdrawThrowRow",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "withdraw",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "withdrawVerb",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 64,
+  "t": 66,
+  "b": 64
+ },
+ {
+  "sym": "townSearchEmpty",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "townPickMiss",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "pickNeedOf",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "pickCopiesFor",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "townIngredientMiss",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 15
+ },
+ {
+  "sym": "townKitIronMiss",
+  "why": "same",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": 36
+ },
+ {
+  "sym": "pruneTarget",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "pruneWellRule",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "pruneTown",
+  "why": "same",
+  "protected": false,
+  "o": 37,
+  "t": 37,
+  "b": 37
+ },
+ {
+  "sym": "withdrawPick",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "townSearchView",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 53,
+  "t": 53,
+  "b": 53
+ },
+ {
+  "sym": "townSearchNext",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 8
+ },
+ {
+  "sym": "RECHECKS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "searchRechecks",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "townSearchIndex",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "HUB_INTAKE_NONE",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "indexSearchTag",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "withdrawIxTag",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "searchFailSkip",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "notePickSearchMisses",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "halvesOf",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "VISIT_STOPS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "pickPassEnds",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 1
+ },
+ {
+  "sym": "PICK_CRAFT_MIN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "pickCraftHere",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "withdrawPickRun",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 135,
+  "t": 136,
+  "b": 126
+ },
+ {
+  "sym": "toolkit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 247,
+  "t": 248,
+  "b": 247
+ },
+ {
+  "sym": "SMELT_DEADLINE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "SMELT_RECOVERY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SMELT_BANK_RESERVE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SMELT_POLL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SMELT_OPEN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "swordDrainRow",
+  "why": "same",
+  "protected": false,
+  "o": 24,
+  "t": 24,
+  "b": 24
+ },
+ {
+  "sym": "settleFurnaceCursor",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "drainFurnace",
+  "why": "same",
+  "protected": false,
+  "o": 58,
+  "t": 58,
+  "b": 58
+ },
+ {
+  "sym": "closingContents",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "SWORD_UNKNOWN_POLLS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "heldMap",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "smelt",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 25,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "endLease",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "leaseHolder",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "pickLeasedFurnace",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 37,
+  "t": 37,
+  "b": 37
+ },
+ {
+  "sym": "smeltInner",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 490,
+  "t": 452,
+  "b": 442
+ },
+ {
+  "sym": "townCopperMiss",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "townIndexNone",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 14
+ },
+ {
+  "sym": "townCoalStock",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "projectSiteNow",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "coalSiteOf",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "townIronMiss",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "jobRuledOut",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "townCoalMiss",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "townFurnaces",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 21
+ },
+ {
+  "sym": "furnaceLeasedNow",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "copperIn",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "familyIn",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "jobWithdrawOut",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "jobWithdraw",
+  "why": "same",
+  "protected": false,
+  "o": 126,
+  "t": 126,
+  "b": 126
+ },
+ {
+  "sym": "smeltTown",
+  "why": "same",
+  "protected": false,
+  "o": 230,
+  "t": 230,
+  "b": 230
+ },
+ {
+  "sym": "furnaceDrain",
+  "why": "same",
+  "protected": false,
+  "o": 95,
+  "t": 95,
+  "b": 93
+ },
+ {
+  "sym": "matsTownStock",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 18,
+  "t": 26,
+  "b": 18
+ },
+ {
+  "sym": "STONE_READ_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stoneBillMemo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "stoneBillNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "yardCobbleNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "CUTTER_REACH",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "findCutter",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "matsCut",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 37,
+  "b": null
+ },
+ {
+  "sym": "matsBagSpare",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "matsRecountKeys",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "matsRecount",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "matsHoldNote",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "matsHoldIfOpen",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "matsReleaseNote",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "matsNotePath",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "readMatsNote",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "writeMatsNote",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "clearMatsNote",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "MATS_FURNACE_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "matsFurnaceCandidates",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "matsTableReady",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "matsLease",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "matsLeaseFree",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "matsTaking",
+  "why": "same",
+  "protected": false,
+  "o": 24,
+  "t": 24,
+  "b": 24
+ },
+ {
+  "sym": "uncertainTakes",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "matsWithdraw",
+  "why": "same",
+  "protected": false,
+  "o": 69,
+  "t": 69,
+  "b": 60
+ },
+ {
+  "sym": "matsSession",
+  "why": "same",
+  "protected": false,
+  "o": 119,
+  "t": 119,
+  "b": 116
+ },
+ {
+  "sym": "matsCraftDirect",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "PLACE_MATCH_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MOVE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "countPlacements",
+  "why": "same",
+  "protected": false,
+  "o": 50,
+  "t": 50,
+  "b": 50
+ },
+ {
+  "sym": "matsTownHasRoom",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "MATS_BANK_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "matsBank",
+  "why": "same",
+  "protected": false,
+  "o": 69,
+  "t": 69,
+  "b": 67
+ },
+ {
+  "sym": "matsCrafts",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 25,
+  "t": 41,
+  "b": 24
+ },
+ {
+  "sym": "glassRead",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "glassBpCache",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "glassBuildings",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "glassReading",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "glassReserved",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "glassRow",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "sandDigs",
+  "why": "same",
+  "protected": false,
+  "o": 40,
+  "t": 40,
+  "b": null
+ },
+ {
+  "sym": "glassSand",
+  "why": "same",
+  "protected": false,
+  "o": 62,
+  "t": 62,
+  "b": null
+ },
+ {
+  "sym": "glazeCells",
+  "why": "same",
+  "protected": false,
+  "o": 47,
+  "t": 47,
+  "b": null
+ },
+ {
+  "sym": "glassGlaze",
+  "why": "same",
+  "protected": false,
+  "o": 52,
+  "t": 52,
+  "b": null
+ },
+ {
+  "sym": "makeMaterial",
+  "why": "both changed: 3 block(s) took the showcase side",
+  "protected": false,
+  "o": 194,
+  "t": 217,
+  "b": 152
+ },
+ {
+  "sym": "matsReturnDrain",
+  "why": "same",
+  "protected": false,
+  "o": 62,
+  "t": 62,
+  "b": 62
+ },
+ {
+  "sym": "matsReturn",
+  "why": "same",
+  "protected": false,
+  "o": 103,
+  "t": 103,
+  "b": 103
+ },
+ {
+  "sym": "mineGuarded",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "mine",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 808,
+  "t": 810,
+  "b": 796
+ },
+ {
+  "sym": "CARDINALS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "yawQuadrant",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "stairBearing",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "stairBearings",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 17,
+  "t": 9,
+  "b": 17
+ },
+ {
+  "sym": "mineTreadProbe",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "stairLiquid",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "STAIR_LOOKAHEAD",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "stairRunway",
+  "why": "same",
+  "protected": true,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "FLOW_NEIGHBOURS",
+  "why": "same",
+  "protected": true,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "stairFlowRisk",
+  "why": "same",
+  "protected": true,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "chooseStairBearing",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "sleepSkill",
+  "why": "same",
+  "protected": false,
+  "o": 71,
+  "t": 71,
+  "b": 71
+ },
+ {
+  "sym": "isNightTime",
+  "why": "same",
+  "protected": false,
+  "o": 38,
+  "t": 38,
+  "b": 38
+ },
+ {
+  "sym": "TOOL_RANK",
+  "why": "same",
+  "protected": false,
+  "o": 75,
+  "t": 75,
+  "b": 75
+ },
+ {
+  "sym": "TOOL_RE",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "strictlyBetterTools",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "equivalentTools",
+  "why": "same",
+  "protected": false,
+  "o": 37,
+  "t": 37,
+  "b": 37
+ },
+ {
+  "sym": "craftableAlternative",
+  "why": "same",
+  "protected": false,
+  "o": 71,
+  "t": 71,
+  "b": 71
+ },
+ {
+  "sym": "exitPrereqFor",
+  "why": "same",
+  "protected": true,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "exitAdviceFor",
+  "why": "same",
+  "protected": true,
+  "o": 24,
+  "t": 24,
+  "b": 24
+ },
+ {
+  "sym": "isExposed",
+  "why": "same",
+  "protected": true,
+  "o": 58,
+  "t": 58,
+  "b": 58
+ },
+ {
+  "sym": "BREAKABLE_COVER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "COVER_EXEMPT_TARGET",
+  "why": "same",
+  "protected": false,
+  "o": 45,
+  "t": 45,
+  "b": 45
+ },
+ {
+  "sym": "barrenFailClass",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "coverFallback",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "foliageCovered",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "FLOW_FACES",
+  "why": "same",
+  "protected": true,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "breakVeto",
+  "why": "same",
+  "protected": true,
+  "o": 52,
+  "t": 52,
+  "b": 52
+ },
+ {
+  "sym": "liquidKind",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "liquidFaces",
+  "why": "same",
+  "protected": true,
+  "o": 28,
+  "t": 28,
+  "b": 28
+ },
+ {
+  "sym": "orderFaceBuckets",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "liquidFacesLabel",
+  "why": "same",
+  "protected": true,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "breakVetoAt",
+  "why": "same",
+  "protected": true,
+  "o": 83,
+  "t": 83,
+  "b": 83
+ },
+ {
+  "sym": "RECIPE_VARIANT_CAP",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "sourcesFor",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "heldCounts",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "canProduce",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "inventoryLine",
+  "why": "same",
+  "protected": false,
+  "o": 58,
+  "t": 58,
+  "b": 58
+ },
+ {
+  "sym": "placeableInto",
+  "why": "same",
+  "protected": false,
+  "o": 41,
+  "t": 41,
+  "b": 41
+ },
+ {
+  "sym": "WET_NAME",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "NATURAL_LOG",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "OVERHEAD_OK",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "terrainAbove",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "shorelineExemptAt",
+  "why": "same",
+  "protected": true,
+  "o": 60,
+  "t": 60,
+  "b": 60
+ },
+ {
+  "sym": "wetBlock",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "standingDry",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "shorelineLogExempt",
+  "why": "same",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": 36
+ },
+ {
+  "sym": "isSafeToBreak",
+  "why": "same",
+  "protected": true,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "descentStepCells",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "actionKey",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "planOn",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "planHomeP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "planKeyNow",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "planReader",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 19,
+  "t": 34,
+  "b": 19
+ },
+ {
+  "sym": "zoneMem",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "townPlanZones",
+  "why": "same",
+  "protected": false,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "resetPlanZones",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "townPlanSeed",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "townPlanHead",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townPlanNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 10,
+  "t": 21,
+  "b": 10
+ },
+ {
+  "sym": "reservationFilesStrict",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 36,
+  "b": null
+ },
+ {
+  "sym": "treeFarmCells",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 16,
+  "t": 19,
+  "b": 16
+ },
+ {
+  "sym": "sectorData",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "fixedSectors",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "townPlanCtx",
+  "why": "same",
+  "protected": false,
+  "o": 61,
+  "t": 61,
+  "b": 61
+ },
+ {
+  "sym": "PLAN_CTX_MEMO_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "planCtxMemo",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "PLAN_SAY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "planRow",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "planSummary",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "planPublish",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "townPlanTick",
+  "why": "same",
+  "protected": false,
+  "o": 54,
+  "t": 54,
+  "b": 54
+ },
+ {
+  "sym": "planTierAt",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "planAccessKept",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "planPlaceClass",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "planTableForbids",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "recoveryPlanCell",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "foundReadyCtx",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "cellIn",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "KIND_ITEM",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "readsAs",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "planReserve",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "planStillOurs",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "planRenew",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "planPlaced",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "planRelease",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "placeIntoPlan",
+  "why": "same",
+  "protected": false,
+  "o": 73,
+  "t": 73,
+  "b": 73
+ },
+ {
+  "sym": "placeForTest",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "projKeyOf",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "bpCache",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "blueprintOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 5,
+  "t": 6,
+  "b": 1
+ },
+ {
+  "sym": "stoodKey",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "activeMem",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "activeSig",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "countryDemandNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "SHOP_PRIME_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SHOP_PRIME_FRESH_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "shopPrimeOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "shopActivePrime",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "shopActiveForget",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "shopActiveStates",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "shopActive",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 149,
+  "b": 20
+ },
+ {
+  "sym": "hallOpenNow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 21,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "yardSiteFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 27,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "hallSiteFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "buildersFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "slotFreeFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "shopKey",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 1
+ },
+ {
+  "sym": "shopBlueprint",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 2
+ },
+ {
+  "sym": "plotRecordsNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "scafTownRecords",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 3,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "headReport",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "projectHeads",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 30,
+  "b": 10
+ },
+ {
+  "sym": "homePlotsResolved",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "homeResolvedMemo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "homePlotsReserve",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "SITEPREP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "siteprepHead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "prepRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "prepPublish",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "LANDP",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "COUNTRY_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "gkNextInner",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "landHead",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "shopStuckAt",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 1
+ },
+ {
+  "sym": "projStuckLive",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 37,
+  "t": 38,
+  "b": null
+ },
+ {
+  "sym": "zigRepairedFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "zigRepairedAt",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "zigRepairedWrite",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "recordCellOpen",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "recordCellDone",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "shopRecordHead",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 8,
+  "t": 11,
+  "b": 1
+ },
+ {
+  "sym": "shopProgressFile",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "shopProgressRead",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "shopProgressWrite",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "shopRecordRoot",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "projectReserveNow",
+  "why": "same",
+  "protected": false,
+  "o": 31,
+  "t": 31,
+  "b": 31
+ },
+ {
+  "sym": "projectPartReserve",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "projectDraw",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "shopSlotsFree",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "shopCtx",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 19,
+  "t": 23,
+  "b": 15
+ },
+ {
+  "sym": "shopStoodTick",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "shopAckInstall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 24,
+  "t": 25,
+  "b": 24
+ },
+ {
+  "sym": "shopCellCache",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "shopCellsNow",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 15
+ },
+ {
+  "sym": "shopKeepOut",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "shopDamaged",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 13,
+  "t": 19,
+  "b": 13
+ },
+ {
+  "sym": "recordDamaged",
+  "why": "both changed: 5 block(s) took the showcase side",
+  "protected": false,
+  "o": 47,
+  "t": 84,
+  "b": 11
+ },
+ {
+  "sym": "shopFootprintRefresh",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 40,
+  "t": 40,
+  "b": 23
+ },
+ {
+  "sym": "EXPEDITION",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "exHk",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exKey",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exTripsFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exMarkersFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exBridgesFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "exCrossFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_DESIGN_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_TRAFFIC_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CROSS_SAMPLE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRAFFIC_R_LOG",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exBridgeKey",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "exBridgeSites",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "exBridgeSitesStrict",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "exHome",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exAtHome",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "EX_TOWN_R",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exBot",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exRead",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exWrite",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "exLines",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 3,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "exAppend",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "exMarkers",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 9,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "exReader",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "exRow",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "exOutstanding",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "exSlotFree",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "exCloseAtTown",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "expeditionAsk",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "hallWaitingNow",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "COPPER_OPEN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "copperOreNear",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "crBot",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "copperAsk",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "copperRunInstall",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "sbBot",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "heldShares",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "stackSizeOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "shareBankAsk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "bagRoomInstall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "shareBankVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "shareBankRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "roomShareNames",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "roomBankSlots",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "roomAsk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "ROOM_WALK_R",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "roomContainerNear",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "ROOM_BUILD_AFTER_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "roomBankVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "enBot",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "enState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "townHeldCount",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "stationNear",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "enSkipRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "enchantAsk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "enchantIo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "enWalkTo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "anvilApply",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 33,
+  "b": null
+ },
+ {
+  "sym": "enchantTool",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "enchantInstall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "MARKET_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "mkBot",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "mkState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "mkFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "mkRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "mkWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "mkTownStock",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "mkBag",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "mkHome",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "mkLease",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "mkSkip",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "marketRunPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "marketJobPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "marketAsk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "mkFindPond",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "mkFillBucket",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 35,
+  "b": null
+ },
+ {
+  "sym": "marketRun",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 135,
+  "b": null
+ },
+ {
+  "sym": "mkOpenAndTrade",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 42,
+  "b": null
+ },
+ {
+  "sym": "marketJob",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "marketJobHeld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 60,
+  "b": null
+ },
+ {
+  "sym": "WALKIN_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "mkTripState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "walkinPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "mkWalkLegs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "mkReservedNear",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "mkBeds",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "mkPlaceBed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 49,
+  "b": null
+ },
+ {
+  "sym": "mkPlaceCarried",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "mkPlaceCarriedHeld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "marketTrip",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "marketTripPriced",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 123,
+  "b": null
+ },
+ {
+  "sym": "FEED_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "vfState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "vfFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "vfRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "vfWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "vfSleepSync",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "vfUpdate",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "vfRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "vfSeen",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "vfNote",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "feedPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "villageFeed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "villageFeedPriced",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 149,
+  "b": null
+ },
+ {
+  "sym": "marketInstall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "_marketTest",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "_pensTest",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "_feedTest",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "expeditionInstall",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "exFollowHome",
+  "why": "same",
+  "protected": false,
+  "o": 42,
+  "t": 42,
+  "b": null
+ },
+ {
+  "sym": "exHeldNow",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "expeditionHomeLeg",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "exPlaceMarker",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": null
+ },
+ {
+  "sym": "exGather",
+  "why": "same",
+  "protected": false,
+  "o": 45,
+  "t": 45,
+  "b": null
+ },
+ {
+  "sym": "exDeposit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "exSiteBridge",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "exBridgesNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "exBridgeWork",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 41,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_WOOD_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "exBridgeWoodKit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 30,
+  "b": null
+ },
+ {
+  "sym": "DESIGN_KEEP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "exDesignStock",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "exDesignFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "DESIGN_KIT_STEPS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "designAllow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "exDesignKit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 50,
+  "b": null
+ },
+ {
+  "sym": "TRAFFIC_RETRY_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "exTrafficSite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_AT",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "expeditionVisit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 159,
+  "t": 252,
+  "b": null
+ },
+ {
+  "sym": "storeSiteFor",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "shopchestSiteFor",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "MATS_CHEST_SEEN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "matsChestNames",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "SHOPCHEST_ON",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "matsChestsFor",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "sortKnownEntries",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "sortBagFree",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "sortTidyPlan",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "sortHeldUnstackable",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "sortStands",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "sortSpotNeed",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "sortSignWork",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "storeUpkeepDue",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "sortSignItem",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "sortGetSigns",
+  "why": "same",
+  "protected": false,
+  "o": 26,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "sortLabelOne",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 53,
+  "t": 54,
+  "b": null
+ },
+ {
+  "sym": "sortPut",
+  "why": "same",
+  "protected": false,
+  "o": 39,
+  "t": 39,
+  "b": null
+ },
+ {
+  "sym": "sortTidyOne",
+  "why": "same",
+  "protected": false,
+  "o": 60,
+  "t": 60,
+  "b": null
+ },
+ {
+  "sym": "yardWorkNow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "yardClearHeld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "yardDeferredNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "yardRecNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "wellCobbleReserveNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "wellKeptForYard",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "yardCollect",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "yardNeedLeft",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "yardDrawFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "yardVisit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 105,
+  "t": 139,
+  "b": null
+ },
+ {
+  "sym": "storeUpkeepVisit",
+  "why": "same",
+  "protected": false,
+  "o": 31,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "_sortUpkeep",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 3,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HUB",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "hubRegAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "hubRecNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "hubRegistryRefresh",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "hubSiteFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "hubCargoKey",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "hubCargoNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "hubCargoWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "hubOwed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "hubCargoKeeps",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "hubSources",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "hubClerkPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "hubWithdrawPrefer",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "hubSignWork",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "hubClerkFree",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "hubUpkeepDue",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "hubClerkRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "hubPutOne",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "hubClerkOne",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 133,
+  "b": null
+ },
+ {
+  "sym": "hubUpkeepVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 38,
+  "b": null
+ },
+ {
+  "sym": "_hubUpkeep",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "siteWaitFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "siteWaitUntil",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SERVICE_KEEP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "SERVICE_TORN_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "serviceGenFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "reEsc",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "serviceGenRe",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "serviceGens",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "serviceHeadOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "serviceStampsNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "serviceClaim",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "serviceDueOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "servicePickNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "serviceBegin",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "serviceEnd",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "siteWaitSet",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "ENCH",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "enchantExtNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "ENCHANT_NOSITE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "enchantOpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "reroofDueNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "CITYWALL_RINGS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "CITYWALL_NOSITE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "cellDoneHere",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "citywallDueNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "buildCitywall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 75,
+  "b": null
+ },
+ {
+  "sym": "buildReroof",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 75,
+  "b": null
+ },
+ {
+  "sym": "leafRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "leafZoneClosed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "reroofLeafCtx",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "trunkReservations",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "leafFellCtx",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "leafFellVisitOpts",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "reroofVisitOpts",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "reroofTempState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "reroofTempDown",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "reroofFailFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "reroofFails",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "reroofFailNote",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "SITED_APART",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "townhallOpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "townhallSiteFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "paSiteCtx",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "recordOwned",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "siteCanopyCtx",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "plotsTakenBy",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "COTTAGE_NOSITE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "plotsTaken",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "cottageOpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "homeFailFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "homeMem",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "homeMemWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "homeFails",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "homeFailNote",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "homeSearch",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "homeSearchNote",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "homeOfferNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "housePlotsNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "homePlotRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "cottageSiteFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "cottageSiteOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 95,
+  "b": null
+ },
+ {
+  "sym": "_homePlots",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "cottageHave",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "cottageCellWaits",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "sheepInSight",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "cottageShearDueFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "cottageShearVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 46,
+  "b": null
+ },
+ {
+  "sym": "cottageFurnitureCrafts",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 42,
+  "b": null
+ },
+ {
+  "sym": "_cottage2",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "civicSiteFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "enchantRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "enchCargoKey",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "enchCargoNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "enchCargoWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "enchOwed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "enchantAvailNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "enchantSiteFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "enchantGateRows",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "enchantSignWork",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "enchantFitterFree",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "enchantUpkeepDue",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "enchantFitRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "woodSpecies",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "enchantFitOne",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 117,
+  "b": null
+ },
+ {
+  "sym": "enchantUpkeepVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "enchRecMemo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "enchantRecNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "enchantStationAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "_enchantshop",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "buildShop",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 9,
+  "t": 58,
+  "b": 182
+ },
+ {
+  "sym": "groundsFallLeg",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "groundsFallNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "buildShopVisit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 25,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "buildShopVisitRun",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 427,
+  "b": null
+ },
+ {
+  "sym": "ZIG_VISIT_TAIL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "ZIG_SPLIT_HOLDER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ZIG_SPLIT_TTL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STAIR_VISIT_TAIL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "STAIR_LINING_MIN",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STAIR_SITE_MS",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stairRecMem",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stairRecordNow",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "stairRow",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "buildStair",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 140,
+  "t": 139,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_HOP_MS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "EGRESS_TAIL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "bodyOnCell",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "visitEgress",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 34,
+  "t": 30,
+  "b": null
+ },
+ {
+  "sym": "STAIR_DOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "STAIR_UP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STAIR_PLAN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STAIR_BACKOFF_MS",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stairWalk",
+  "why": "same",
+  "protected": true,
+  "o": 23,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "stairDescend",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 36,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "stairAscend",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 42,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "DEEP_STEP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "DEEP_HOP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DEEP_REPAIR_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "deepRow",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "deepSurfaceY",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "deepFeet",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "deepLeaseNow",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "deepStairNow",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "deepHops",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "deepEffects",
+  "why": "same",
+  "protected": true,
+  "o": 26,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "deepTrailWalk",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "deepRepair",
+  "why": "same",
+  "protected": true,
+  "o": 24,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "deepBranch",
+  "why": "same",
+  "protected": true,
+  "o": 61,
+  "t": 61,
+  "b": null
+ },
+ {
+  "sym": "deepOre",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "oreGain",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "deepClose",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 16,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "deepObsRead",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "DEEPOBS_FLOW_BUDGET",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "deepObsZone",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 30,
+  "b": null
+ },
+ {
+  "sym": "deepObsTown",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "deepObsRow",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "deepObsCentre",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "deepObsAt",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "deepObsGo",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "deepObsSeal",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "deepObsFill",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "deepObsLegs",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 49,
+  "b": null
+ },
+ {
+  "sym": "deepObsContain",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "deepObsLavaBack",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "deepObsCleanup",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "deepObsStep",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 188,
+  "b": null
+ },
+ {
+  "sym": "deepMineRow",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "deepMineForbid",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "deepMineSite",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "deepMineFinish",
+  "why": "same",
+  "protected": true,
+  "o": 47,
+  "t": 47,
+  "b": null
+ },
+ {
+  "sym": "deepMineBuild",
+  "why": "same",
+  "protected": true,
+  "o": 52,
+  "t": 52,
+  "b": null
+ },
+ {
+  "sym": "deepGallery",
+  "why": "same",
+  "protected": true,
+  "o": 70,
+  "t": 70,
+  "b": null
+ },
+ {
+  "sym": "deepMine",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 310,
+  "t": 339,
+  "b": null
+ },
+ {
+  "sym": "zigProgressNow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "zigTidyNow",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "zigSealedOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "zigOtherCells",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "zigAccessOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 12,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "runVisitCounted",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "zigBillInTown",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "monumentSplitGate",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "buildMonument",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 185,
+  "t": 216,
+  "b": null
+ },
+ {
+  "sym": "PATH_SHOVEL",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "PATHS_EXTEND_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "pathShovel",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "pathsInputs",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 19,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "pathsRouteInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "pathsExtendDue",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 15,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "pathOverburdenOf",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "buildPaths",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 159,
+  "t": 161,
+  "b": null
+ },
+ {
+  "sym": "wallInputs",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 19,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "wallStuckOn",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 1,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "tempStandOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "wallStuckOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 8,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "wallextInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "wallextOpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "WALL_KIND",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "WALLEXT_KIND",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "walldemoOpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "buildWallDemo",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 98,
+  "b": null
+ },
+ {
+  "sym": "buildWall",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 157,
+  "t": 160,
+  "b": null
+ },
+ {
+  "sym": "sinkPressureNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "roads2On",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "roads2Cache",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "roads2Traffic",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "woodCountryRecord",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "roads2Ctx",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "sinkReady",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "sinkStatesNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "sinkListOrder",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "sinkNextNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "sinkGuardFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "sinkAvailNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "dressPressureNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "dressReservedFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "dressSignWork",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "dressSignsVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "decorKey",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "decorState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "takeDecor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "releaseDecor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "decorLeaseNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "decorStall",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "decorOrder",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "decorPressureNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "WOOD_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "WOOD_STALL",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "woodPressureNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "woodSpeciesNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "woodKit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 47,
+  "b": null
+ },
+ {
+  "sym": "DECOR_POTS_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "DECOR_HEDGES_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "decorWildFerns",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "decorFlowersOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FLOWER_SET_SK",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "FLOWERS_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "LAWNS_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LAWN_STALL",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "FLOWER_STALL",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FLOWER_STALL_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "guardRecsWithCountry",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "decorRecNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "decorWildFlowerCands",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "decorNurseryCentres",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "decorWildTargets",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "decorFlowerWorkNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "decorFlowerDue",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "decorReservedLawns",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "decorReservedFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "cutterRefusal",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "decorInside",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "decorAllow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "decorDoorOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "decorEffects",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "decorClick",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "decorHeldNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "decorUnheld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "decorGen",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "decorPotFill",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 41,
+  "b": null
+ },
+ {
+  "sym": "decorNursery",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 81,
+  "b": null
+ },
+ {
+  "sym": "deadline0",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "decorShears",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "decorFerns",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 46,
+  "b": null
+ },
+ {
+  "sym": "decorLawn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 56,
+  "b": null
+ },
+ {
+  "sym": "decorWildPick",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 33,
+  "b": null
+ },
+ {
+  "sym": "decorLeaves",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 41,
+  "b": null
+ },
+ {
+  "sym": "DECOR_POSTS_TOWN",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "decorPostKit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "ROAD_KIT_MAX",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ROAD_IRON_KEEP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "roadKit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 51,
+  "b": null
+ },
+ {
+  "sym": "decorPotWork",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "sinkSiteFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "sinkSiteNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "roads2Sited",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "sinkDeferFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "sinkDeferCounts",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "buildSink",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 351,
+  "b": null
+ },
+ {
+  "sym": "_sinkSteps",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "tidyInputs",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 48,
+  "b": null
+ },
+ {
+  "sym": "terraceGuardNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "tidyRead",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "keeperMe",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "keeperState",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "takeKeeper",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "releaseKeeper",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "keeperNow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "turnOwn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "turnMem",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "turnMe",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "shopTurnForget",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "turnOwnNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "turnViewNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "turnHoldNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "turnLeased",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "turnMarksNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "turnBackedOff",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "turnPut",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "turnBegin",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "turnWorkable",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "turnAside",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "turnNote",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "_projturn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "keeperLeaseNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "townNoSiteFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "townNoSiteRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "townNoSiteWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "gkOpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "gkOpenSum",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "crewState",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "takeHelper",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "releaseHelper",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "dropHelperLeases",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "crewLive",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "gkStageDue",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "keeperOrder",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 29,
+  "t": 46,
+  "b": null
+ },
+ {
+  "sym": "GKL_ON",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "GKW_ON",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRF_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "countryHeadNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PLANAHEAD_ON",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "paDone",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "paConfirm",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "paRecords",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 8,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tidyReachTag",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "gkwTownClosing",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "gkwTownRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "gkFeet",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "gkUnfitNow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 3,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "G2",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "G3",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "g3Only",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "g2Home",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "g2Carrying",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "g2Eligible",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "g2Record",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "g2OpenNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "groundsBegin",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "groundsEnd",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "g3Links",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "groundsAsk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "groundsHeld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "_grounds2",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "landInputs",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "townMarkerZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "hallPadZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "LAND_UNREAD_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LAND_UNREAD_TRIES",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "landWaterOk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "landPlanNow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 16,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "gkExtraBill",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 15,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "crewNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "crewPantry",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "townPark",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "gkPlanAdditions",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 166,
+  "b": null
+ },
+ {
+  "sym": "gatherGuard",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "parkGather",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 68,
+  "b": null
+ },
+ {
+  "sym": "prepOverlapZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "prepOverlap",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "prepWorking",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "prepTick",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 110,
+  "b": null
+ },
+ {
+  "sym": "ownBodyIn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "otherBodyOnCell",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "GK_PARK_WAITS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "buildTidy",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 313,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "gkSweepSel",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "gkSweep",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 38,
+  "b": null
+ },
+ {
+  "sym": "BW3S",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "bw3Docs",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "bw3Doc",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "bw3GuardStrict",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "bw3Due",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "waterWalkVisit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 87,
+  "t": 99,
+  "b": null
+ },
+ {
+  "sym": "LITTER_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "litterForSurvey",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "litterIntakeLog",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "recordKeys",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "tidyGuardSet",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "stageSurveyInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 29,
+  "b": null
+ },
+ {
+  "sym": "fcKeepInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "_fillcol",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "tidyRefresh",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 57,
+  "b": null
+ },
+ {
+  "sym": "withPlanCells",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "siteCountry",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 58,
+  "b": null
+ },
+ {
+  "sym": "upkeepStateNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "upkeepSaplingNear",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "upkeepDropsInView",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "upkeepInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "buildUpkeep",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 131,
+  "b": null
+ },
+ {
+  "sym": "buildTidyVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 668,
+  "b": null
+ },
+ {
+  "sym": "farmInputs",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "FARM_SKIP_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "farmSkipOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "farmRead",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "farmDueFor",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "farmHarvest",
+  "why": "same",
+  "protected": false,
+  "o": 53,
+  "t": 53,
+  "b": null
+ },
+ {
+  "sym": "buildTreeFarm",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 133,
+  "t": 134,
+  "b": null
+ },
+ {
+  "sym": "FOREST_SKIP_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "forestSkipOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "forestSaplingsNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "forestDropsNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "forestDemandNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "forestDueFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "forestInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "fellLeafGuard",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "forestFell",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "buildForest",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 283,
+  "b": null
+ },
+ {
+  "sym": "FOREST_NOSITE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "farmRetireDueNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "forestRecNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "cropRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "cropSeedsNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "cropDueFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "cropInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "cropHarvest",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "cropSeedGather",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "cropHoe",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "buildCropFarm",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 126,
+  "b": null
+ },
+ {
+  "sym": "caneRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "caneDueFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "caneInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "caneHarvestRun",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "buildCaneFarm",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 115,
+  "b": null
+ },
+ {
+  "sym": "pensRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "hdFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "hdJson",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "hdRead",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "hdPut",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "hdWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "hdNoteAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "hdNoteSightings",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "hdAnimals",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "penCentreOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "woolIn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "pensDueFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "pensInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "pensWood",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "pensMaterials",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "isSolidName",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "buildPens",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 95,
+  "b": null
+ },
+ {
+  "sym": "penGateOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "gateIsOpen",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "useGate",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "setGate",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "onFloor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "hdGoto",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "penEnter",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "penExit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "herdVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 170,
+  "b": null
+ },
+ {
+  "sym": "STEPWELL_SITE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "STEPWELL_TIMEOUT_WAIT_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STEPWELL_NOSITE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STEPWELL_WALK_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STEPWELL_POSTS_CRAFT",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stepwellRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "stepwellInputs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "stepwellSite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "swSaplingAbsent",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "buildStepwell",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 75,
+  "b": null
+ },
+ {
+  "sym": "stepwellMineKeep",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "swListCanopy",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "swFellDoneRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "buildStepwellRun",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 176,
+  "b": null
+ },
+ {
+  "sym": "foundStore",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "foundWork",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "foundRun",
+  "why": "same",
+  "protected": false,
+  "o": 71,
+  "t": 71,
+  "b": 71
+ },
+ {
+  "sym": "wantedCounts",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "clusterHomeSite",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "foundCellReady",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "foundTownContainer",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "foundLeaseFree",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "foundBankGroups",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "foundAssignHome",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "foundCraftFits",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "planAdoptSeen",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "planAdoptRow",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "planWellAvoid",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "planWellOrder",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "planWellSearch",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "planPlinthKeepOut",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "PLINTH_ACCESS_RETRIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "planPlinthPasses",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "planComposterSite",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "SKILL_CONTRACTS",
+  "why": "table merged by row: 1 blocks fleet (protected rows), 0 blocks showcase",
+  "protected": false,
+  "o": 141,
+  "t": 147,
+  "b": 140
+ },
+ {
+  "sym": "DURABLE_EVIDENCE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "classifyOutcome",
+  "why": "same",
+  "protected": false,
+  "o": 91,
+  "t": 91,
+  "b": 91
+ },
+ {
+  "sym": "SEA_LEVEL",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "STEP_UP",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "belowGroundHint",
+  "why": "same",
+  "protected": true,
+  "o": 30,
+  "t": 30,
+  "b": 30
+ },
+ {
+  "sym": "hasCeiling",
+  "why": "same",
+  "protected": true,
+  "o": 24,
+  "t": 24,
+  "b": 31
+ },
+ {
+  "sym": "TREE_OVERHEAD",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "terrainRoofTop",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "logSurfacePlan",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "LOG_SURFACE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "LOG_SURFACE_GATHER_MS",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 23,
+  "t": 33,
+  "b": null
+ },
+ {
+  "sym": "ROOF_GROUND",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ROOF_CLIMB",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "roofClimbOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "ROOF_RECORD_PASS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "roofDigRefusal",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "roofOwedFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "roofClimbPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "surfaceTop",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "skyOpenOver",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "GoalOpenSky",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "skyWalkPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "roofClimbDetail",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 25,
+  "b": null
+ },
+ {
+  "sym": "SCAFFOLD",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "LIQUID",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FALLING",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "RESCUE_BLOCK",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "rescueBlocks",
+  "why": "same",
+  "protected": false,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "shaftDigBudget",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "shaftAscend",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 269,
+  "t": 274,
+  "b": 269
+ },
+ {
+  "sym": "rideFloorDown",
+  "why": "same",
+  "protected": true,
+  "o": 152,
+  "t": 152,
+  "b": 152
+ },
+ {
+  "sym": "climbPrerequisite",
+  "why": "same",
+  "protected": true,
+  "o": 26,
+  "t": 26,
+  "b": 26
+ },
+ {
+  "sym": "climbAdvice",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": 23,
+  "t": 31,
+  "b": 23
+ },
+ {
+  "sym": "surface",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "surfaceClimb",
+  "why": "both changed, merged cleanly inside",
+  "protected": true,
+  "o": 240,
+  "t": 398,
+  "b": 232
+ },
+ {
+  "sym": "BUCKET_ZONE_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "bucketSkill",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 74,
+  "t": 89,
+  "b": 74
+ },
+ {
+  "sym": "SKILLS",
+  "why": "table merged by row: 1 blocks fleet (protected rows), 0 blocks showcase",
+  "protected": false,
+  "o": 103,
+  "t": 108,
+  "b": 101
+ },
+ {
+  "sym": "__imports__#21",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "isPillarItem#7",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "tunnelEligibleOf",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 18,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stationFromTown",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 16,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "craftableFromBag",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 8,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stationStill",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 8,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retryWatch",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retryRecheck",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retryGuard",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 12,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retryDig",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 15,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retakeStation",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 53,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stnTown",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 8,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stnFree",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "placeDesignated",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 17,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "TABLE_DROP_R",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "TABLE_LATE_LOOKS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "mergeRescue",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 29,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "mergeInto",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 56,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "shopActiveAll",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 92,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "boardJobNow",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 10,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "boardClaim",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 9,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "boardRelease",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 4,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "boardPin",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "boardLight",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "buildNextHeld",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 4,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "buildNextHeldForTest",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "buildNextAfter",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 16,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "yardLand",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "STARVE_PICK_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "STARVE_READ_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "projLastTake",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 16,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "unsitedMem",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "unsitedOfPlot",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "GKFS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "gkLandL",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "gkLastK",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "gkfDueOf",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 4,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "shopLikeBp",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stuckCellsDone",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 7,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stuckCellsPublish",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 9,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "buildShopOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 247,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "visitDescend",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 24,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairStandingOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 19,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairEgressReflex",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 35,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairWalkOwned",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 21,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "STAIR_APPROACH_WAIT_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stairDescendSteps",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 60,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "zigPlaceOk",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "canopyOf",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 12,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "tidyPlanAhead",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 38,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "strayNow",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 29,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "strayDue",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 13,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "sweepFurnace",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 37,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "sweepStrays",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 24,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "SCL_ON",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "tidyTownGiven",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 4,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "GKSTAY_ON",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "GKL2_ON",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "gkCovered",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "sweepMapFile",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "sweepMapsRead",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "sweepMapSeed",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "sweepMapWrite",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 9,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "groundsCensus",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 16,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "groundsMeansFor",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 20,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "logCapStateFor",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 24,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "tidySameGen",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "VUON",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 8,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "vuStill",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "vuBot",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "unlockSee",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "vuBlockAt",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "unlockAsk",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 13,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "villageUnlock",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 50,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "villageUnlockInstall",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ }
+]

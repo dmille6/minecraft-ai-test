@@ -1,0 +1,282 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 4
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BODY_RADIUS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "PATH_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PLAN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PROBE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "RISE_UP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RISE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LAND_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "INTERACTABLE",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 18,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "FACE_DIR",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 13,
+  "t": 7,
+  "b": 13
+ },
+ {
+  "sym": "clickZone",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "cellZone",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "yawRad",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "aimPitch",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "cornerCut",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 29,
+  "t": 38,
+  "b": 29
+ },
+ {
+  "sym": "pathCrosses",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 13
+ },
+ {
+  "sym": "STEP_FENCE_COST",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stepFence",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "withStepFence",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "cornerWaypoints",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 17,
+  "t": 23,
+  "b": 17
+ },
+ {
+  "sym": "apexDigs",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "decodeMultiBlock",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 13,
+  "t": 20,
+  "b": 13
+ },
+ {
+  "sym": "WITNESS_KEPT",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "movedNear",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "STATE_ONLY",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "wordMoves",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "installServerBlockWitness",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 37,
+  "t": 59,
+  "b": 37
+ },
+ {
+  "sym": "connEnded",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "visitGone",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "botBuildEffects",
+  "why": "both changed: 4 block(s) took the showcase side",
+  "protected": false,
+  "o": 177,
+  "t": 229,
+  "b": 109
+ },
+ {
+  "sym": "STILL_ALLOW_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "buildWaitOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stillUntil",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ }
+]

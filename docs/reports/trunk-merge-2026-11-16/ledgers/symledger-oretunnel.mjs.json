@@ -1,0 +1,306 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 7
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "IRON_KINDS",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 3
+ },
+ {
+  "sym": "DIAMOND_KINDS",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tunnelKindsFor",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 11,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "MIN_TRIP_USES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ONE_PICK_USES",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "RETURN_RESERVE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "CLUSTER_CAP",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "CANDIDATE_RADIUS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MAX_CANDIDATES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PLAN_TIMEOUT_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SEARCH_SLACK",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "HEURISTIC_WEIGHT",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "HOME_RADIUS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "nearHome",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "F6",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "LIQUID",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FALLING",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "HOT",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "CLIMBABLE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "waterlogged",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "breakHazard",
+  "why": "same",
+  "protected": true,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "stepHazard",
+  "why": "same",
+  "protected": true,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "isPick",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "spare",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "hasTripPickaxe",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "pickBudget",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "tripDecision",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "rankCandidates",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "clusterOf",
+  "why": "same",
+  "protected": true,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "tunnelMovements",
+  "why": "same",
+  "protected": true,
+  "o": 33,
+  "t": 33,
+  "b": 33
+ },
+ {
+  "sym": "SideOfBlock",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "WeightedAny",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "planTunnel",
+  "why": "same",
+  "protected": true,
+  "o": 37,
+  "t": 37,
+  "b": 37
+ },
+ {
+  "sym": "COPPER_TUNNEL_KINDS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "tunnelTargets",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": true,
+  "o": 24,
+  "t": null,
+  "b": null
+ }
+]

@@ -1,0 +1,770 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "__head__#3",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "__imports__#3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__head__#4",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 13,
+  "t": 1,
+  "b": 13
+ },
+ {
+  "sym": "__imports__#4",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DECOR_KEEPS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "COMPOST_CHANCE",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "APPLE_CHANCE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "APPLE_RESERVE",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "SAPLING_CHANCE",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "SAPLING_RESERVE",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 1
+ },
+ {
+  "sym": "FARM_KEEP_SPECIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "farmKeepsOn",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "FARM_KEEPS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isFarmSapling",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isSapling",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "RANK",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "NEVER_COMPOST",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "isCompostJunk",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "isCompostInput",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "decorFeedNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "setDecorFeed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "compostAllowance",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 21,
+  "t": 23,
+  "b": 19
+ },
+ {
+  "sym": "MAX_ITEMS_PER_VISIT",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "VISIT_BUDGET_MS",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "compostPlan",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "nextInsert",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "startableJunk",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "boneMealRoom",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "fillDecision",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "TOWN_RADIUS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "ADOPT_RADIUS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "STORAGE_NEAR",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "composterLevel",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "WOODS",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "logOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SLABS_PER_COMPOSTER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SLABS_PER_CRAFT",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "composterBuildPlan",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "chainSteps",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "BUILDER_MAX_DEFERRALS",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "builderDecision",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "MIN_CONTAINER_DISTANCE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "HOME_CLEARANCE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "CANONICAL_RADIUS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "COLUMN_UP",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townDistance",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "CLEARANCE_CONTAINER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PLACEABLE_INTO",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LIQUID",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FLOOR_NO",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "solidAt",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "passable",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "narrowTop",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "standableBeside",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "siteRefusal",
+  "why": "same",
+  "protected": false,
+  "o": 38,
+  "t": 38,
+  "b": 38
+ },
+ {
+  "sym": "spiral",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "canonicalComposterSite",
+  "why": "same",
+  "protected": false,
+  "o": 43,
+  "t": 43,
+  "b": 43
+ },
+ {
+  "sym": "GEN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "genFile",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "validSite",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "sameWorld",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "readTownSite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 15,
+  "t": 18,
+  "b": 15
+ },
+ {
+  "sym": "createSiteGen",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "pruneSiteGens",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "resolveTownSite",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "worldIdFromLogin",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "townPlanTableAvailable",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "bodyInCell",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "tableCellFor",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "COMPOST_COOLDOWN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "COMPOST_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BUILD_COOLDOWN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BUILD_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "BUILD_NO_ROOM_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "TOWN_SCAN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TOWN_ORDERS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "lazy",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "compostDriveNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "setCompostDrive",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "townOrder",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 57,
+  "t": 60,
+  "b": 57
+ },
+ {
+  "sym": "compostVisitStacks",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": 28
+ },
+ {
+  "sym": "VISIT_COMPOST_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "compostVisitOrder",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "townOrderOutcome",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "TOOLISH",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "compostish",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "same",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "handPlan",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "protectTownBlocks",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "composterFloorFilter",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "composterSafeMovements",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "compostDetail",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ }
+]

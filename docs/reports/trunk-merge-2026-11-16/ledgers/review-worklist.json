@@ -1,0 +1,1366 @@
+{
+ "fleet": [
+  [
+   "admission.mjs",
+   "AdmissionControl",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "airpocket.mjs",
+   "airPocketStep",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "airpocket.mjs",
+   "airPocketRow",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "cognitive.mjs",
+   "CognitiveLoop",
+   "both changed: 11 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "deepmine.mjs",
+   "slotsOf",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "deepmine.mjs",
+   "DEEPMINE",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "deepmine.mjs",
+   "returnWhy",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "deepmine.mjs",
+   "deepModeDetail",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "escapeguard.mjs",
+   "ROW_EVERY_MS",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "escapeguard.mjs",
+   "ORDINARY",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "escapeguard.mjs",
+   "guardOf",
+   "both changed: 2 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "escapeguard.mjs",
+   "escapeDigDecision",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "index.mjs",
+   "connect",
+   "both changed: 6 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "oretunnel.mjs",
+   "tunnelKindsFor",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "protectzone.mjs",
+   "blocked",
+   "both changed: 3 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "protectzone.mjs",
+   "blockedIn",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "protectzone.mjs",
+   "zoneDecision",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "protectzone.mjs",
+   "attachProtectZone",
+   "both changed: 4 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "reflex.mjs",
+   "startReflexes",
+   "both changed: 8 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "reflex.mjs",
+   "floodBranch",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "reflex.mjs",
+   "guardBranch",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "reflex.mjs",
+   "pillarOut",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "reflex.mjs",
+   "digStraightUp",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "tunnelToOre",
+   "both changed: 2 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "gather",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "gatherRun",
+   "both changed: 4 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "escapeRecordSnapshot",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "escapeRecordAt",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "mine",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "stairDescend",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "stairAscend",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "deepClose",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ],
+  [
+   "skills.mjs",
+   "deepMine",
+   "both changed: 1 block(s) took the FLEET side (protected)"
+  ]
+ ],
+ "show": [
+  [
+   "boardwalk.mjs",
+   "bw3WalkOn",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildbot.mjs",
+   "botBuildEffects",
+   "both changed: 4 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "gensOf",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "writeSynced",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "recordHead",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "leaseState",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "takeLease",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "mutexTake",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "presenceWrite",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "stuckNames",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "stuckWrite",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "drawnWrite",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "appendSynced",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "openIntents",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildproj.mjs",
+   "barrierTake",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "AIR",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "foreignKind",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "OVERBURDEN_MAX",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "overburdenAbove",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "sealedAbove",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "footingBelow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "blockFamily",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "SOLID_ANY",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "segComplete",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "workableSeg",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "digReachFrom",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "byColumn",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "runVisit",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "BODY_WAITS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildrun.mjs",
+   "visitInner",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "levelFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "screenSite",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "walkFrom",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "stepFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "proveSite",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "siteBlueprintAsync",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "buildsite.mjs",
+   "siteBlueprintSteps",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "composter.mjs",
+   "compostAllowance",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "copperhall.mjs",
+   "hallBox",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "craftroom.mjs",
+   "MIN_SURVIVOR_USES",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "craftroom.mjs",
+   "craftRoomRemedy",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "expedition.mjs",
+   "ringOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "expedition.mjs",
+   "legTarget",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "expedition.mjs",
+   "torchSafe",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "expedition.mjs",
+   "tripDetail",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "features.mjs",
+   "installFeatures",
+   "both changed: 3 block(s) took the showcase side"
+  ],
+  [
+   "fewerdec.mjs",
+   "__head__",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "gkwork.mjs",
+   "strikesTotal",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "gkwork.mjs",
+   "keeperAfterVisit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "gkwork.mjs",
+   "stallWaive",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "glass.mjs",
+   "GLASS_PLOTS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "glass.mjs",
+   "waterDepth",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "groundskeeper.mjs",
+   "GK",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "groundskeeper.mjs",
+   "keeperOrderPure",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "groundskeeper.mjs",
+   "keeperWanted",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "groundskeeper.mjs",
+   "GK_FIT",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "groundskeeper.mjs",
+   "groundsUnfit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "handcap.mjs",
+   "handCapSwitch",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "landplan.mjs",
+   "planLand",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "landplan.mjs",
+   "landStages",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "landplan.mjs",
+   "nextStage",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "landplan.mjs",
+   "stageOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "landplan.mjs",
+   "landReservation",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "lidrule.mjs",
+   "LID_WOOD",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "lidrule.mjs",
+   "lidMaterialRefusal",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "KINDS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "KIND_ORDER_BASE",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "KIND_ORDER_STONEWORKS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "buffersDefault",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "effectiveBuffer",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "reserveKeyOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "orderInputs",
+   "both changed: 3 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "withFuelReserve",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "materialOrder",
+   "both changed: 3 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "familyUnits",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "matsDetail",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "mats.mjs",
+   "effectiveReserve",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "merchantscout.mjs",
+   "merchantScoutInstall",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "paths.mjs",
+   "pathAvoid",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "paths.mjs",
+   "pathDests",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "placeaudit.mjs",
+   "attachPlaceAudit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "planahead.mjs",
+   "puWaiveDue",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "planahead.mjs",
+   "STAND_PLOTS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "prompt.mjs",
+   "bucketSituation",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "__head__",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "ROUGH",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "STATION",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "floatingSegs",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "surveyRough",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "inwallAtOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "roughground.mjs",
+   "inwallAtNext",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shaftgeom.mjs",
+   "supportFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shaftgeom.mjs",
+   "egressDetail",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shaftgeom.mjs",
+   "shaftUseDetail",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shaftvisit.mjs",
+   "runStairVisit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shaftvisit.mjs",
+   "runStairEgress",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shaftvisit.mjs",
+   "stairBotEffects",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "TOWNWALL",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "SHAFT_DEFAULT_OFF_POOLS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "TREEFARM",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "COPPERHALL",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "TIDY",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "GROUNDS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "PROJECTS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "projectsOn",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "projectsGuarded",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "buildersOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "activeProject",
+   "both changed: 4 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "REPAIR_WINDOW_MS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "stuckBackoff",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "recordZones",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "stuckWindowOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "MONUMENT_BAG_SLOTS_MIN",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "LIGHT_PLOTS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "setCopperAsk",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "setKeeperNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "orderCooldown",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "buildOrder",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "shop.mjs",
+   "buildVisitDetail",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "PROJECT_NAMES",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "UNCOUNTABLE",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "itemPhrase",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "ORE",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "lineFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "decide",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "showchat.mjs",
+   "makeSpeaker",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "valveProof",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "lidJudge",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "bankInto",
+   "both changed: 3 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "townDeposit",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "throwPhase",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "disposeWell",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "withdrawSweep",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "withdrawVerb",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "pruneWellRule",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "townSearchNext",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "smeltInner",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "glassReserved",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "makeMaterial",
+   "both changed: 3 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "blueprintOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "shopActive",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "hallOpenNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "yardSiteFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "hallSiteFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "slotFreeFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "shopBlueprint",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "scafTownRecords",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "projectHeads",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "LANDP",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "landHead",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "projStuckLive",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "recordCellOpen",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "recordCellDone",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "shopRecordHead",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "shopSlotsFree",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "shopCtx",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "recordDamaged",
+   "both changed: 5 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "shopFootprintRefresh",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "EXPEDITION",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "exLines",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "exMarkers",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "exReader",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "exCloseAtTown",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "expeditionInstall",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "exDeposit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "expeditionVisit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "sortLabelOne",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "yardWorkNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "yardVisit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "_sortUpkeep",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildShop",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildShopVisit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildStair",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "visitEgress",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "zigProgressNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "zigSealedOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "zigAccessOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildMonument",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "pathsInputs",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "pathsExtendDue",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildPaths",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "wallInputs",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "wallStuckOn",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "wallStuckOf",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildWall",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "tidyInputs",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "takeKeeper",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "releaseKeeper",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "keeperNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "gkStageDue",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "keeperOrder",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "PLANAHEAD_ON",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "paRecords",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "gkUnfitNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "landInputs",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "LAND_UNREAD_TRIES",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "landPlanNow",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "gkExtraBill",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildTidy",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "bw3Doc",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "bw3Due",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "waterWalkVisit",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "farmDueFor",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "buildTreeFarm",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "skills.mjs",
+   "LOG_SURFACE_GATHER_MS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "TIDY_PALETTE",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "TIDY_CLEAR_MAX",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "TIDY_DEFAULT_OFF_POOLS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "tidyColumn",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "surveyTidy",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "tidyRecord",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "cutStanding",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "tidyProgress",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "tidyCuts",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "tidyAvoid",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "gradeLim",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "gradeTidy",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "siteTidy",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "roadWork",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "replantCells",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "roadLights",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "siteStage",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "tidyClearsLeft",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "tidy.mjs",
+   "gkWaiveOpts",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "towndeposit.mjs",
+   "townDepositPlan",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "townmine.mjs",
+   "TOWNMINE_DEFAULT_POOLS",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "townmine.mjs",
+   "mineStopped",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "treefarm.mjs",
+   "farmBlocked",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "wall.mjs",
+   "wallCandidate",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "wall.mjs",
+   "wallReach",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "wall.mjs",
+   "wallEscape",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "wall.mjs",
+   "walkSet",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "wall.mjs",
+   "wallWaiveDue",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "wall.mjs",
+   "wallNeed",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "well.mjs",
+   "wellOrderAtTown",
+   "both changed: 2 block(s) took the showcase side"
+  ],
+  [
+   "withdrawpick.mjs",
+   "townSearchOrder",
+   "both changed: 3 block(s) took the showcase side"
+  ],
+  [
+   "yard.mjs",
+   "yardModeDetail",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "yard.mjs",
+   "yardWork",
+   "both changed: 1 block(s) took the showcase side"
+  ],
+  [
+   "yard.mjs",
+   "refillDigs",
+   "both changed: 1 block(s) took the showcase side"
+  ]
+ ]
+}

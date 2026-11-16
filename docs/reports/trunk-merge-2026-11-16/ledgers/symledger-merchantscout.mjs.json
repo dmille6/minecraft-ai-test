@@ -1,0 +1,162 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "PROFESSIONS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "SCAN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "REFRESH_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "XP_EVERY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RADIUS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MAX_ROWS_PER_SCAN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "VILLAGER_DATA",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BABY",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "scoutSwitch",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "scoutModeDetail",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "r1",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "merchantSightings",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "zoneIdAt",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "tradesPossible",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "dueRows",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "sightingDetail",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "merchantScoutInstall",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 32,
+  "t": 29,
+  "b": null
+ }
+]

@@ -1,0 +1,586 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 36,
+  "t": 36,
+  "b": 36
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 1,
+  "t": 2,
+  "b": 1
+ },
+ {
+  "sym": "__head__#3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#3",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 6,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "__head__#4",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#4",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__head__#5",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#5",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__head__#6",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#6",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__head__#7",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 3
+ },
+ {
+  "sym": "__imports__#7",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "__head__#8",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "TD_TRIGGER_SLOTS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "TOWN_H",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TOWN_V",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "STORAGE_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "TD_COOLDOWN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TD_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "TD_SCAN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "TD_REARM_OUTSIDE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TD_STAY_REARM_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "TD_BUDGET_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TD_WALK_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TD_OPEN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TD_SETTLE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TD_MAX_CONTAINERS",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 3
+ },
+ {
+  "sym": "TD_FULL_EXTRA",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "tdMoreContainers",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "CREDIT_CAP",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "STOCKPILE_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "HELD_TARGETS",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 3,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "PLANKS_MEANS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WANTED_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "IRON_LADDER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LOGS",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "PLANKS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "COBBLE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "COBBLE_KEEP_ORDER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TOOL_RE",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "inTownZone",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "countsOf",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "byHeldDesc",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townKeeps",
+  "why": "same",
+  "protected": false,
+  "o": 45,
+  "t": 45,
+  "b": 45
+ },
+ {
+  "sym": "IRON_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "IRON_KEEP_ORDER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FUEL_KEEP_ORDER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "IRON_CRAFTS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ironUnitsNeeded",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "ironKeeps",
+  "why": "same",
+  "protected": false,
+  "o": 33,
+  "t": 33,
+  "b": 30
+ },
+ {
+  "sym": "usesOf",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "toolSlotsToBank",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "townDepositPlan",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 116,
+  "t": 144,
+  "b": 110
+ },
+ {
+  "sym": "logHalfSteps",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "logsField",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "stonePickSteps",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": 20
+ },
+ {
+  "sym": "bankOwned",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "notForChest",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "fitToContainer",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "CW",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "CCW",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "STEP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "doubleChestPartner",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "townWalkMovements",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "lazy",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 10
+ },
+ {
+  "sym": "countSkipWhy",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "townDepositOrder",
+  "why": "same",
+  "protected": false,
+  "o": 50,
+  "t": 50,
+  "b": 50
+ },
+ {
+  "sym": "tailOrder",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": 26
+ },
+ {
+  "sym": "TD_RUNNER_DECLINED",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "townDepositOutcome",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "townDepositDetail",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ }
+]

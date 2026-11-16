@@ -1,0 +1,394 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 26,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 1,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LAND_PLOT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LAND_BLUEPRINT",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "LAND",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "ZONE_KINDS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "landOn",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "fnv1a",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "landSeed",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "rng",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "SECTORS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "sectorDeg",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "rad",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "angDiff",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "k2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BRUSH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "cheb",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "innerReach",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "SITED_KINDS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "sitedSectors",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "landShape",
+  "why": "same",
+  "protected": false,
+  "o": 55,
+  "t": 55,
+  "b": null
+ },
+ {
+  "sym": "ringWaypoints",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "spokeWaypoints",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "landGrid",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "snapBrushes",
+  "why": "same",
+  "protected": false,
+  "o": 20,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "routeRoad",
+  "why": "same",
+  "protected": false,
+  "o": 68,
+  "t": 68,
+  "b": null
+ },
+ {
+  "sym": "roadLevels",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "planLand",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 83,
+  "t": 84,
+  "b": null
+ },
+ {
+  "sym": "INWALL_STAGE",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "landStages",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 8,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "nextStage",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "LAND_CYCLE_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "lastInnerK",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "innerDefault",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "setLandInner",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "nextStageCycle",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "cycleWrapId",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stageOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "recStageK",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "stageRoadCols",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "corridorAt",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "landSaplingCols",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "zoneAt",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "landReservation",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "landPlotZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "gardenZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "parkZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "walkReach",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": null
+ }
+]

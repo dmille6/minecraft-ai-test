@@ -1,0 +1,898 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 31,
+  "t": 31,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "deepMineOn",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "slotsOf",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 1,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "DEEPMINE",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "DEEPMINE_PLOT",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MINE_BUILD_PLOT",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "IRON_FEET",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "DEEP_FEET",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DEEP_OK",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRIP_MAX_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "WORK_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CALLS_MAX",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LEASE_TTL_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "COOLDOWN_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FAIL_BACKOFF_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PREFER_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MIN_FREE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_FREE",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SEAL_MIN",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_SEAL",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HEALTH_MIN",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_HEALTH",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "IRON_TRIP_USES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DIAMOND_DESCENT_USES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "IRON_PICK_MIN",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_USES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_IRON_USES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_LOW_USES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BRANCH_LEN",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BRANCHES_MAX",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MISSES_MAX",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TORCH_EVERY",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRAIL_GAP",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRAIL_MAX",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETURN_TRIES",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DIAMOND_GOAL",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "IRON_GOAL",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PICK_DIAMONDS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DIAMOND_KINDS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "IRON_ORE_KINDS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "COAL_ORE_KINDS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "usesLeft",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "IRON_TIER",
+  "why": "same",
+  "protected": true,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tripKit",
+  "why": "same",
+  "protected": true,
+  "o": 24,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "tripTarget",
+  "why": "same",
+  "protected": true,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "deepMineOrder",
+  "why": "same",
+  "protected": true,
+  "o": 22,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "deepTripOrder",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "PHASES",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "newTrip",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "returnWhy",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 22,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "returnOverdue",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "workKinds",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "tripHoldsBody",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "TRIP_NEXT_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "cheb",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "trailPush",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "trailBack",
+  "why": "same",
+  "protected": true,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "trailProgress",
+  "why": "same",
+  "protected": true,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "stairRoute",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "routeIndex",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "NATURAL",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isNatural",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BEARINGS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "N6",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "add",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "branchCells",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "probeCell",
+  "why": "same",
+  "protected": true,
+  "o": 27,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "branchNext",
+  "why": "same",
+  "protected": true,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "sealTargets",
+  "why": "same",
+  "protected": true,
+  "o": 24,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "legSealTargets",
+  "why": "same",
+  "protected": true,
+  "o": 32,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "deepRowDetail",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "deepModeDetail",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 4,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "obsidianOn",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "OBSIDIAN",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "OBS_GOAL",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_PICK_USES",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_SCAN",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_APPROACH_MAX",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_CYCLES_MAX",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_FAILS_MAX",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_DIG_MS",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_WATER_SCAN",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_DEEPEN_TRIES",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_FEET",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "nm",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "lvlOf",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "isSourceOf",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "isAir",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "liquid",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "fullDry",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "obsKit",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "obsidianWant",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "D",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "off",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "siteCells",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "N6O",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "key",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "siteWhy",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 43,
+  "b": null
+ },
+ {
+  "sym": "approachLegs",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "findSites",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "castNext",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "spillState",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "looseLava",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "spilledWater",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "waterFill",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "OBS_SEEKS_MAX",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_SEAL_MIN",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OBS_LAVA_FAILS",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "castGate",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "obsDetail",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 5,
+  "b": null
+ }
+]

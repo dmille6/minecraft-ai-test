@@ -1,0 +1,946 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 39,
+  "t": 39,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "EXPEDITION_KEY",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "EXPEDITION_SLOTS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BEARINGS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RING_MIN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RING_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RING_STEP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TOWN_EXIT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LEG_STEP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CRUMB_MIN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CRUMB_HOP_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MARKER_MIN_HOME",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MARKER_EVERY",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MARKER_SPACING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "MARKER_REUSE_R",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ZONE_MARGIN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRIP_COOLDOWN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OUT_SHARE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "GATHER_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DEPOSIT_MIN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HEALTH_START",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FOOD_START",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ROOM_START",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DAY_START_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DAY_TURN",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "KIT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TRAIL_TTL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "PLANNER_V",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "ZONE_UNDER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DEAD_TURNS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DETOUR_PAD",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DETOUR_ARRIVE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ONE_CALL_RING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "LONG_OUT_SHARE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ICE_TORCH_R",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SWIM_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "SWIM_DROP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SWIM_EXIT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SHORE_INLAND",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SHORE_BACK",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SHORE_NEAR",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SWIM_REACH",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "EXIT_RETRY_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "OFF",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "ON",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "expeditionOn",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "markersOn",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "swimWidth",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "swimOn",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "expeditionModeDetail",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "expeditionAdmit",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "bearingVec",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "ringOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 13,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "multiCall",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "outShareOf",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "TRIP_MAX_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "trailAge",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "tripBearing",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "OBSTACLE",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "deadBearings",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "AIM_OFFSETS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "AIM_STEP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HARVEST_MIN",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HARVEST_PAST",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HARVEST_FRESH_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "HARVEST_CLUSTER_R",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "rad",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "wedgeOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "aimAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "frontierAim",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "harvestAim",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "planTrip",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "LIQUID",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "CANOPY",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FALLING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "solid",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "AQUATIC",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "liquid",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "passable",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "surfaceAt",
+  "why": "same",
+  "protected": false,
+  "o": 24,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "zoneHit",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "zoneDetour",
+  "why": "same",
+  "protected": false,
+  "o": 50,
+  "t": 50,
+  "b": null
+ },
+ {
+  "sym": "lineClear",
+  "why": "same",
+  "protected": false,
+  "o": 43,
+  "t": 43,
+  "b": null
+ },
+ {
+  "sym": "BENDS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "SWIM_BENDS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "TARGET_WINDOW",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "legTarget",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 68,
+  "t": 73,
+  "b": null
+ },
+ {
+  "sym": "swimLeg",
+  "why": "same",
+  "protected": false,
+  "o": 53,
+  "t": 53,
+  "b": null
+ },
+ {
+  "sym": "DETOUR_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "detourLeg",
+  "why": "same",
+  "protected": false,
+  "o": 33,
+  "t": 33,
+  "b": null
+ },
+ {
+  "sym": "turnReason",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "standableAt",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "crumbDue",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "nextCrumb",
+  "why": "same",
+  "protected": false,
+  "o": 26,
+  "t": 26,
+  "b": null
+ },
+ {
+  "sym": "heldGate",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "GATE_RETRIES",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "markerHome",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "markerDue",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "markerSpot",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "torchSafe",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "markerZones",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "markerCellKeys",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "pillarIs",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "SOIL",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "naturalTree",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": null
+ },
+ {
+  "sym": "MULTI_HOME_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "gatherSpare",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "haulOf",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "bankableHaul",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "depositBase",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "kitNeed",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "tripDetail",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 5,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "beyondGain",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_USE_R",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BRIDGE_BACK",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "bridgeLeg",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 27,
+  "b": null
+ }
+]

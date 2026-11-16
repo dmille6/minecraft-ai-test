@@ -1,0 +1,186 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "UNITS_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CELL_TRIES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "same",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "kOf",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "runStairVisit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 140,
+  "t": 110,
+  "b": null
+ },
+ {
+  "sym": "runStairEgress",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 64,
+  "t": 65,
+  "b": null
+ },
+ {
+  "sym": "withStairClaim",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "N6",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "PROPS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "INTERACTABLE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TOOL_MIN",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "stairRead",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "stairItems",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stairLiningCount",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "usesLeft",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "bestPick",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "stairBotEffects",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 71,
+  "t": 56,
+  "b": null
+ },
+ {
+  "sym": "SUPPORT_TRIES",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stuckCellsOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "runStairDescent",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 90,
+  "t": null,
+  "b": null
+ }
+]

@@ -1,0 +1,186 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 35,
+  "t": 35,
+  "b": 35
+ },
+ {
+  "sym": "chestLidBlocked",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "FULL_CUBE",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "NOT_CONDUCTOR",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "LID_OPENS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "CONDUCTOR_ALWAYS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "serverLidBlocks",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "LID_BREAKABLE",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 1
+ },
+ {
+  "sym": "LID_WOOD",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 17,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "lidMaterialRefusal",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "LIQUID",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "FALLING",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "wet",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 12
+ },
+ {
+  "sym": "lidClearRefusal",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 16
+ },
+ {
+  "sym": "LID_DIG_MAX_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LID_DIG_MARGIN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "lidDigBudgetMs",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "LID_OUTCOMES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "lidFailMemory",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "lidClearModeDetail",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "LID_GROUND",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "lidGroundOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "lidRecordGated",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 7,
+  "t": null,
+  "b": null
+ }
+]

@@ -1,0 +1,346 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "GK_LEASE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "GK",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 4,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "gkOn",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "keeperDecision",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "termStart",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "keeperOrderPure",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 19,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "forestWants",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "keeperWanted",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 4,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "HELPER_LEASES",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "crew4On",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "helpersCap",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "liveOf",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "helperDecision",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "segColumns",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "segsConflict",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "crewSegOk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "crewYield",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "helperRecord",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "FLOOR_DEPTH",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "storeFloorHoles",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "withFloorFix",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "floorOpen",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "floorView",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "crewCaps",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "crewCutsOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "helperWorked",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "fillShareOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "FILLSHARE",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "tidyShare",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "releaseConfirmed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "GK_FIT",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": null
+ },
+ {
+  "sym": "gkleaseOn",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "groundsUnfit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 12,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "groundsIdle",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "groundsLeaseCheck",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "keeperGroundsFirst",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "UNFIT_HOLD_MS",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "unfitPersist",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "tidyWaived",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "columnCovered",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 12,
+  "t": null,
+  "b": null
+ }
+]

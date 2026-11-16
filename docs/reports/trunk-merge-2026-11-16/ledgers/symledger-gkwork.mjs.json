@@ -1,0 +1,282 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 3,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "GKW",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "gkworkOn",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "gkwSig",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "visitEmpty",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "visitWorked",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "strikeNext",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "strikesTotal",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 8,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "strikesClosing",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "CLOSING_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RETRY_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "tidyFirstNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "strikesClose",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "softHoldsGive",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "keeperAfterVisit",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 5,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "gkwClosing",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "stallWaive",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 16,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "heldWhy",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "GKL",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "leftNext",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "leftTown",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "leftWaiveDue",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 18,
+  "b": null
+ },
+ {
+  "sym": "strikeFile",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "strikeReadAll",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "leftFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "leftVisit",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "openFile",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "openWrite",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "openNewest",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "openReadAll",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "strikeRead",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "strikeWrite",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": null
+ },
+ {
+  "sym": "gkwVisit",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": null
+ }
+]

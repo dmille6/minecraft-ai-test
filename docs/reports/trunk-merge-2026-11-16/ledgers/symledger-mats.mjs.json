@@ -1,0 +1,1010 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 18
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 1
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MATS_V",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "WOODS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "LOG_NAMES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PLANKS_OF",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PLANK_NAMES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isLog",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isPlanks",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "ACCT_LOGS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "ACCT_PLANKS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "SMELTS_PER_PLANK",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "planksFor",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "KINDS",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 19,
+  "t": 31,
+  "b": 16
+ },
+ {
+  "sym": "KIND_ORDER_BASE",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 4,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "CUT_KINDS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STATION_KIND",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "KIND_ORDER_STONEWORKS",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stoneworksMode",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STONEWORKS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "kindOrder",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "KIND_ORDER",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "FORBIDDEN_RE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isForbidden",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "GATED_RE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "isGated",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "MATS_LEASE_TTL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "envMs",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "MATS_COOLDOWN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MATS_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MATS_PAUSE_AFTER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MATS_PAUSE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "MATS_MIN_COVERAGE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "MATS_BODY_MS_PER_HOUR",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "BRICKS_BUFFER_STONEWORKS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "BRICKS_PROJECT_BUFFER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STONE_BUFFER",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "DEEPSLATE_BRICKS_BUFFER",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "CUT_BUFFERS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "buffersDefault",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 1,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "BILL_PARTS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BILL_MARGIN",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BILL_CAP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stoneBillDemand",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "MATS_BUFFERS_DEFAULT",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 1
+ },
+ {
+  "sym": "effectiveBuffer",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 4,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "TRIM_STONES",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "trimStone",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "RESERVE_KEYS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "parseTable",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "matsReserve",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "matsBuffers",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "matsEnabled",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "reserveCount",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "reserveKeyOf",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 11,
+  "t": 13,
+  "b": 9
+ },
+ {
+  "sym": "spendable",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "pickLog",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "orderInputs",
+  "why": "both changed: 3 block(s) took the showcase side",
+  "protected": false,
+  "o": 26,
+  "t": 33,
+  "b": 24
+ },
+ {
+  "sym": "COAL_FUEL_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": null
+ },
+ {
+  "sym": "SAPLING_FUEL_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "SAPLINGS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FUEL_RUNGS",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "SMELT_TICKS_PER_ITEM",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "fuelBatch",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "fuelToLoad",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "LADDER_KINDS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "DEEPSLATE_RESERVE",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CUT_BRICK_KEEP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STATION_IRON_KEEP",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "withFuelReserve",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "swKeepKey",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "swTakeAllowed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "stoneworksKind",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "fuelPlan",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": null
+ },
+ {
+  "sym": "stoneScaffoldHeld",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "oreWaiting",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "partCount",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "lazy",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "materialOrder",
+  "why": "both changed: 3 block(s) took the showcase side",
+  "protected": false,
+  "o": 82,
+  "t": 95,
+  "b": 58
+ },
+ {
+  "sym": "returnOrder",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "matsOutcome",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "furnaceQualifies",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "batchFor",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "planksToLoad",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "newNote",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "touchedNames",
+  "why": "same",
+  "protected": false,
+  "o": 18,
+  "t": 18,
+  "b": 17
+ },
+ {
+  "sym": "obligations",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 21,
+  "t": 22,
+  "b": 21
+ },
+ {
+  "sym": "returnPlan",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 44,
+  "t": 46,
+  "b": 44
+ },
+ {
+  "sym": "noteSettled",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "recoveryBalance",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 28,
+  "t": 29,
+  "b": 27
+ },
+ {
+  "sym": "MATS_RETURN_WAIT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "matsReturnWaitMs",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "MATS_RETURN_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MATS_RETURN_MAX_AGE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "recoveryContentsOk",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "recoveryVerdict",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 14,
+  "t": 11,
+  "b": 14
+ },
+ {
+  "sym": "deepslateBalance",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 14,
+  "b": null
+ },
+ {
+  "sym": "cutBalance",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 17,
+  "b": null
+ },
+ {
+  "sym": "cutterButton",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "CUTTER_BUTTONS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "copperBalance",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "backSeenTouched",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "matsRecountable",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "takeAllowed",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "recipeUsing",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "familyUnits",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 15,
+  "t": 19,
+  "b": 12
+ },
+ {
+  "sym": "matsBalance",
+  "why": "same",
+  "protected": false,
+  "o": 31,
+  "t": 31,
+  "b": 28
+ },
+ {
+  "sym": "forbiddenCounts",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "toolCounts",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "v",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "kvs",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "matsDetail",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "matsModeDetail",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "BUFFERED_PARTS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PARTS_SET",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PROJECT_RESERVE_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "PROJECT_STALL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "projectReserveOn",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "projectReserveState",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "projectFloor",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "effectiveReserve",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 11
+ },
+ {
+  "sym": "PROJECT_KINDS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "matsKindForProject",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "reserveModeDetail",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "reserveDrawDetail",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ }
+]

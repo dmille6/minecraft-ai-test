@@ -1,0 +1,450 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "__imports__",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "PREFER_USES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PICK_RE",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "TOOL",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BAG_SLOTS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "usableTool",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "hasUsablePick",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "bestToolCopy",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "NEEDS",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "held",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 8
+ },
+ {
+  "sym": "STICK_PLANKS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "woodOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "stonePickDeficits",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": 21
+ },
+ {
+  "sym": "stonePickReady",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "INGREDIENT_MISS_KEY",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "SEARCH_MISS_TTL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "INGREDIENT_MISS_TTL_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "ingredientNeedsAbsent",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "containerIngredientMiss",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "noteIngredientMisses",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "townIngredientMissComplete",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "WITHDRAW_PICK_VISITS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "WITHDRAW_INGREDIENT_VISITS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WITHDRAW_VISIT_MIN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WITHDRAW_INGREDIENT_RESERVE_MS",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "SEARCH_FAIL_SKIP_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "SEARCH_FAIL_SKIP",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "PLANK_GROUPS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "NEED_GROUPS",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "NEED_COUNT_COMPLETE",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "needCount",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 27,
+  "t": 28,
+  "b": 27
+ },
+ {
+  "sym": "missTtlOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "townSearchOrder",
+  "why": "both changed: 3 block(s) took the showcase side",
+  "protected": false,
+  "o": 41,
+  "t": 59,
+  "b": 40
+ },
+ {
+  "sym": "passClock",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "searchTally",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "townSearchModeDetail",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "INGREDIENT_KEEP",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "roomKeep",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "kept",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "stackOf",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "allocate",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "slotsNeeded",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": 16
+ },
+ {
+  "sym": "roomCandidates",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "roomPlan",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "pickTakes",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "transferVerdict",
+  "why": "same",
+  "protected": false,
+  "o": 28,
+  "t": 28,
+  "b": 28
+ },
+ {
+  "sym": "bagDelta",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "HOT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "survivalRelease",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "WITHDRAW_COOLDOWN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "WITHDRAW_BACKOFF_MS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "WITHDRAW_NO_BACKOFF",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "HOLD_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 7,
+  "t": 8,
+  "b": 7
+ },
+ {
+  "sym": "withdrawRow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ }
+]

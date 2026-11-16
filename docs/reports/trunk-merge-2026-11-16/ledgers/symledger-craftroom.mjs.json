@@ -1,0 +1,298 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 14,
+  "t": 14,
+  "b": 14
+ },
+ {
+  "sym": "__imports__",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "BAG_SLOTS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "DEFAULT_STACK",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "stackGuess",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "roomRecipe",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "craftRoom",
+  "why": "same",
+  "protected": false,
+  "o": 41,
+  "t": 41,
+  "b": 41
+ },
+ {
+  "sym": "PICKUP_MARGIN",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "pickupNearest",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "pickupPending",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "admitRoom",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "PICKUP_TABLE_BAND",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "collectDecision",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "heldLine",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "roomAdvice",
+  "why": "same",
+  "protected": false,
+  "o": 25,
+  "t": 25,
+  "b": 25
+ },
+ {
+  "sym": "chainPeak",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "roomForOne",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "craftArrived",
+  "why": "same",
+  "protected": false,
+  "o": 24,
+  "t": 24,
+  "b": 24
+ },
+ {
+  "sym": "MIN_SURVIVOR_USES",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 9,
+  "t": 2,
+  "b": 1
+ },
+ {
+  "sym": "PICKAXE_HEAD",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "WOOD_LOG",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "pickaxeStockHeld",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 20,
+  "b": null
+ },
+ {
+  "sym": "craftRoomRemedy",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 18,
+  "t": 24,
+  "b": 14
+ },
+ {
+  "sym": "NO_SPARE_TOOL",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "craftRoomRefusal",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "placeStackOf",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "depositFreesSlot",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "depositTarget",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "placeableBlock",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "ADVICE_OK",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "fillerCandidates",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "ROCK",
+  "why": "same",
+  "protected": false,
+  "o": 8,
+  "t": 8,
+  "b": 8
+ },
+ {
+  "sym": "wearKeepsSlot",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "bagFill",
+  "why": "same",
+  "protected": false,
+  "o": 39,
+  "t": 39,
+  "b": 39
+ },
+ {
+  "sym": "executionVerdict",
+  "why": "same",
+  "protected": false,
+  "o": 21,
+  "t": 21,
+  "b": 21
+ },
+ {
+  "sym": "survivorUses",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ }
+]

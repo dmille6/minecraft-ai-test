@@ -1,0 +1,714 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 29,
+  "t": 29,
+  "b": 29
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": false,
+  "o": 8,
+  "t": 9,
+  "b": 3
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "k3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "kOf",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "nm",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BUILD_ATTEMPTS",
+  "why": "same",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "BARRIER_WAIT_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "DIG_CONFIRM_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "SPAWN_DIG_QUIET_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "PROBES_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "RENEW_AT",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "CLOSER_SEGS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "REPLANT_MOVES",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "BREATH_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "breatheOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "BREATHE_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "breathDue",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "wallNow",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STAND_MS",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "standCacheOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "STANDCACHE_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TEMPSTAND_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "stepClassOn",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "STEPCLASS_ON",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 10,
+  "b": null
+ },
+ {
+  "sym": "treeOwed",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "fellFirstOk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "treeDownFor",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "treeReplanted",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "REPLANT_DEFERS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "STUCK_VISITS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "STUCK_FORGET_MS",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "stuckAfter",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "SAPLING",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "AIR",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 2,
+  "b": 1
+ },
+ {
+  "sym": "DUG",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "FOREIGN_CLEAR",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": 3,
+  "t": 6,
+  "b": 3
+ },
+ {
+  "sym": "TREE_CLEAR",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "STATION_CLEAR",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "foreignKind",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 15,
+  "t": 13,
+  "b": 8
+ },
+ {
+  "sym": "swapDigOk",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "OVERBURDEN_MAX",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 12,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "overburdenAbove",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 34,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "sealedAbove",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 40,
+  "t": 33,
+  "b": null
+ },
+ {
+  "sym": "FOOTING_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "footingBelow",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 19,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "COVER_MAX",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "coverAbove",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 24,
+  "b": null
+ },
+ {
+  "sym": "dependsOn",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "TRUNK_MAX",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "trunkAbove",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "blockFamily",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 9,
+  "t": 11,
+  "b": 8
+ },
+ {
+  "sym": "roleFirst",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "blockFor",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 14
+ },
+ {
+  "sym": "SOLID_ANY",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 2,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "cellDone",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 11,
+  "t": 21,
+  "b": 10
+ },
+ {
+  "sym": "ownLog",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 6,
+  "b": null
+ },
+ {
+  "sym": "ownLogAt",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "concurrentOk",
+  "why": "same",
+  "protected": false,
+  "o": 9,
+  "t": 9,
+  "b": 9
+ },
+ {
+  "sym": "segmentsOf",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "segComplete",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "STAND_BAN_MS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "standBans",
+  "why": "same",
+  "protected": false,
+  "o": 4,
+  "t": 4,
+  "b": 4
+ },
+ {
+  "sym": "banStand",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "settlePendingStand",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 15,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "nodesWithout",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "workableSeg",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 10,
+  "t": 11,
+  "b": 10
+ },
+ {
+  "sym": "digReachFrom",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 6,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "swapOverHole",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "digStand",
+  "why": "same",
+  "protected": false,
+  "o": 17,
+  "t": 17,
+  "b": 17
+ },
+ {
+  "sym": "byColumn",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 24,
+  "t": 26,
+  "b": 16
+ },
+ {
+  "sym": "runVisit",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 28,
+  "t": 15,
+  "b": 400
+ },
+ {
+  "sym": "BODY_WAITS",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 7,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "LEAF_MEM",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "visitInner",
+  "why": "both changed: 2 block(s) took the showcase side",
+  "protected": false,
+  "o": 1069,
+  "t": 1516,
+  "b": null
+ },
+ {
+  "sym": "inCell",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "WET_CLEAR",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "STALK",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "STALK_MAX",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "stalkFell",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 19,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "DIG_BANS_MAX",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "DIG_BAN_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 2,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retryStart",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 12,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "retrySettle",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 22,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "BREATHE_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "loopYieldOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 14,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "PLAN_KEEP_MS",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 1,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "planKeepOn",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 3,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "planStale",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 5,
+  "t": null,
+  "b": null
+ }
+]

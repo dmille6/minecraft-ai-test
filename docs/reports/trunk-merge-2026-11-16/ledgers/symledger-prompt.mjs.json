@@ -1,0 +1,274 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": false,
+  "o": 11,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "__imports__",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 12,
+  "t": 11,
+  "b": 11
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "__imports__#2",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 4,
+  "t": 2,
+  "b": 2
+ },
+ {
+  "sym": "__head__#3",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "MAX_EVENTS",
+  "why": "same",
+  "protected": false,
+  "o": 1,
+  "t": 1,
+  "b": 1
+ },
+ {
+  "sym": "estTokens",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "WorkingMemory",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": 15
+ },
+ {
+  "sym": "INTERESTING_BLOCKS",
+  "why": "same",
+  "protected": false,
+  "o": 27,
+  "t": 27,
+  "b": 27
+ },
+ {
+  "sym": "scanOrder",
+  "why": "same",
+  "protected": false,
+  "o": 5,
+  "t": 5,
+  "b": 5
+ },
+ {
+  "sym": "nearbyBlocks",
+  "why": "same",
+  "protected": false,
+  "o": 13,
+  "t": 13,
+  "b": 13
+ },
+ {
+  "sym": "ACTIONABLE_PER_TYPE",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "ACTIONABLE_TOTAL",
+  "why": "same",
+  "protected": false,
+  "o": 23,
+  "t": 23,
+  "b": 23
+ },
+ {
+  "sym": "actionableBlocks",
+  "why": "same",
+  "protected": false,
+  "o": 74,
+  "t": 74,
+  "b": 74
+ },
+ {
+  "sym": "buildSystemPrompt",
+  "why": "same",
+  "protected": false,
+  "o": 154,
+  "t": 154,
+  "b": 142
+ },
+ {
+  "sym": "identityLine",
+  "why": "same",
+  "protected": false,
+  "o": 15,
+  "t": 15,
+  "b": null
+ },
+ {
+  "sym": "compactEvents",
+  "why": "same",
+  "protected": false,
+  "o": 16,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "waterSituation",
+  "why": "same",
+  "protected": false,
+  "o": 59,
+  "t": 59,
+  "b": 59
+ },
+ {
+  "sym": "TERRAIN_LOW",
+  "why": "same",
+  "protected": false,
+  "o": 3,
+  "t": 3,
+  "b": 3
+ },
+ {
+  "sym": "TERRAIN_HIGH",
+  "why": "same",
+  "protected": false,
+  "o": 22,
+  "t": 22,
+  "b": 22
+ },
+ {
+  "sym": "yContext",
+  "why": "same",
+  "protected": false,
+  "o": 19,
+  "t": 19,
+  "b": 19
+ },
+ {
+  "sym": "bearing",
+  "why": "same",
+  "protected": false,
+  "o": 7,
+  "t": 7,
+  "b": 7
+ },
+ {
+  "sym": "CRAFT_TARGETS",
+  "why": "same",
+  "protected": false,
+  "o": 44,
+  "t": 44,
+  "b": 44
+ },
+ {
+  "sym": "tableAccess",
+  "why": "same",
+  "protected": false,
+  "o": 12,
+  "t": 12,
+  "b": 12
+ },
+ {
+  "sym": "craftableNow",
+  "why": "fleet-only change",
+  "protected": false,
+  "o": 60,
+  "t": 60,
+  "b": 60
+ },
+ {
+  "sym": "smeltableNow",
+  "why": "same",
+  "protected": false,
+  "o": 32,
+  "t": 32,
+  "b": 32
+ },
+ {
+  "sym": "depositSituation",
+  "why": "same",
+  "protected": false,
+  "o": 59,
+  "t": 59,
+  "b": 59
+ },
+ {
+  "sym": "bucketSituation",
+  "why": "both changed: 1 block(s) took the showcase side",
+  "protected": false,
+  "o": 38,
+  "t": 41,
+  "b": 36
+ },
+ {
+  "sym": "atlasLine",
+  "why": "showcase-only change",
+  "protected": false,
+  "o": null,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "buildUserPrompt",
+  "why": "both changed, merged cleanly inside",
+  "protected": false,
+  "o": 67,
+  "t": 66,
+  "b": 61
+ },
+ {
+  "sym": "makeSentinel",
+  "why": "same",
+  "protected": false,
+  "o": 10,
+  "t": 10,
+  "b": 10
+ },
+ {
+  "sym": "noRoomHint",
+  "why": "same",
+  "protected": false,
+  "o": 6,
+  "t": 6,
+  "b": 6
+ },
+ {
+  "sym": "townWoodSituation",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 10,
+  "t": null,
+  "b": null
+ },
+ {
+  "sym": "gatherAreaLine",
+  "why": "fleet-only change (fleet-only declaration)",
+  "protected": false,
+  "o": 7,
+  "t": null,
+  "b": null
+ }
+]

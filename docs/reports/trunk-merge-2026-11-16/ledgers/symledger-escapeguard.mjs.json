@@ -1,0 +1,274 @@
+[
+ {
+  "sym": "__head__",
+  "why": "same",
+  "protected": true,
+  "o": 34,
+  "t": 34,
+  "b": null
+ },
+ {
+  "sym": "__imports__",
+  "why": "imports: both sides kept whole (duplicates folded afterwards)",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "__head__#2",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ESCAPE_GUARD_WAIT_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ESCAPE_GUARD_GRANT_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ESCAPE_GUARD_HELP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ESCAPE_GUARD_MOVE_RESET",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "ESCAPE_GUARD_QUIET_MS",
+  "why": "same",
+  "protected": true,
+  "o": 5,
+  "t": 5,
+  "b": null
+ },
+ {
+  "sym": "GUARD_BACKOFF_CAP_MS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "AIR_GUARD_SECONDS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "RECORD_RADIUS",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "TREEFARM_BAND",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "ROW_EVERY_MS",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 3,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "zoneWalkOn",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "escapeGuardOn",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "ORDINARY",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "isOrdinary",
+  "why": "same",
+  "protected": true,
+  "o": 1,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "finite3",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ },
+ {
+  "sym": "cellOf",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "guardOf",
+  "why": "both changed: 2 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 23,
+  "t": 36,
+  "b": null
+ },
+ {
+  "sym": "DEEP_NATURAL",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 1,
+  "b": null
+ },
+ {
+  "sym": "zoneStructureAt",
+  "why": "showcase-only change",
+  "protected": true,
+  "o": null,
+  "t": 16,
+  "b": null
+ },
+ {
+  "sym": "escapeDigDecision",
+  "why": "both changed: 1 block(s) took the FLEET side (protected)",
+  "protected": true,
+  "o": 15,
+  "t": 22,
+  "b": null
+ },
+ {
+  "sym": "outOfAir",
+  "why": "same",
+  "protected": true,
+  "o": 11,
+  "t": 11,
+  "b": null
+ },
+ {
+  "sym": "AIR_REFLEXES",
+  "why": "same",
+  "protected": true,
+  "o": 3,
+  "t": 3,
+  "b": null
+ },
+ {
+  "sym": "waitClock",
+  "why": "same",
+  "protected": true,
+  "o": 9,
+  "t": 9,
+  "b": null
+ },
+ {
+  "sym": "waitStep",
+  "why": "same",
+  "protected": true,
+  "o": 27,
+  "t": 27,
+  "b": null
+ },
+ {
+  "sym": "waitLeftMs",
+  "why": "same",
+  "protected": true,
+  "o": 8,
+  "t": 8,
+  "b": null
+ },
+ {
+  "sym": "guardRemedy",
+  "why": "same",
+  "protected": true,
+  "o": 7,
+  "t": 7,
+  "b": null
+ },
+ {
+  "sym": "EscapeGuardError",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "escapeGuardModeDetail",
+  "why": "same",
+  "protected": true,
+  "o": 4,
+  "t": 4,
+  "b": null
+ },
+ {
+  "sym": "escapeGuardCounters",
+  "why": "same",
+  "protected": true,
+  "o": 12,
+  "t": 12,
+  "b": null
+ },
+ {
+  "sym": "attachEscapeGuard",
+  "why": "same",
+  "protected": true,
+  "o": 115,
+  "t": 115,
+  "b": null
+ },
+ {
+  "sym": "guardMay",
+  "why": "same",
+  "protected": true,
+  "o": 2,
+  "t": 2,
+  "b": null
+ }
+]
