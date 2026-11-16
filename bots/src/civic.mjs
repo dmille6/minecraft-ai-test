@@ -377,7 +377,36 @@ export const civicKindOf = plot => (isCivicPlot(plot) ? String(plot).slice(5) : 
 export const CIVIC_SITE = Object.freeze({ r: 22, tries: 6 })
 /** The town walk's radius floor for a landmark's proof and visit (wider than buildsite.mjs WALK_R 48: an anchor by the gate or the well). */
 export const CIVIC_WALK_R = 64
-const centre = box => [Math.floor((box[0] + box[2]) / 2), Math.floor((box[1] + box[3]) / 2)]
+// CIVICVISIT-01SHOW (LIVE showcase 11-15: civicH and civicM stuck for days, 55 cells "no stand reaches"; a replay of the live walkFrom +
+// stepFor over the saved blocks gave 47 of them a stand at once with the workshop ring off). The siting proved each landmark with its
+// stands within R + 8 of its anchor and its own walk radius, and the build visit was handed neither: it asked for stands in the
+// workshop ring (22..44 from home) for two boxes within 20 of home. THE VISIT STANDS WHERE THE SITING STOOD.
+// CIVICVISIT=off|0|false|no -> the visit's options as before (none), and no stand spec (`standDom`) on a new record.
+export const civicVisitOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.CIVICVISIT ?? '').trim())
+/** How far beyond the siting's search square (CIVIC_SITE.r round the anchor) a landmark's builder may stand. */
+export const CIVIC_STAND_PAD = 8
+/** THE STANDS' SPEC a siting proves with and its record keeps (`standDom`) -> { near: [x, z], r }. Pure. */
+export const civicStandSpec = (near, r = CIVIC_SITE.r + CIVIC_STAND_PAD) => ({ near: [near[0], near[1]], r })
+const specOk = s => Array.isArray(s?.near) && s.near.length === 2 && s.near.every(Number.isFinite) && Number.isFinite(s.r)
+/**
+ * THE STANDS' DOMAIN of a landmark -> (x, z) -> bool. Pure. A spec ({ near, r }: the siting's own, or a record's `standDom`): within r
+ * (Chebyshev) of the anchor -- the predicate the siting proved with, rebuilt. A RECORD WITHOUT ONE (sited before this piece): its box +
+ * CIVIC_STAND_PAD. Why that and nothing wider: the screen kept every pad column within CIVIC_SITE.r of the anchor (buildsite.mjs
+ * screenSite `domain`), so whatever the anchor was, every column within 8 of the box is within r + 8 of it -- never a stand the
+ * siting's proof would have refused, with nothing else known of the anchor. Every stand the proof wrote on a cell is inside it
+ * (stepFor looks 5 columns from the cell, and the cells are in the box). Neither: no stand at all (fails closed).
+ */
+export function civicStandDomain (rec) {
+  const s = specOk(rec) ? rec : rec?.standDom
+  if (specOk(s)) { const [nx, nz] = s.near, r = s.r; return (x, z) => Math.max(Math.abs(x - nx), Math.abs(z - nz)) <= r }
+  const b = rec?.box
+  if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) return () => false
+  const p = CIVIC_STAND_PAD
+  return (x, z) => x >= b[0] - p && x <= b[2] + p && z >= b[1] - p && z <= b[3] + p
+}
+/** buildrun runVisit's options for a landmark's visit (the stands' domain, the record's walk radius). Pure; another record, or the switch off: {}. */
+export const civicVisitOpts = (rec, env = process.env) => (civicVisitOn(env) && isCivicBlueprint(rec?.blueprint) ? { domain: civicStandDomain(rec), walkR: Number.isFinite(rec.walkR) ? rec.walkR : CIVIC_WALK_R } : {})
+const centre =box => [Math.floor((box[0] + box[2]) / 2), Math.floor((box[1] + box[3]) / 2)]
 /**
  * WHERE A KIND BELONGS (the reconciled siting rules) -> [x, z]. Pure. `town`: { home {x,z}, recs { plot: rec }, park box, well [x,y,z] }.
  *   F plaza   the town's centre (home)                M cross    beside the storehouse (the town's trade goods), else home

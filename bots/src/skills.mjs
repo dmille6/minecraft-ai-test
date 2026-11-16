@@ -162,6 +162,7 @@ import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell 
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
 import { CIVIC_PLOTS } from './civic.mjs'   // civic-01: the landmarks' plots are sited apart
 import { isCivicPlot, civicKindOf, civicNear, civicLookForStock, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
+import { civicVisitOpts, civicVisitOn, civicStandSpec, civicStandDomain } from './civic.mjs'   // civicvisit-01show
 import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallWaiveMore, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofPlanStop, reroofPlanEnds, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
@@ -22752,13 +22753,15 @@ async function civicSiteFor (bot, plan, c, stood, plot, signal = null) {
     const domain = (x, z) => Math.max(Math.abs(x - near[0]), Math.abs(z - near[1])) <= R
     const line = Math.max(Math.abs(near[0] - plan.home.x), Math.abs(near[1] - plan.home.z)) + R + 2
     const prd = planReader(bot)
+    // civicvisit-01show: the stands' spec (within R + 8 of the anchor, as before), proven with here and kept on the record for the visit
+    const standDom = civicStandSpec(near)
     const s = await siteBlueprintAsync(prd, plan, bp, { zones: [...c.zones, ...recordZones(others), ...townMarkerZones()], wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: 'civic' }], plot, ...paSiteCtx(prd, plot),   // citywall fold (Codex BLOCKER): the planned world and the stands claimed
-      domain, standDomain: (x, z) => Math.max(Math.abs(x - near[0]), Math.abs(z - near[1])) <= R + 8, line, walkR: Math.max(CIVIC_WALK_R, line + 12), tries: CIVIC_SITE.tries,
+      domain, standDomain: civicStandDomain(standDom), line, walkR: Math.max(CIVIC_WALK_R, line + 12), tries: CIVIC_SITE.tries,
       rankKey: q => Math.hypot(q.pad[0][0] - near[0], q.pad[0][1] - near[1]), ...siteCanopyCtx(prd, bp, plan.home, stood, Math.max(CIVIC_WALK_R, line + 12)) }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted' }
     if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => [r.screened, r.tried, r.proofEx?.[0] ?? ''])).slice(0, 100) }
     // the record is judged, billed and built by its own palette (cottage.mjs recordPalette reads it with `civic`)
-    return { ok: true, near, record: { ...s.record, palette: bp.palette, civic: { kind, look: bp.look.code }, walkR: Math.max(CIVIC_WALK_R, line + 12) } }
+    return { ok: true, near, record: { ...s.record, palette: bp.palette, civic: { kind, look: bp.look.code }, walkR: Math.max(CIVIC_WALK_R, line + 12), ...(civicVisitOn() ? { standDom } : {}) } }
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60) } }
 }
 /** The bot's world read for the fit-out (null: unloaded). */
@@ -23487,6 +23490,7 @@ async function buildShopVisit (ctx, args, signal) {
     // townstyle-01: the cottage's stands are its own pad + 3, its walk the record's radius (cottage.mjs cottageVisitOpts)
     if (isCottageBlueprint(rec.blueprint)) Object.assign(storeOpts, cottageVisitOpts(rec))
     if (rec.blueprint === TOWNHALL_BLUEPRINT) Object.assign(storeOpts, townhallVisitOpts(rec))   // townstyle-02
+    Object.assign(storeOpts, civicVisitOpts(rec))   // civicvisit-01show: a landmark's stands are its siting's (civic.mjs civicVisitOpts; CIVICVISIT=off: {})
     Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
     Object.assign(storeOpts, leafFellVisitOpts(bot, rec))   // leaffell-01show: the saplings owed for trees felled for their leaves
     Object.assign(storeOpts, tempStandOf(bot, c, plot))   // tempstand-01: a cell no stand reaches, deferred before, is clicked from a temporary pillar

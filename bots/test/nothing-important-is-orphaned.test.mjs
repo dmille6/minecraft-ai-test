@@ -62,6 +62,7 @@ const REQUIRED = [
   'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
   'bots/test/planahead.test.mjs',   // planahead-01
   'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
+  'bots/test/civicvisit.test.mjs',   // civicvisit-01show (11-15): a landmark's visit stands where its siting stood
   'bots/test/steprefusal.test.mjs',   // stepclass-01 (11-15): why a cell has no step, on the deferral row
   'bots/test/gkclear.test.mjs',   // gkclear-01 (11-07): the town's strikes say a tidy stage is closing
   'bots/test/gkroom.test.mjs',   // gkroom-01 (11-07): the keeper refused the forest for room works the tidy
