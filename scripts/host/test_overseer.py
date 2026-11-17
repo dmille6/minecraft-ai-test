@@ -93,6 +93,26 @@ def test_retire_grace(R=None):
     assert len(p) == 1 and 'Gone' in p[0], 'a pre-r2 list reads as seen now'
 
 
+def test_observe_persists_on_blocked_cycles(R=None):
+    """r3: the observation is kept on a blocked cycle -- a legacy ["Gone"] entry retires 60 min after it was first seen (not
+    reset every cycle), and a healthy directory's time advances while cycles are blocked."""
+    import json as _j
+    R = R or OV
+    root, state = _mklogs(), tempfile.mkdtemp()
+    _j.dump(['Ann', 'Gone'], open(os.path.join(state, 'logdirs.json'), 'w'))
+    for mins in (0, 30, 59):
+        p, ret = R.observe(state, _files(root), NOWMS + mins * 60000)
+        assert len(p) == 1 and 'Gone' in p[0] and ret == [], (mins, p)
+        seen = _j.load(open(os.path.join(state, 'logdirs.json')))
+        assert isinstance(seen, dict), 'the blocked cycle wrote its observation'
+        assert seen['Gone'] == NOWMS, 'first seen once, never reset'
+        assert seen['Ann'] == NOWMS + mins * 60000, 'a healthy directory advances during blocked cycles'
+    p, ret = R.observe(state, _files(root), NOWMS + 61 * 60000)
+    assert p == [] and ret == ['Gone'], (p, ret)
+    p, ret = R.observe(state, _files(root), NOWMS + 76 * 60000)
+    assert p == [] and ret == [], 'cycles run after it'
+
+
 def _load_mutant(old, new):
     import importlib.util
     src = open(OV.__file__).read()
@@ -111,7 +131,8 @@ def test_mutants():
             ("                if key not in cache:\n                    check_gz(f)", "                if False:\n                    check_gz(f)", test_gzip_truncated),
             ("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass', test_gzip_truncated),
             ("        if now_ms - last < grace_ms:", '        if True:', test_retire_grace),
-            ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace)]:
+            ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace),
+            ("    jwrite(dirs_file, seen)\n    return problems, retired", "    if not problems:\n        jwrite(dirs_file, seen)\n    return problems, retired", test_observe_persists_on_blocked_cycles)]:
         m = _load_mutant(old, new)
         try:
             test(m)

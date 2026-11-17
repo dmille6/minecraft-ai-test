@@ -104,6 +104,29 @@ def read_problems(files, prev, now_ms, gz_cache=None, stat=os.stat, check_gz=gz_
     return problems, seen, retired, keep
 
 
+def observe(state, files, now_ms, **kw):
+    """r3: ONE CYCLE'S LOOK AT THE LOGS -> (problems, retired). The observation (logdirs.json: each directory's last-seen time;
+    gzcheck.json) is written EVERY cycle, a failed one too: a legacy list entry gets its first-seen time once and keeps it, and
+    a healthy directory's time advances while cycles are blocked. A failed cycle still publishes nothing (the caller returns)."""
+    dirs_file, gz_file = os.path.join(state, 'logdirs.json'), os.path.join(state, 'gzcheck.json')
+
+    def jread(f, dflt):
+        try:
+            with open(f) as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return dflt
+
+    def jwrite(f, obj):
+        with open(f + '.tmp', 'w') as fh:
+            json.dump(obj, fh, sort_keys=True)
+        os.replace(f + '.tmp', f)
+    problems, seen, retired, gzc = read_problems(files, jread(dirs_file, {}), now_ms, jread(gz_file, {}), **kw)
+    jwrite(gz_file, gzc)
+    jwrite(dirs_file, seen)
+    return problems, retired
+
+
 def inputs_from_rows(rows, now, online_min=10):
     """PURE. Telemetry rows ({t, name, detail, bot}) -> (bots, worklist rows). A bot is any name seen; online when seen within
     online_min; pos its newest row's bot.pos."""
@@ -150,20 +173,6 @@ def main(argv=None):
         return 0
     now = dt.datetime.now(dt.timezone.utc)
     # r1 C3: a log that cannot be read (or one gone since the last cycle) is no cycle: nothing is written, the row says why
-    dirs_file, gz_file = os.path.join(a.state, 'logdirs.json'), os.path.join(a.state, 'gzcheck.json')
-
-    def jread(f, dflt):
-        try:
-            with open(f) as fh:
-                return json.load(fh)
-        except OSError:
-            return dflt
-
-    def jwrite(f, obj):
-        with open(f + '.tmp', 'w') as fh:
-            json.dump(obj, fh, sort_keys=True)
-        os.replace(f + '.tmp', f)
-
     def log_row(row):
         with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
             fh.write(json.dumps(row, sort_keys=True, default=str) + '\n')
@@ -174,9 +183,7 @@ def main(argv=None):
             except Exception:
                 pass
     now_ms = int(time.time() * 1000)
-    problems, seen, retired, gzc = read_problems(glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), jread(dirs_file, {}), now_ms,
-                                                 jread(gz_file, {}))
-    jwrite(gz_file, gzc)
+    problems, retired = observe(a.state, glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), now_ms)
     if problems:
         # r1 C3: a log that cannot be read (or one gone less than the grace) is no cycle: nothing is written, the row says why
         row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'logs: ' + '; '.join(problems)[:600], 'wrote': 'nothing'}
@@ -185,7 +192,6 @@ def main(argv=None):
         return 1
     for d in retired:   # r2: one row a retirement; the directory leaves logdirs.json, so the next cycles run
         log_row({'kind': 'showcase_overseer', 'op': 'retired', 'at': now.isoformat(), 'dir': d})
-    jwrite(dirs_file, seen)
     ev = Events.load(paths=os.path.join(a.logs, '*', 'skill-*.jsonl*'), since_minutes=a.window_min)
     bots, wl = inputs_from_rows(ev.rows, now, a.online_min)
     live = switch_live(a.switch)
