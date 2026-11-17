@@ -40,6 +40,7 @@ import { TRIGGER_SLOTS, NEVER_KEEP } from './hygiene.mjs'
 // THE SLIM BAG ALLOWANCE (junkout-01, bagallowance.mjs): the rows' surplus leaves at the town deposit, at any bag size
 import { ALLOWANCE, BAG_ALLOWANCE, allowanceSteps, visitId, visitLatchIssue, visitArmed, allowanceRow } from './bagallowance.mjs'
 import { roomBankSteps } from './bagroom.mjs'   // bagfull-01: the room bank's steps
+import { BAGFIX, chestHalves, trimBankable } from './bagfix.mjs'   // bagfix-01show D: the carried chests' halves
 // junk never enters a chest (owner 10-04): the well's list and the composter's own judgement, not a copy of them
 import { WELL_JUNK } from './well.mjs'
 import { isCompostJunk } from './composter.mjs'
@@ -327,6 +328,12 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       banked[st.name] = (banked[st.name] ?? 0) + st.count
       why[st.name] = `allowance_${st.row}`
     }
+    // bagfix-01 D: a stack of carried chests the row could not move whole (one kept) is banked in halves, after every whole stack
+    if (BAGFIX.chest && !steps.some(st => st.name === 'chest' || st.name === 'trapped_chest')) {
+      for (const st of chestHalves(list.filter(it => !((holds[it.name] ?? 0) > 0)), { keep: ALLOWANCE.station, halves: logHalfSteps })) {
+        steps.push({ ...st, allowance: 'station' }); banked[st.name] = (banked[st.name] ?? 0) + st.count; why[st.name] = 'allowance_station'
+      }
+    }
     if (!planned.has('stone_pickaxe')) {
       // the tool rule's own room under the town's stone_pickaxe target (depositPlan above), less what this visit moved
       const toolRoom = Math.max(0, Math.min(allowance.stone_pickaxe ?? 0, CREDIT_CAP) - (Math.max(0, Number(already?.stone_pickaxe) || 0)))
@@ -348,9 +355,10 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   if (room && baseOn) {
     const taken = new Set(steps.map(st => st.slot))
     const eligible = n => !COBBLE.includes(n) && !allowanceRow(n) && !notForChest(n, { peaceful }) && !((holds[n] ?? 0) > 0) &&
-      !IRON_LADDER.includes(n) && !STANDING_TARGETS.has(n) && !DEPOSIT_ALWAYS.includes(n) && !(roomExclude?.has?.(n)) &&
+      (!IRON_LADDER.includes(n) || trimBankable(n)) && !STANDING_TARGETS.has(n) && !DEPOSIT_ALWAYS.includes(n) && !(roomExclude?.has?.(n)) &&
       !(groupOf(n) && !(targetOf(groupOf(n)) > 0))
-    for (const st of roomBankSteps(list, { eligible, keep, taken })) {
+    // bagfix-01 C: the goal's want and the scaffold reserve are HARD keeps (the partial-slot rule never lowers them)
+    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: n => why[n] === 'wanted' || why[n] === 'scaffold_reserve', stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
       steps.push({ slot: st.slot, name: st.name, count: st.count, room: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count
       why[st.name] = 'room'
@@ -590,7 +598,9 @@ export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan =
   // order's count step does. Without it a well town's tail never banked a log.
   // independent of the rows (r2 reviews, both P2): a torch to bank must not spend the stay's latch while the logs wait uncounted
   const count = LOGBANK.on && !logs && !!lazy(logCount)
-  if (!p || !(p.freed >= 1 || logs || coal || count)) return none()
+  // bagfix-01 D: carried chests above the one kept are a reason on their own (a half frees no slot)
+  const chests = BAGFIX.chest && !!p && Array.isArray(p.steps) && p.steps.some(x => x.half && x.allowance === 'station')
+  if (!p || !(p.freed >= 1 || logs || coal || count || chests)) return none()
   if (!lazy(container)) return none()
   const dh = Math.round(Math.hypot(pos.x - home.x, pos.z - home.z)), dy = Math.round(pos.y - (home.y ?? pos.y))
   s.lastIssuedAt = now

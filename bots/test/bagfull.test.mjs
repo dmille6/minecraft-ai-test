@@ -42,7 +42,7 @@ const ALPHA = { stone_hoe: 1, spruce_sign: 2, cobblestone: 84, spruce_log: 25, c
 const DELTA = { cobblestone: 389, iron_ingot: 3, iron_axe: 1, iron_pickaxe: 2, spruce_sapling: 8, stone_pickaxe: 2, spruce_log: 24, snowball: 4, spruce_sign: 2, gravel: 15, moss_block: 8, spruce_planks: 108, sugar_cane: 6, cobbled_deepslate: 6, furnace: 3, bucket: 1, sand: 26, chest: 4, crafting_table: 1, iron_shovel: 1, dirt: 14 }
 const LUMEN = { iron_pickaxe: 3, iron_axe: 1, spruce_log: 30, coal: 3, stone_pickaxe: 3, iron_shovel: 1, crafting_table: 1, sugar_cane: 4, moss_block: 12, spruce_sign: 3, shears: 1, spruce_sapling: 7, iron_nugget: 2, iron_ingot: 3, bucket: 1, lantern: 2, chest: 18, stone_bricks: 10, sand: 10, furnace: 1, dirt: 15, spruce_planks: 43, stone_shovel: 1, cobblestone: 88 }
 const roomSteps = (items, x = {}) => TD.townDepositPlan(items, { wanted: [], room: true, ...x }).steps.filter(st => st.room)
-const NEVER = /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|bucket|cobblestone|cobbled_deepslate|chest|furnace|crafting_table|torch|bone_meal|spruce_sapling|iron_ingot|iron_nugget|coal|stick)$/
+const NEVER = /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|bucket|cobblestone|cobbled_deepslate|chest|furnace|crafting_table|torch|bone_meal|spruce_sapling|iron_ingot|coal|stick)$/   // bagfix-01 C (owner 11-16): iron nuggets have an exit now (bagfix.test.mjs)
 
 await t('REAL BAGS: the room plan moves whole stacks no build needs -- never a tool, cobble, a station, a sapling, the iron ladder', () => {
   for (const [who, inv] of [['Alpha', ALPHA], ['Delta', DELTA], ['Lumen', LUMEN]]) {

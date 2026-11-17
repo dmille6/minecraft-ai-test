@@ -22,6 +22,8 @@
 // BAGROOM=off is the rollback of both; BAGROOM_WELL=off / BAGROOM_SHARE=off of each. Unset: on only in BAGROOM_POOLS (default
 // 'showcase'). Pure module: no imports of shop.mjs (well.mjs imports this; shop.mjs reaches well.mjs).
 
+import { kitKeepOf, partialKeep } from './bagfix.mjs'   // bagfix-01show C (a leaf: no cycle)
+
 /** shop.mjs SHOP_BAG_SLOTS_MIN, restated (a cycle otherwise): bagroom.test.mjs holds the two equal. */
 export const BUILD_ROOM_SLOTS = 8
 /** One share-bank visit per bot at most this often (a bank that freed nothing is not retried at once). */
@@ -121,7 +123,7 @@ export const roomKitAlways = name => typeof name !== 'string' || TOOLISH_RE.test
  *   keep            { name: n } the town deposit's keeps (townKeeps); ROOM_KIT_KEEP adds to them
  *   taken           slots another step of the same plan already moves (never planned twice)
  */
-export function roomBankSteps (items = [], { eligible = () => false, keep = {}, taken = new Set() } = {}) {
+export function roomBankSteps (items = [], { eligible = () => false, keep = {}, taken = new Set(), hard = () => false, stackOf = () => 64 } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
   const by = new Map()
   for (const it of list) { if (!by.has(it.name)) by.set(it.name, []); by.get(it.name).push(it) }
@@ -132,7 +134,9 @@ export function roomBankSteps (items = [], { eligible = () => false, keep = {}, 
     try { ok = !!eligible(name) } catch { ok = false }
     if (!ok) continue
     const total = copies.reduce((t, it) => t + (Number(it.count) || 0), 0)
-    const k = Math.max(Number(keep?.[name]) || 0, ROOM_KIT_KEEP[name] ?? 0)
+    // bagfix-01 C: the kit keeps 16 seeds / sugar cane, and a single partial slot under its keep may leave a bag at 30+ kinds
+    const k0 = Math.max(Number(keep?.[name]) || 0, kitKeepOf(name, ROOM_KIT_KEEP[name] ?? 0))
+    const k = partialKeep({ slots: list.length, copies: copies.length, total, keep: k0, stack: Number(stackOf(name)) || 64, hard: !!hard(name) })
     let room = total - k
     for (const it of [...copies].sort((a, b) => (a.count - b.count) || a.slot - b.slot)) {
       if (taken.has(it.slot)) { room -= it.count; continue }
@@ -157,7 +161,8 @@ export function roomBankAsk ({ on = BAGROOM.bank, freeSlots = 36, need = BUILD_R
 }
 
 /** `_room_bank` row detail. Pure. */
-export function roomBankDetail ({ plot = '-', need = BUILD_ROOM_SLOTS, planned = 0, slotsBefore = '-', slotsAfter = '-', banked = {}, status = '-', then = '-' } = {}) {
+export function roomBankDetail ({ plot = '-', need = BUILD_ROOM_SLOTS, planned = 0, slotsBefore = '-', slotsAfter = '-', banked = {}, status = '-', then = '-', stop = null, near = null } = {}) {
   const m = Object.entries(banked ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `plot=${plot} need=${need} planned=${planned} slots=${slotsBefore}->${slotsAfter} deposit=${status} then=${then} banked=${m}`.slice(0, 300)
+  // bagfix-01 A: stop= and near= (before the names: the row is cut at 300)
+  return `plot=${plot} need=${need} planned=${planned} slots=${slotsBefore}->${slotsAfter} deposit=${status} then=${then}${stop ? ` stop=${stop}` : ''}${near ? ` near=${near}` : ''} banked=${m}`.slice(0, 300)
 }

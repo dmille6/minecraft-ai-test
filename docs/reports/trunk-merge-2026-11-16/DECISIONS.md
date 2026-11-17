@@ -34,23 +34,29 @@ is still missing (one subtest of `idlework2.test.mjs`).
 
 | 7 | snow on a build cell (`stuckcells.test.mjs`) | A cell under snow is "blocked without properties" | gkunblock-01 digs snow (`snow` in the visit's default foreign list) | SETTLED as a pool switch: `SNOWKEEP` (`buildrun.mjs snowKeepOn`), off in the showcase pool, on elsewhere. It moves the visit's default list only; overburden, cover and chest-litter defaults still dig snow in every pool. The wiring subtest now accepts either line's read and proves a snow layer's `layers` is seen through the trunk's (the showcase's lazy read, which carries every block's properties; the fleet's `readBlock` carried snow's only) | pattern of rows 2-6 | `SNOWKEEP=off` |
 
-## Next showcase release to bring in: bagfix-01show `0e33aa99` (tried 2026-11-17 00:45Z, NOT merged)
+## Row 8, SETTLED BY THE OWNER (2026-11-17, "Yes, bag fix everywhere"): bagfix-01show `0e33aa99` is merged
 
-The control session cleared it (live 11-16 23:04Z, KEEP at +60). A trial merge onto this branch conflicts in two files:
-`bots/src/chestfull.mjs` (1 block) and `bots/src/skills.mjs` (10 blocks). The trial was aborted; nothing of it is here.
+The showcase's bag and chest fix, release 1 (live 11-16 23:04Z, KEEP at +60: visits failing for bag room 1 of 45, was 24
+of 31), is in the branch. It conflicted in `chestfull.mjs` (1 block) and `skills.mjs` (10 blocks); every block took the
+showcase side.
 
-- `chestfull.mjs`: plain. The showcase adds `carriedLimitsOn` (the larger carried-chest limits also need `BAGFIX` and
-  `BAGFIX_CHEST` on) and uses it as `chestBudget`'s default. The control session confirms `CHESTCARRY` means the same thing
-  on both lines (bagfix-01show cherry-picked the fleet's chestcarry-01), so the showcase side is taken and the fleet's
-  behaviour is unchanged while `BAGFIX` is unset or on.
-- `skills.mjs`: a REAL overlap, row 8 of this file when it is settled. Both lines implement "merge into a part-full stack
-  on deposit" inside the same two functions. The fleet's chestmerge-01 (on main: `bankInto` returns `merge`, `verifyTown`
-  takes `{ always }` and returns `slots`) and the showcase's bagfix-01 M (`bankInto` returns `bagBefore`, `verifyTown`
-  takes `before` and credits through `creditMoves` / `destHolds`). They cannot both be the body of one function. By the
-  settled pattern the showcase's is the code path in the showcase pool; whether the fleet's chestmerge-01 survives behind
-  a pool-default switch, or is replaced by bagfix-01 M in every pool (it is the same idea, and the showcase's version has
-  a live KEEP read), is not decided. It needs someone to read both and the towndeposit / fullplace / chestmerge / bagfix
-  tests before choosing.
+**What that replaces, said plainly, because the two are NOT the same thing.** The fleet's chestmerge-01 (KEEP and
+fleet-wide since 11-13 02:44Z) consolidates part stacks INSIDE a town chest to free whole slots before a deposit. The
+showcase's bagfix-01 M puts a bag stack ONTO the chest's part stacks of the same item. Both make a full-looking chest
+take more; they do it differently, and both lived in `bankInto` and `verifyTown`. The owner's choice is bagfix-01 M in
+every pool. So in the trunk the fleet's in-chest consolidation no longer runs: `chestmerge.mjs` and `mergeInto` are still
+in the tree with no caller, and the 25 CHESTMERGE tests moved, with the file they were written in, to
+`towndeposit-chestmerge.test.mjs`, skipped with that reason (`towndeposit.test.mjs` keeps its other 113). A fleet chest
+whose slots are all taken by part stacks of items the bot is NOT depositing will read full again, as it did before 11-13.
+Wiring chestmerge-01 beside bagfix-01 M behind `CHESTMERGE` is possible later; it is cursor-safety work and was not done.
+
+`CHESTCARRY` is one switch (the control session: bagfix-01show cherry-picked the fleet's chestcarry-01); the larger
+carried-chest limits now also need `BAGFIX` and `BAGFIX_CHEST` on (`carriedLimitsOn`), unchanged for the fleet while
+`BAGFIX` is unset or on.
+
+By hand in this merge: the trunk's own import statements in `skills.mjs` were kept (the merge had dropped twelve of them
+around the showcase's new `bagfix.mjs` import), `inTownExtra` was added to the `chestfull.mjs` import, and the one
+leftover `mergeHold` line in the deposit's `finally` was removed.
 
 ## Fleet tests the showcase line has replaced with its own piece
 
