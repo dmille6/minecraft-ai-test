@@ -117,12 +117,14 @@ await t('MUTANT KILLED: the published lists are not read', () => killed('  const
 // after the child's peak memory is checked
 const stageScenario = async H => {
   const pool = town({ cuts: [[-20, 72, 0]] })
-  const inp = input(pool, { stage: tmp('ovg-') })
+  const inp = input(pool, { stage: path.join(tmp('ovg-'), 'run1'), run: 'run1' })
   const { summary } = H.runCycle(inp)
   assert.ok(!fs.readdirSync(pool).some(f => H.LIST_RE.test(f)), 'nothing published by the node step')
   assert.deepStrictEqual(fs.readdirSync(inp.state), [], 'not even the book')
   const plan = JSON.parse(fs.readFileSync(path.join(inp.stage, 'manifest.json'), 'utf8')).plan
   assert.strictEqual(summary.staged, plan.length)
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(inp.stage, 'manifest.json'), 'utf8')).run, 'run1', 'the manifest names its run')
+  assert.throws(() => H.runCycle(inp), /stage exists/, 'a run never writes into a stage that exists')
   assert.ok(plan[0].dest.endsWith('book.live.json'), 'the book first'); assert.ok(plan.some(o => o.dest === path.join(pool, 'worklist-Ann.json')))
 }
 await t('r7: staged -- the node step writes only to its stage, the book first in the plan', () => stageScenario(H))

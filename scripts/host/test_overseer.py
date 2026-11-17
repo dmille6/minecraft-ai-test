@@ -1,6 +1,7 @@
 """overseer-01show: the host wrapper's two decisions -- live or dry, and the roster/rows it hands the cycle. Run: python3 test_overseer.py"""
 import datetime as dt
 import json
+import time
 import os
 import sys
 import tempfile
@@ -242,20 +243,67 @@ def test_tail_streams(R=None):
     assert not OV.over_cap(r['rss'], 120), 'peak %s over 120 MB' % r['rss']
 
 
+def _stage(root, run, content):
+    st = os.path.join(root, run)
+    os.makedirs(st)
+    open(os.path.join(st, '0.json'), 'w').write(json.dumps(content))
+    return st
+
+
 def test_apply_stage(R=None):
-    """r7: the staged plan is applied in order: writes land atomically, removals go."""
+    """r7/r8: a run's plan is applied in order from ITS OWN stage; another run's manifest or sources are refused; older stages go."""
     R = R or OV
-    st, pool = tempfile.mkdtemp(), tempfile.mkdtemp()
-    open(os.path.join(st, '0.json'), 'w').write('{"book": 1}')
-    open(os.path.join(st, '1.json'), 'w').write('{"list": 1}')
+    root, pool = tempfile.mkdtemp(), tempfile.mkdtemp()
+    a = _stage(root, '0000000000001-1-aa', {'list': 'A'})
+    b = _stage(root, '0000000000002-2-bb', {'list': 'B'})
     open(os.path.join(pool, 'worklist-Old.json'), 'w').write('{}')
-    plan = [{'op': 'write', 'dest': os.path.join(pool, 'book.live.json'), 'src': os.path.join(st, '0.json')},
-            {'op': 'write', 'dest': os.path.join(pool, 'worklist-Ann.json'), 'src': os.path.join(st, '1.json')},
-            {'op': 'unlink', 'dest': os.path.join(pool, 'worklist-Old.json')}]
-    json.dump({'v': 1, 'plan': plan}, open(os.path.join(st, 'manifest.json'), 'w'))
-    assert R.apply_stage(st) == 3
-    assert sorted(os.listdir(pool)) == ['book.live.json', 'worklist-Ann.json']
-    assert json.load(open(os.path.join(pool, 'worklist-Ann.json'))) == {'list': 1}
+    dest = os.path.join(pool, 'worklist-Ann.json')
+    json.dump({'v': 1, 'run': '0000000000002-2-bb', 'plan': [{'op': 'write', 'dest': dest, 'src': os.path.join(b, '0.json')},
+               {'op': 'unlink', 'dest': os.path.join(pool, 'worklist-Old.json')}]}, open(os.path.join(b, 'manifest.json'), 'w'))
+    # an orphan of run A wrote a manifest naming B's run, with A's sources: refused
+    json.dump({'v': 1, 'run': '0000000000002-2-bb', 'plan': [{'op': 'write', 'dest': dest, 'src': os.path.join(a, '0.json')}]}, open(os.path.join(a, 'manifest.json'), 'w'))
+    for st, run in ((a, '0000000000002-2-bb'), (a, '0000000000001-1-aa')):
+        try:
+            R.apply_stage(st, run)
+            raise AssertionError('cross-run publish allowed')
+        except ValueError:
+            pass
+    c = _stage(root, '0000000000003-3-cc', {'list': 'C'})
+    json.dump({'v': 1, 'run': '0000000000003-3-cc', 'plan': [{'op': 'write', 'dest': dest, 'src': os.path.join(a, '0.json')}]}, open(os.path.join(c, 'manifest.json'), 'w'))
+    try:
+        R.apply_stage(c, '0000000000003-3-cc')
+        raise AssertionError('a source from another run published')
+    except ValueError:
+        pass
+    import shutil as _sh
+    _sh.rmtree(c)
+    assert not os.path.exists(dest), 'nothing crossed'
+    assert R.apply_stage(b, '0000000000002-2-bb') == 2
+    assert json.load(open(dest)) == {'list': 'B'} and sorted(os.listdir(pool)) == ['worklist-Ann.json']
+    assert R.prune_stages(root, '0000000000002-2-bb') == 1 and os.listdir(root) == ['0000000000002-2-bb'], 'older stages removed'
+
+
+def test_child_group_killed(R=None):
+    """r8: a child that ignores SIGTERM and outlives the timeout is killed with its whole group -- no process is left."""
+    import shutil
+    R = R or OV
+    node = shutil.which('node')
+    if not node:
+        return
+    pidf = os.path.join(tempfile.mkdtemp(), 'pid')
+    js = 'require("fs").writeFileSync(%r, String(process.pid)); process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)' % pidf
+    out = R.run_child([node, '-e', js], '{}', 300, timeout=2)
+    assert 'timeout' in out.get('error', ''), out
+    pid = int(open(pidf).read())
+    time.sleep(0.3)
+    try:
+        os.kill(pid, 0)
+        alive = True
+    except ProcessLookupError:
+        alive = False
+    if alive:
+        os.kill(pid, 9)
+    assert not alive, 'node outlived its cycle'
 
 
 def _load_mutant(old, new):
@@ -280,6 +328,9 @@ def test_mutants():
             ("            if os.path.basename(w) == 'showcase_trip.py' and argv[i + 1] == 'read' and any(os.path.basename(x).startswith('python') for x in argv[:i]):", "            if 'showcase_trip.py' in w and argv[i + 1] == 'read':", test_trip_reading),
             ("    if p.returncode != 0:\n", "    if False:\n", test_mem_cap),
             ("    if over_cap(peak, cap_mb, linux):\n", "    if False:\n", test_mem_cap),
+            ("    if man.get('run') != run_id or os.path.basename(os.path.normpath(stage)) != run_id:", "    if False:", test_apply_stage),
+            ("        if op['op'] == 'write' and os.path.dirname(os.path.abspath(op['src'])) != os.path.abspath(stage):", "        if False:", test_apply_stage),
+            ("            os.killpg(pg, sig)\n", "            os.kill(p.pid, sig)\n", test_child_group_killed),
             ("                    chunk = fh.read(min(chunk_bytes, todo))", "                    chunk = fh.read(todo)", test_tail_streams),
             ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace),
             ("        off = was['off'] if was and was['off'] <= s_.st_size else 0", '        off = 0', test_tail_incremental),

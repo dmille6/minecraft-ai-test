@@ -78,13 +78,13 @@ export function listedCache (readFiles, { home, ttlMs = 5_000, clock = Date.now,
     at = now
     let files
     // r7: the directory unreadable: the last good set, and before any, EVERY cut vetoed (fail closed; named once)
-    try { files = readFiles() ?? [] } catch { if (!good) { set = LISTED_ALL; if (!told.has('*dir')) { told.add('*dir'); try { onError('*dir') } catch { /* a log */ } } } return set }
+    try { files = readFiles() ?? []; told.delete('*dir') } catch { if (!good) { set = LISTED_ALL; if (!told.has('*dir')) { told.add('*dir'); try { onError('*dir') } catch { /* a log */ } } } return set }
     const next = new Set(), names = new Set()
     let blind = false
     for (const f of files) {
       names.add(f.name)
       let cells = null
-      if (f.doc !== undefined && !f.err) { cells = listedCells([f.doc], { home, now }); byFile.set(f.name, cells) } else {
+      if (f.doc !== undefined && !f.err) { cells = listedCells([f.doc], { home, now }); byFile.set(f.name, cells); told.delete(f.name) } else {   // r8: read again -> a later blind spell is named again
         cells = byFile.get(f.name) ?? null
         if (!cells) { blind = true; if (!told.has(f.name)) { told.add(f.name); try { onError(f.name) } catch { /* a log */ } } }   // r7: never read: every cut vetoed
       }

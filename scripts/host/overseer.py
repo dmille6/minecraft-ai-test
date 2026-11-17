@@ -37,7 +37,10 @@ INSTALL ON THE SHOWCASE VM (.40) -- the control session's conditions (r6):
     --mem-cap-mb (300): the python step's address space is capped and its peak RSS checked; the node step runs with
     --max-old-space-size=<cap-44>, under a measuring parent: a non-zero exit or a measured peak RSS over the cap is a failed
     cycle. The node step only STAGES its writes (<state>/stage/manifest.json); they are published (book first) only after that
-    check (r7: fail closed -- an error row, nothing published). The log read streams in 8 MB chunks, so the first cycle of the
+    check (r7: fail closed -- an error row, nothing published). r8: each run stages into its own stage/<time>-<pid>-<rand>, its
+    manifest names that run, and only that run's plan from that directory is published; older stages are removed. The node child
+    runs in its own process group, killed as a group on a timeout, on every exit, and on SIGTERM/SIGINT to this script (cron's
+    `timeout 120`), so no node outlives its cycle. The log read streams in 8 MB chunks, so the first cycle of the
     day or a re-read from 0 stays inside the cap.
   * Lists live 60 min (overseer.mjs OVERSEER.listTtlMs): the longest gap between slots is :30 -> :10 (40 min), 50 min when the :10
     slot is skipped for an overrunning read; 60 covers one skipped slot. The stall (30 min of no progress) and unstick (10 min) clocks
@@ -326,15 +329,58 @@ MEASURE = (
     "sys.exit(p.returncode)\n")
 
 
+CHILD = None
+
+
+def kill_group(p, grace=2.0):
+    """r8: SIGTERM the child's whole process group, SIGKILL whatever is left after `grace` s. Safe to call twice."""
+    import signal
+    try:
+        pg = os.getpgid(p.pid)
+    except (ProcessLookupError, OSError):
+        pg = p.pid
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pg, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        t_end = time.time() + grace
+        while time.time() < t_end:
+            try:
+                os.killpg(pg, 0)
+            except (ProcessLookupError, OSError):
+                try:
+                    p.wait(timeout=0.1)
+                except Exception:
+                    pass
+                return
+            time.sleep(0.05)
+    try:
+        p.wait(timeout=1)
+    except Exception:
+        pass
+
+
 def run_child(cmd, payload, cap_mb, timeout=110, linux=sys.platform.startswith('linux')):
     """r6/r7: the node step under its heap cap AND its measured peak RSS -> (summary dict) with `error` on any failure: a non-zero
     exit (an out-of-memory abort included), no summary, a timeout, or a peak RSS over cap_mb (V8's heap cap does not bound buffers).
     The child runs under a fresh measuring parent (its RUSAGE_CHILDREN is this child alone). The caller publishes nothing on an
     error (the child only STAGES its writes)."""
+    # r8: the child and everything under it in their OWN process group, killed as a group on a timeout and on every exit path
+    # (and by the SIGTERM/SIGINT handler main installs), so no node outlives this cycle's lock
+    global CHILD
+    p = subprocess.Popen([sys.executable, '-c', MEASURE] + list(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=True)
+    CHILD = p
     try:
-        p = subprocess.run([sys.executable, '-c', MEASURE] + list(cmd), input=payload, capture_output=True, text=True, timeout=timeout)
+        stdout, stderr = p.communicate(payload, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return {'error': 'node: timeout %ss' % timeout}
+        kill_group(p)
+        return {'error': 'node: timeout %ss (group killed)' % timeout}
+    finally:
+        kill_group(p)
+        CHILD = None
+    p.stdout, p.stderr = stdout, stderr
     peak = None
     for ln in p.stderr.splitlines():
         if ln.startswith('OVERSEER_PEAK '):
@@ -354,12 +400,19 @@ def run_child(cmd, payload, cap_mb, timeout=110, linux=sys.platform.startswith('
     return out
 
 
-def apply_stage(stage):
+def apply_stage(stage, run_id):
     """r7: publish what the node step staged, in its order (the book first) -> the number of operations. A write is copied beside
     its destination and renamed over it (atomic; the stage may be on another filesystem than the town)."""
     import shutil
     with open(os.path.join(stage, 'manifest.json')) as fh:
-        plan = json.load(fh)['plan']
+        man = json.load(fh)
+    # r8: only this run's own plan, from this run's own directory
+    if man.get('run') != run_id or os.path.basename(os.path.normpath(stage)) != run_id:
+        raise ValueError('stage run mismatch: %s != %s' % (man.get('run'), run_id))
+    plan = man['plan']
+    for op in plan:
+        if op['op'] == 'write' and os.path.dirname(os.path.abspath(op['src'])) != os.path.abspath(stage):
+            raise ValueError('stage source outside its run: %s' % op['src'])
     for op in plan:
         if op['op'] == 'write':
             os.makedirs(os.path.dirname(op['dest']) or '.', exist_ok=True)
@@ -372,6 +425,26 @@ def apply_stage(stage):
             except FileNotFoundError:
                 pass
     return len(plan)
+
+
+def new_run_id(now_ms):
+    import secrets
+    return '%013d-%d-%s' % (now_ms, os.getpid(), secrets.token_hex(4))
+
+
+def prune_stages(root, run_id):
+    """r8: every stage directory OLDER than this run (by its time prefix) is removed."""
+    import shutil
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    n = 0
+    for d in names:
+        if d < run_id and d != run_id:
+            shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+            n += 1
+    return n
 
 
 def main(argv=None):
@@ -398,6 +471,15 @@ def main(argv=None):
     except OSError:
         print('overseer: another cycle holds the lock; this one is skipped')
         return 0
+    # r8: a SIGTERM (cron's `timeout 120`) or SIGINT kills the node child's group before this process goes
+    import signal
+
+    def _die(signum, _frame):
+        if CHILD is not None:
+            kill_group(CHILD, grace=1.0)
+        sys.exit(128 + signum)
+    signal.signal(signal.SIGTERM, _die)
+    signal.signal(signal.SIGINT, _die)
     now = dt.datetime.now(dt.timezone.utc)
     # r6: NEVER BESIDE THE TRIPWIRE'S READ -- a skipped cycle, not a failure; the row is the only thing written
     if trip_reading_now():
@@ -463,9 +545,12 @@ def main(argv=None):
         json.dump(tail, fh)
     os.replace(tail_file + '.tmp', tail_file)
     live = switch_live(a.switch)
+    # r8: this run's own stage directory; older runs' stages (an orphan's included) are removed first
+    run_id = new_run_id(now_ms)
+    prune_stages(os.path.join(a.state, 'stage'), run_id)
     inp = {'now': int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
            'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl,
-           'stage': os.path.join(a.state, 'stage')}
+           'stage': os.path.join(a.state, 'stage', run_id), 'run': run_id}
     # the child must not inherit the python step's address-space cap (V8 reserves far more than it uses): the soft limit goes back
     # to the HARD one (RLIM_INFINITY is refused when the hard limit is finite); node's own heap cap bounds it
     try:
@@ -478,7 +563,7 @@ def main(argv=None):
     out = run_child([a.node, '--max-old-space-size=%d' % max(16, a.mem_cap_mb - 44), CYCLE], json.dumps(inp), a.mem_cap_mb)
     if 'error' not in out:   # r7: published only now, after the child's peak memory was checked
         try:
-            out['published'] = apply_stage(inp['stage'])
+            out['published'] = apply_stage(inp['stage'], run_id)
         except (OSError, ValueError, KeyError) as e:
             out = {**out, 'error': 'publish: %s' % e}
     # the denominator beside the result: the rows and bots the cycle was given

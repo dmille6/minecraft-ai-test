@@ -39,14 +39,16 @@ function writeAtomic (file, obj) {
  * plan (writes and removals, in order) to <stage>/manifest.json, which overseer.py applies only after it has checked this
  * process's peak memory -- an over-cap cycle publishes nothing.
  */
-export function makeIo (stage = null) {
+export function makeIo (stage = null, run = null) {
   if (!stage) return { write: writeAtomic, unlink: f => { try { fs.unlinkSync(f) } catch { /* gone */ } }, finish: () => null }
-  fs.rmSync(stage, { recursive: true, force: true }); fs.mkdirSync(stage, { recursive: true })
+  // r8: the stage is this run's own (stage/<run>): created fresh, never shared with another run
+  if (fs.existsSync(stage)) throw new Error(`stage exists: ${stage}`)
+  fs.mkdirSync(stage, { recursive: true })
   const plan = []
   return {
     write: (dest, obj) => { const src = path.join(stage, `${plan.length}.json`); writeAtomic(src, obj); plan.push({ op: 'write', dest, src }) },
     unlink: dest => { plan.push({ op: 'unlink', dest }) },
-    finish: () => { writeAtomic(path.join(stage, 'manifest.json'), { v: 1, plan }); return plan.length },
+    finish: () => { writeAtomic(path.join(stage, 'manifest.json'), { v: 1, run, plan }); return plan.length },
   }
 }
 const readJ = (f, dflt) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { if (e?.code === 'ENOENT') return dflt; throw e } }
@@ -120,7 +122,7 @@ export function runCycle (inp, { write = true } = {}) {
   if (!write) return { summary, cycle: c }
   // r5: THE BOOK FIRST. A crash after it and before the lists leaves the old lists, which expire (listDoc: 30 min) -- and the
   // book's notBefore already guards every move; the other order could leave lists the book never knew it gave out.
-  const io = makeIo(inp.stage ?? null)
+  const io = makeIo(inp.stage ?? null, inp.run ?? null)
   io.write(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, seen: rr.seen, givenAt, unstuckAt, at: now })
   if (inp.live) {
     for (const [b, d] of Object.entries(c.lists)) io.write(path.join(inp.pool, listFile(b)), d)
