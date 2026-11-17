@@ -199,7 +199,7 @@ import { clerkMayCarry, cargoOwed as clerkCargoOwed, clerkNext } from './compact
 import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
 import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
-import { kindRoom, guardStockDig, laneStale, rowFullKeys, rowHasRoom } from './yard.mjs'   // Codex r2
+import { kindRoom, guardStockDig, laneStale, rowFullKeys, rowHasRoom, ROW_FULL_MS } from './yard.mjs'   // Codex r2
 import { leasedPileCells, yardRestMs, yardsWanted, YARD_PLOTS_ALL } from './yard.mjs'   // Codex r1 BLOCKERS 1, 6; Paper proof 11-17
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
@@ -21800,7 +21800,7 @@ async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
     const p = await sortPut(bot, block, b.names, deadline, signal, keeps, bag => rowSteps(bag, b.names, keeps, logHalfSteps), 'yard_row')
     const n = Object.values(p.put ?? {}).reduce((t, v) => t + v, 0)
     for (const [name, c] of Object.entries(p.put ?? {})) out.banked[name] = (out.banked[name] ?? 0) + c
-    if (!n && p.ok) (bot.yardRowFull ??= new Map()).set(b.at.join(','), Date.now() + 30 * 60_000)   // it took nothing: full for this bot a while
+    if (!n && p.ok) (bot.yardRowFull ??= new Map()).set(b.at.join(','), Date.now() + ROW_FULL_MS)   // it took nothing: full for this bot a while
     if (n > 0) bot.yardStockAt = Date.now()   // answers the well's hold (yard.mjs wellHold)
     try { logEvent({ kind: 'yard_row', status: n > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=bank kind=${b.kind} at=${b.at.join(',')} plot=${plot} put=${Object.entries(p.put ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-'} why=${p.why ?? '-'}`.slice(0, 300) }) } catch { /* telemetry */ }
   }
