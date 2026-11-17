@@ -10860,8 +10860,15 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot)), stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
-  if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  // idlework-02 (well.mjs wellBandDue): a VISIT from a bag in the 29-33 band throws the town dispose's whole plan (cobble only at
+  // the proven cap, the bot's 64 kept; at-target stock), the goal's wanted names still kept; below the band, listed junk only.
+  // one trunk (DECISIONS row 3): the band is the fleet's, behind IDLEWORK_WELL (well.mjs wellBandOn: off in the showcase pool, on
+  // in every other) -- with it off `band` is false and both lines below are the showcase's. A hall clerk's throw is never the
+  // band's (storehub-01: listed-only, its own keep), and its entry plan reads its own keep as before (`only`)
+  const band = visit && WELL_BAND.on && slotsBefore >= WELL_BAND_SLOTS && !clerk
+  const entryPlan = visit && !band ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot)), stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
+  const entry = only ? disposePlan(items(), { keep: keepOf(items()) }) : entryPlan
+  if (!entry.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
@@ -10906,7 +10913,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep, keepOf: only ? keepOf : null })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, keepOf: only ? keepOf : null, listedOnly: visit && !band, keep })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true

@@ -123,6 +123,9 @@ function run (file) {
              // same way. The showcase line's tests pin sinkfix-03's own-plot rule WITHOUT it (sinkfix3.test.mjs); shop.test.mjs's one
              // fleet test of the stamp turns it on for itself
              UNSITEDWAIT: process.env.UNSITEDWAIT ?? 'off',
+             // one trunk (DECISIONS row 7): the fleet's rule for snow on a build cell -- kept, never dug (SNOWKEEP, buildrun.mjs
+             // snowKeepOn), the same way. The showcase line's tests pin gkunblock-01's dig WITHOUT it; stuckcells.test.mjs sets it at its top
+             SNOWKEEP: process.env.SNOWKEEP ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.

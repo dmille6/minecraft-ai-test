@@ -4,9 +4,11 @@
 //   3. an air cell capped by its upper layer's open cell holding dirt: no face seen (placebo-c 327,72,106, 3,277 waiting)
 // Pure on the live shapes, chained on the fake server, each wiring killed by a mutant whose anchor is asserted present and unique.
 // one trunk (11-16): this file's held-cell part (stuckfleet.mjs heldWaiveCand) rides on buildretry-01's ledger and the in-visit waiver, which
-// default by pool (off in the showcase's) and off in the suite's runner: both ON here. Its cap part (capDigs) and its road-light wiring are
-// NOT in the trunk -- the showcase digs a cover its own way (coverdig-01 005e29324: rows say kind=cover, and the cap's control completes) --
-// so four checks below fail there; see docs/reports/trunk-merge-2026-11-16/DECISIONS.md
+// default by pool (off in the showcase's) and off in the suite's runner: both ON here. Its cap DIG in the visit (`kind=cap`) and its
+// road-light wiring in buildTidy are NOT in the trunk -- the showcase digs a cover its own way (coverdig-01 005e29324: rows say
+// kind=cover, and the cap's control completes) and waives what a visit leaves by gkleft (a6042d12a) -- so the four checks of those
+// two were MOVED, unchanged, to stuckfleet-cap.test.mjs, which is kept and not run (trunkfix-c1 11-16). The pure rules stay here
+// (lightWaiveDue, heldWaiveCand, capDigs); see docs/reports/trunk-merge-2026-11-16/DECISIONS.md
 process.env.VISIT_WAIVER = 'on'
 process.env.BUILDRETRY = 'on'
 import assert from 'node:assert'
@@ -72,13 +74,6 @@ await t('the threshold is LIGHT_WAIVE_AFTER visits -- killed with the visits tes
   await killedBy("    if ((Number(d?.visits) || 0) < after) continue\n", '', async (_R, M) => {
     assert.deepStrictEqual(M.lightWaiveDue(HIVEA, [{ k: '355,68,225', visits: 1 }]), [])
   }, withSfMutant)
-})
-await t('buildTidy composes the light waiver with its waivers, behind STUCKFLEET (source, comments stripped)', () => {
-  const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  assert.strictEqual(src.split("const waive2 = stuckFleetOn() ? [...waive1, ...lightWaiveDue(rec, r.deferred ?? []).filter(l => !waive1.some(w => w.k === l.k))] : waive1").length, 2)
-  assert.ok(/if \(waive\.length\) \{\s*const pub = publishRecord\(dir, key, cur => \{\s*if \(!cur \|\| cur\.structure_complete/.test(src), 'the composed list is what is published')
-  assert.strictEqual(SF.stuckFleetOn({ STUCKFLEET: 'off' }), false)
-  assert.strictEqual(SF.stuckFleetOn({}), true)
 })
 
 // ---- 2. the held cell (isolated-d monument F-S) -----------------------------------------------------------------------------
@@ -148,51 +143,6 @@ await t('capDigs refuses: a non-record block over the cell, an unread cell, a ve
   assert.deepStrictEqual(SF.capDigs(at, { read: col([null, 'chest']), isOpenAbove: () => true, scaffold: R.FOREIGN_CLEAR }), [], 'not scaffold')
   assert.deepStrictEqual(SF.capDigs(at, { read: col([null, 'dirt', 'dirt', 'dirt', 'dirt', 'air']), isOpenAbove: () => true, scaffold: R.FOREIGN_CLEAR }), [], 'too tall')
   assert.deepStrictEqual(SF.capDigs(at, { read: col([null, 'dirt', 'dirt', 'air']), isOpenAbove: () => true, scaffold: R.FOREIGN_CLEAR }).map(d => d.at[1]), [73, 72], 'highest first')
-})
-// the fake server: segment A a 3x3 at G+1, all cobblestone but the middle (air); segment B (waits on A) one cell over the middle
-// holding DIRT -- the middle's four sides and its top are solid, its bottom the ground: no face any stand sees
-const capScene = () => {
-  const srv = server(), cells = []
-  for (let x = 10; x <= 12; x++) for (let z = 9; z <= 11; z++) {
-    cells.push({ at: [x, G + 1, z], role: 'skin', seg: 'A' })
-    srv.set([x, G + 1, z], x === 11 && z === 10 ? 'air' : 'cobblestone')
-  }
-  cells.push({ at: [11, G + 2, 10], role: 'skin', seg: 'B' }); srv.set([11, G + 2, 10], 'dirt')
-  const rec = { v: 1, plot: 'monument', blueprint: 'ziggurat@1', cells, clear: [], replant: [], segments: [{ seg: 'A', deps: [] }, { seg: 'B', deps: ['A'] }] }
-  const dir = fs.mkdtempSync(`${process.env.TMPDIR ?? '/tmp'}/stuckfleet-`)
-  const key = PJ.projKey(HOME, 'monument')
-  const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
-  const slot = PJ.takeSlot(dir, key, 'A', 2)
-  const p = { dir, key, me: 'A', home: HOME, stood: [], record: rec, recordGen: pub.gen, palette: Z.ZIG_PALETTE, slot: slot.slot, slotGen: slot.gen,
-    domain: () => true, walkR: 40, foreign: Z.ZIG_FOREIGN, blockLayer: false, stands: { pending: null, bans: {} }, sealed: { mayDig: () => true } }
-  return { srv, rec, p }
-}
-const built = (srv, rec) => rec.cells.every(c => R.cellDone(srv.read(...c.at), Z.ZIG_PALETTE, c.role))
-await t('CONTROL (STUCKFLEET=off, the live code): the middle is deferred (no stand), the record never completes', async () => {
-  const prev = process.env.STUCKFLEET; process.env.STUCKFLEET = 'off'
-  try {
-    const { srv, rec, p } = capScene(), e = bot(srv, 'A', { inv: { cobblestone: 64 }, feet: [2, G + 1, 2] })
-    const r = await R.runVisit(p, e, { maxSteps: 400 })
-    assert.ok(!built(srv, rec))
-    assert.ok((r.deferred ?? []).some(d => d.k === k([11, G + 1, 10])), `${r.stop} ${JSON.stringify(r.deferred)}`)
-  } finally { if (prev == null) delete process.env.STUCKFLEET; else process.env.STUCKFLEET = prev }
-})
-await t('the cap is dug (`kind=cap`), the middle placed, then B placed: the record completes -- killed with the cap branch cut', async () => {
-  await killedBy('if (p.sealed && stuckFleetOn() && cand.length) {', 'if (false) {', async M => {
-    const { srv, rec, p } = capScene(), e = bot(srv, 'A', { inv: { cobblestone: 64 }, feet: [2, G + 1, 2] })
-    const r = await M.runVisit(p, e, { maxSteps: 400 })
-    assert.ok(built(srv, rec), `${r.stop} ${r.why}`)
-    assert.ok(e.logs.some(([kk, d]) => kk === '_build' && d.op === 'clear' && d.kind === 'cap' && k(d.cell) === k([11, G + 2, 10])))
-  })
-})
-await t('only a segment that WAITS on this one: an independent upper segment\'s cell is never dug -- killed with the dependency test cut', async () => {
-  await killedBy('return !!x && x.seg !== seg && dependsOn(record, x.seg, seg) && !isDone(x)', 'return !!x && x.seg !== seg && !isDone(x)', async M => {
-    const { srv, rec, p } = capScene()
-    const rec2 = { ...rec, segments: [{ seg: 'A', deps: [] }, { seg: 'B', deps: [] }] }
-    const e = bot(srv, 'A', { inv: { cobblestone: 64 }, feet: [2, G + 1, 2] })
-    await M.runVisit({ ...p, record: rec2 }, e, { maxSteps: 400 })
-    assert.ok(!e.logs.some(([kk, d]) => kk === '_build' && d.kind === 'cap'), 'no cap dug')
-  })
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
