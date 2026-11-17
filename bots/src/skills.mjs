@@ -223,6 +223,7 @@ import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeper
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots, stuckSegs, stuckLast } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
 import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf, lateUntil, groundsMayKeep } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
+import { groundsWork as crewGroundsWork } from './grounds2.mjs'   // minecrew-01: the idle steer's ask (groundsIdleAsk)
 import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
@@ -28894,6 +28895,40 @@ if (G3.on) setGroundsFall({ ask: groundsAsk, hold: groundsHeld })
 if (siteBoxOn()) setSiteSearchHook({ begin: ({ maxMs }) => siteStillBegin(activeMem?.bot ?? null, maxMs), end: siteStillEnd })
 /** grounds-01: the glue's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _grounds2 = Object.freeze({ G2, G3, groundsBegin, groundsEnd, groundsAsk, groundsHeld, g2Eligible, buildersFor: (p, o) => buildersFor(p, o) })
+// ================================================================================================================================
+// MINECREW-01 (minecrew.mjs; owner 11-16: idle bots "clean, terraform, and make the landscape beautiful"): the two effects the mine
+// crew's steer needs here. The decisions are minecrew.mjs's and cognitive.mjs issues the orders.
+// ================================================================================================================================
+/**
+ * MAY THIS IDLE BOT WORK THE GROUNDS NOW? -> { ok, why } (grounds2.mjs groundsWork over the links as they read now: the switch, not
+ * the keeper nor the decorator, the record open, its turns not spent, at the surface within reach, a worker's slot free). The order
+ * is build_shop { grounds: true, why: 'idle' }: a visit ORDERED for the grounds (groundsBegin's `only` path, grounds2.mjs
+ * groundsOnly), whose row is `_grounds_quota why=idle`. The links that read no file go first, and a refusal read from the town's
+ * files stands 30 s (groundsAsk's rule). Never throws.
+ */
+export function groundsIdleAsk (bot, now = Date.now()) {
+  try {
+    if (!G3.on || !bot) return { ok: false, why: 'grounds_off' }
+    const dry = crewGroundsWork({ on: true, record: 'open', emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), now })
+    if (!dry.ok) return dry
+    if (bot.crewIdleNo && now - bot.crewIdleNo.at < 30_000 && now >= bot.crewIdleNo.at) return { ok: false, why: bot.crewIdleNo.why }
+    const w = crewGroundsWork(g3Links(bot, now))
+    bot.crewIdleNo = w.ok ? null : { at: now, why: w.why }
+    return w
+  } catch { return { ok: false, why: 'unreadable' } }
+}
+/**
+ * crew_up -- THE WAY UP THAT NEVER DIGS (cognitive.mjs issues it for a bot under rock inside the town with no turn on the mine crew;
+ * chatOnly). The town stair's own ascent and nothing else: the walk plan reaches the stair's exit and the bot walks it, or the bot
+ * does not move. No climb, no pillar, no dig -- under the town a failed walk must not become a shaft through the town's ground.
+ */
+async function crewUp (ctx, _args, signal) {
+  const { bot } = ctx
+  const y0 = Math.floor(bot.entity?.position?.y ?? NaN)
+  const up = await stairAscend(ctx, signal)
+  if (up?.ok) return { status: 'success', detail: up.detail, via: 'town_stair' }
+  return { status: 'no_effect', stop: 'no_stair_walk', detail: `no walk up the town stair from y=${y0} (not near it, not under a roof, or no route to its exit); nothing was dug and nothing placed` }
+}
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
  *  laid path) and their reservations. Throws on an unreadable file. */
 function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
@@ -32935,6 +32970,7 @@ export const SKILL_CONTRACTS = {
   anvil_apply: { expects: ['inventory_loss'], maxMs: 120_000 },   // anvilapply-01: the book goes; its evidence is the `_anvil_apply` row
   enchant_tool: { expects: ['inventory_loss'], maxMs: 120_000 },   // enchant-01: the lapis goes; its evidence is the `_enchant_tool` row
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
+  crew_up: { expects: ['position'], maxMs: 150_000 },   // minecrew-01: the stair's plan (4 s) and its walk (120 s)
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
@@ -34469,6 +34505,7 @@ export const SKILLS = {
   anvil_apply: { run: anvilApply, usage: 'anvil_apply', args: [], chatOnly: true },   // anvilapply-01 (buildOrder issues it; never the model's)
   enchant_tool: { run: enchantTool, usage: 'enchant_tool', args: [], chatOnly: true },   // enchant-01 (buildOrder issues it; never the model's)
   deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
+  crew_up: { run: crewUp, usage: 'crew_up', args: [], chatOnly: true, rescue: true },   // minecrew-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:

@@ -26,6 +26,7 @@ import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
+import { crewRungClosed, crewOreOpen } from './minecrew.mjs'   // minecrew-01: the mining rungs and the patrol rung are stepped over for a bot the crew has no turn for
 
 /**
  * THE IDLE GAP (tech-tree review 2026-09-28, item 4; both engines measured it on 162k decisions, 24 h to 09-29 05:35Z).
@@ -578,7 +579,9 @@ const TECH_LADDER = [
     progress: b => `${countItem(b, 'raw_iron') + countItem(b, 'iron_ingot')}/3 iron ` +
                    `(${countItem(b, 'raw_iron')} raw, ${countItem(b, 'iron_ingot')} smelted)`,
     hint: 'gather with block=iron_ore.',
-  }, b => ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? [])),   // a pickaxe that can pay the trip, not a name
+  // minecrew-01: ...and the town's mine crew lets this bot gather IRON ore now (minecrew.mjs crewOreOpen: its own turn for iron,
+  // or a free one while the town is short of iron -- never while only coal is short): a rung the gate refuses must not be the task
+  }, b => crewOreOpen(b, 'iron') && ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? [])),   // a pickaxe that can pay the trip, not a name
   // IRON. The rung the ladder terminated one step short of; the note below this
   // array explains why it could not be added until `smelt` existed.
   // THREE for the same reason as the rung above: an iron_pickaxe costs three.
@@ -787,7 +790,11 @@ export const SUSTAINING = [
   // this produces. Spread rather than bunched, so one long ladder does not
   // starve the gathering the primary endpoint measures.
   ...TECH_LADDER,
-  {
+  // MINECREW-01 (minecrew.mjs): this rung ("... or mine to reach it") and the patrol rung below ("goto 80+ blocks from home")
+  // are STEPPED OVER -- rungOf's bypass: done, never `fulfilled` -- for a bot the town's mine crew has no turn for: the first
+  // names an action the gate refuses it, the second walks it away from the town's work the steer then brings it back to.
+  // MINECREW=off (no view on the bot): both exactly as before.
+  rungOf({
     // Same defect as stockpile_wood: `cobblestone` alone, while COBBLE -- which
     // the ladder beside it uses -- also holds cobbled_deepslate, blackstone and
     // stone. A bot mining below y=0 gets deepslate and reads as having nothing.
@@ -796,8 +803,8 @@ export const SUSTAINING = [
     done: (b, n) => countAny(b, COBBLE) >= stockpileTarget(16, 8, n),
     progress: (b, n) => `${countAny(b, COBBLE)}/${stockpileTarget(16, 8, n)} stone-type blocks`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
-  },
-  {
+  }, b => !crewRungClosed(b)),
+  rungOf({
     id: 'patrol',
     describe: () => 'Scout terrain away from home and come back.',
     done: b => b.entity.position.distanceTo(
@@ -805,7 +812,7 @@ export const SUSTAINING = [
     progress: b => `${Math.round(b.entity.position.distanceTo(
       { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }))}/80 blocks out`,
     hint: 'goto somewhere 80+ blocks from home, staying inside the border.',
-  },
+  }, b => !crewRungClosed(b)),
   {
     // THE CO-PRIMARY ENDPOINT NOBODY ASKED FOR.
     //

@@ -68,6 +68,7 @@ import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
 import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
 import { copperRunInstall } from './skills.mjs'   // copperrun-01: the hall's copper ask and its licence row
+import { crewModeDetail, crewLineOf } from './minecrew.mjs'   // minecrew-01's licence row
 import { bagRoomInstall } from './skills.mjs'   // bagroom-01
 import { copperhallModeDetail } from './copperhall.mjs'   // copperhall-01's licence row
 import { COPPERHALL } from './shop.mjs'
@@ -331,4 +332,6 @@ export function installFeatures (bot) {
     bot.once('end', () => { clearInterval(shopTimer); clearInterval(shopFpTimer); clearInterval(primeTimer) })
     if (config.memory.scope !== 'isolated') installPoolPrune(bot)
   }
+  // minecrew-01: the mine crew's licence row (minecrew.mjs; on=0 under MINECREW=off, clamped=1 when MINECREW_MAX was out of 1..3)
+  try { logEvent({ kind: 'minecrew_mode', status: 'success', snapshot: snapshot(bot), detail: crewModeDetail(undefined, crewLineOf(config.world.homeY)) }) } catch { /* telemetry */ }
 }

@@ -8,6 +8,9 @@ process.env.BOT_ROLE = 'gatherer'
 process.env.LLM_DECISION_COOLDOWN_MS = '40'
 process.env.PAUSE_RECOVERY_MS = '600'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
+// minecrew-01: this file's loop tests time the MODEL's cadence for an idle bot far from home; the mine crew's steer would give that
+// bot a `home` order first (its own chains: minecrew.test.mjs). Held off here, as it is read once at import.
+process.env.MINECREW = 'off'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'

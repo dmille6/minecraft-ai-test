@@ -23,6 +23,7 @@ import { redundantCraft } from './toolhygiene.mjs'
 // The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
 import { peacefulFoodActive } from './foodskip.mjs'
 import { isSword } from './peacefulkit.mjs'
+import { MINECREW, CREW_RULE_LINES, miningLine, crewOreHidden } from './minecrew.mjs'   // minecrew-01: mining is the town crew's
 
 const MAX_EVENTS = 12
 // Rough but adequate: we only need to know when we are near the ceiling, and
@@ -76,8 +77,8 @@ export function scanOrder (wants, list = INTERESTING_BLOCKS) {
   return [...new Set([...asked, ...list])]
 }
 
-function nearbyBlocks(bot, limit = 8, { wants = null } = {}) {
-  const interesting = scanOrder(wants)
+function nearbyBlocks(bot, limit = 8, { wants = null, mineCrew = null } = {}) {
+  const interesting = scanOrder(wants).filter(n => !crewOreHidden(mineCrew, n))   // minecrew-01: an ore the bot may not gather is not named to it
   const out = []
   for (const name of interesting) {
     const t = bot.registry.blocksByName[name]
@@ -117,12 +118,13 @@ const ACTIONABLE_TOTAL = 48
  * stays out of it entirely -- "can stand beside" is a heuristic, not proof of
  * reachability, and it has no business gating anything.
  */
-export function actionableBlocks (bot, limit = 8, { wants = null } = {}) {
+export function actionableBlocks (bot, limit = 8, { wants = null, mineCrew = null } = {}) {
   const t0 = Date.now()
   const out = []
   const stats = []
   let budget = ACTIONABLE_TOTAL
   for (const name of scanOrder(wants)) {
+    if (crewOreHidden(mineCrew, name)) continue   // minecrew-01
     if (budget <= 0 || out.length >= limit) break
     const type = bot.registry?.blocksByName?.[name]
     if (!type) continue
@@ -192,7 +194,7 @@ export function actionableBlocks (bot, limit = 8, { wants = null } = {}) {
            stats, scanMs }
 }
 
-export function buildSystemPrompt(skillNames) {
+export function buildSystemPrompt(skillNames, { mineCrew = MINECREW.on } = {}) {
   // Exact argument KEYS, not prose usage. The model reliably emitted
   // {item: "oak_log"} for gather when told "gather <count> <block_name>",
   // because "oak_log" reads like an item. Naming the JSON keys removes the
@@ -321,6 +323,14 @@ export function buildSystemPrompt(skillNames) {
     // IRON IS NOW REACHABLE AND THE PROMPT HAS TO SAY SO. `craft iron_pickaxe`
     // is not a craft the model can reason its way to: the ingot is not in any
     // crafting recipe the registry will show it, because a furnace makes it.
+    // MINECREW-01 (minecrew.mjs): the two rules that sent every bot down ("mine down to find iron ore", "mine with y=16 walks
+    // down it": the measured {"y":16}) give way to ONE static rule -- the same bytes for every bot, so the shared prefix holds;
+    // who may mine is the per-bot MINING line of the user message. The smelt route is named only for raw iron the bot CARRIES
+    // (review r1 B3: a bot holding none smelted, was told to fetch raw_iron, and the gate refused the ore). MINECREW=off: the
+    // two rules exactly as they were.
+    ...(mineCrew ? [
+    ...CREW_RULE_LINES,
+    ] : [
     `- Iron: mine down to find iron ore, gather it (you get raw_iron), then`,
     `  smelt item=raw_iron to get iron_ingot. 3 iron_ingot + 2 sticks ->`,
     `  iron_pickaxe. Smelting needs a furnace (8 cobblestone) and fuel.`,
@@ -328,6 +338,7 @@ export function buildSystemPrompt(skillNames) {
     // per skill-hour at y 16-31 against 0.09 above 64); mine walks the town's stair down when it has one (skills.mjs stairDescend)
     `- Iron ore is most common deep down, around y=16. If your town has a`,
     `  mineshaft stair, mine with y=16 walks down it with no digging.`,
+    ]),
     `- "reason" must be one short sentence explaining the choice.`,
     `- Copy the saw_end value from the end of the user message exactly.`,
   ].join('\n')
@@ -742,9 +753,11 @@ export function atlasLine (bot, milestone = null, wanted = null) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null }) {
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, mineCrew = null }) {
   const p = bot.entity.position
-  const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
+  // minecrew-01: the bot's view of the crew (cognitive.mjs; null or off: the prompt exactly as before) -- an ore whose material
+  // the bot may not gather now (minecrew.mjs crewOreHidden over the view's `allowed`) is named in neither scan
+  const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants, mineCrew })
   const inv = inventorySummary(bot)
   const invStr = Object.entries(inv).map(([k, v]) => `${k} x${v}`).join(', ') || 'empty'
 
@@ -762,11 +775,12 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
     smeltableNow(bot),
     depositSituation(bot, memory),
-    `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
+    `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants, mineCrew }).join(', ') || 'nothing notable'}`,
     actionable.line,
     waterSituation(bot),
     bucketSituation(bot),
     yContext(p.y),
+    miningLine(mineCrew),
     atlasLine(bot, milestone, wanted),
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`

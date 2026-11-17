@@ -624,6 +624,17 @@ export class AdmissionControl {
       }
     }
 
+    // MINECREW-01 (minecrew.mjs): UNDERGROUND WORK IS THE TOWN CREW'S. `mine` to a target below the line and the gather of an
+    // ore are admitted only to a bot the crew has a turn for (cognitive.mjs installs the hook; MINECREW=off: no hook, nothing
+    // asked). Here, after the argument checks (the ore's name is resolved, the descent is a real one) and before the gate's
+    // memory. The hook only DECIDES -- nothing is written on a dry run, and the slot is taken by cognitive.mjs for a proposal
+    // this whole gate admitted. Its detail names the remedy the bot can perform from where it stands (the way up, or the
+    // town's surface work); the steer that follows a refusal is cognitive.mjs's.
+    if (typeof bot?.mineCrewGate === 'function') {
+      const mc = bot.mineCrewGate(skill, args, { dry: !!this.dry, fromOrder: this.fromOrder === true && !this.dry })
+      if (mc && mc.ok === false) return { ok: false, reason: 'mine_crew', detail: mc.detail, crew: mc }
+    }
+
     if (skill === 'follow' || skill === 'come') {
       const p = args.player
       // `if (p && ...)` short-circuits when p is undefined, so this validated a
@@ -822,7 +833,9 @@ export class AdmissionControl {
 
     // --- oscillation guard --------------------------------------------------
     const repeats = this.recent.filter(k => k === key).length
-    if (repeats >= REPEAT_WINDOW) {
+    // minecrew-01 (review r2): the steer's own way up (`crewWayUp`, set by cognitive.mjs for that one order) is bounded by its
+    // tries and back-off, never by the window -- the model's earlier `surface` choices fill it and it has no expiry
+    if (repeats >= REPEAT_WINDOW && this.crewWayUp !== true) {
       return { ok: false, reason: 'repeat_loop', detail: `chose the identical action ${repeats}x in a row` }
     }
 

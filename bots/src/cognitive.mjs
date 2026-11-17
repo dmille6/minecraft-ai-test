@@ -38,6 +38,14 @@ import { deepMineOrder, deepTripOrder, tripKit as deepTripKit, TRIP_NEXT_MS as D
 import { deepLeaseNow, deepStairNow } from './skills.mjs'
 import { nearStair as deepNearStair, SURFACE_SLACK as DEEP_SURFACE_SLACK } from './shaftgeom.mjs'
 import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
+// minecrew-01 (OWNER 11-16): underground work is a small crew's, and an idle bot is steered to the town's surface work
+// (minecrew.mjs decides; minecrewio.mjs keeps the crew's files; this supplies readings, takes the slots and issues the steer)
+import { MINECREW, CREW, MATERIALS as CREW_MATERIALS, crewLineOf, crewUpLineOf, mineNeed, censusLacking, crewKind, crewGate, crewRefusal, deepTripGate, crewSteer, steerAfter, crewIdleVisit, crewView, upJitterMs, crewRow, tallyLine, prereqBlocked } from './minecrew.mjs'
+import { crewLeasesNow, crewMeta, crewTakeMining, crewTakeRun, crewRenew, crewRelease, crewStockNow, censusWrite, censusRead, censusOwn, crewBuildBusy } from './minecrewio.mjs'
+import { groundsIdleAsk } from './skills.mjs'
+import { overHead as crewOverHead } from './shop.mjs'
+import { ironPickNeed } from './toolkit.mjs'
+import { tripTarget as crewTripTarget, obsKit as crewObsKit, obsidianWant as crewObsWant } from './deepmine.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -665,6 +673,8 @@ export class CognitiveLoop {
     // DEEPMINER-01: an open deep trip's next call comes at once (one job cut into 180 s calls, not a decision; Paper 11-01: the
     // gap between calls is when the reflexes read a miner in its own tunnel as stuck)
     if (deepTripOrder(this.bot?.deepTrip)) delay = Math.min(delay, DEEP_TRIP_NEXT_MS)
+    // minecrew-01: a refused mining proposal is followed at once by the steer's order (#crewRefused)
+    if (this.crewRetick === true) { this.crewRetick = false; delay = Math.min(delay, 50) }
     clearTimeout(this.nextTimer)
     this.nextTimer = setTimeout(() => {
       if (this.stopped || !this.running) return
@@ -733,6 +743,8 @@ export class CognitiveLoop {
    */
   #adoptPrereq(need, fromSkill) {
     if (!need?.items?.length) return
+    // minecrew-01 (review r1 B3): a prerequisite whose only means is an ore the crew refuses this bot is never adopted
+    if (MINECREW.on && prereqBlocked(need, this.bot.mineCrewView)) { this.#crewRow('prereq_dropped', { items: need.items.slice(0, 3).join('|'), from: fromSkill, when: 'adopt' }, 'no_effect'); return }
     if (this.prereq && this.#prereqHave() < this.prereq.count) return   // one at a time
     this.prereq = { ...need, since: Date.now(), fromSkill }
     log('warn', 'prerequisite adopted as the current task', {
@@ -1067,6 +1079,7 @@ export class CognitiveLoop {
       bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
       lastOutcome, trigger, sentinel,
       noRoom: ready?.noRoom ? { item: ready.noRoom.item, short: ready.noRoom.short, text: room?.text ?? null } : null,
+      mineCrew: this.bot.mineCrewView ?? null,   // minecrew-01: the MINING line, and no ore named to a bot with no turn
       // Own experience first, then what peers reported. Peer lines carry the
       // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
       // weigh first-hand knowledge against hearsay, and so a bad fact can be
@@ -1144,6 +1157,430 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  // ---------------------------------------------------------------- MINECREW-01 (minecrew.mjs decides; minecrewio.mjs keeps the files)
+  /** The crew's file calls and the grounds' ask: a field, so a test drives the real loop over fakes (as `llm` is). */
+  crewIo = { leases: crewLeasesNow, meta: crewMeta, takeMining: crewTakeMining, takeRun: crewTakeRun, renew: crewRenew, release: crewRelease,
+             stock: crewStockNow, censusWrite, censusRead, censusOwn, buildBusy: crewBuildBusy, grounds: groundsIdleAsk, jitter: me => upJitterMs(me),
+             stair: () => { const rec = deepStairNow()?.rec; return !!rec && Array.isArray(rec.exit) && (rec.landings_built ?? []).length > 0 } }
+
+  #crewRow (op, f = {}, status = 'success') {
+    try { logEvent({ kind: 'minecrew', status, detail: crewRow(op, f), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+  }
+
+  /** Where the body is -> { y, lineY, upLineY, distHome, roofed, below, deep } | null. `lineY`: the crew's line (a `mine` that
+   *  ends below it is the crew's); `upLineY`: the way-up line, the grounds' own (minecrew.mjs crewUpLineOf). `roofed`: solid rock
+   *  overhead (shop.mjs overHead: leaves are no roof); null = a column that could not be read (never "underground" on an unread
+   *  column). `below`: under rock below the WAY-UP line -- the test the steer's way up, the refusal's remedy and a holder's
+   *  heartbeat share; `deep`: below the crew's line (the owner's measure, for the state row). */
+  #crewPos () {
+    const p = this.bot.entity?.position
+    if (!p) return null
+    const lineY = crewLineOf(config.world.homeY), upLineY = crewUpLineOf(config.world.homeY)
+    const feet = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
+    let roofed = false
+    if (p.y < upLineY) {
+      try { const over = crewOverHead((x, y, z) => this.bot.blockAt(new Vec3(x, y, z)), feet, Math.max(config.world.homeY + 24, feet[1] + 8)); roofed = over == null ? null : over > 0 } catch { roofed = null }
+    }
+    return { y: p.y, lineY, upLineY, distHome: Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z), roofed, below: p.y < upLineY && roofed === true, deep: p.y < lineY }
+  }
+
+  /** This bot's line in the census is written now, with what a restart must not forget (its rest, the need's hysteresis). */
+  #crewKeep (now = Date.now()) {
+    const C = this.crew
+    if (!C) return
+    try { C.censusAt = now; C.kept = JSON.stringify([C.restUntil, C.was]); this.crewIo.censusWrite(this.bot.username ?? config.bot.name, !C.censusOwn, { now, keep: { restUntil: C.restUntil, was: C.was } }) } catch { /* the next read writes it */ }
+  }
+
+  /** This bot's slot is let go (a marker; the row says why). */
+  #crewDrop (why) {
+    const C = this.crew, h = C?.hold
+    if (!h) return
+    try { this.crewIo.release(this.bot.username ?? config.bot.name, h) } catch { /* lapses at its TTL */ }
+    this.#crewRow(why === 'closed' ? 'closed' : 'release', { why: why === 'closed' ? 'no_need' : why, slot: h.slot, for: h.for, age_min: Math.round((Date.now() - (h.since ?? Date.now())) / 60_000) })
+    C.hold = null; C.aboveSince = null
+    if (C.read?.ok) C.read = { ...C.read, mining: Math.max(0, C.read.mining - (h.slot <= MINECREW.max ? 1 : 0)), mine: null }
+  }
+
+  /**
+   * EVERY DECISION, BEFORE THE TASK IS CHOSEN: the town's readings (at most every CREW.readMs: the stock, the census, the leases),
+   * this bot's own slot (its term, its heartbeat while below the line, its release once it is up or the need is closed), and the
+   * VIEW left on the bot -- prompt.mjs, milestones.mjs and admission.mjs read it from there. MINECREW=off: nothing at all.
+   */
+  #crewTick (trigger) {
+    if (!MINECREW.on) return
+    const bot = this.bot
+    try {
+      const now = Date.now(), me = bot.username ?? config.bot.name, io = this.crewIo
+      if (!this.crew) {
+        // a restart must not forget this bot's rest from the crew nor the need's hysteresis (its own census line keeps both)
+        let own = null
+        try { own = io.censusOwn?.(me) ?? null } catch { own = null }
+        this.crew = { hold: null, runHold: null, need: null, was: { ...(own?.was ?? {}) }, stock: null, lacking: null, read: null, readAt: -Infinity, restUntil: Number(own?.restUntil) || 0, steer: {},
+          aboveSince: null, beatAt: -Infinity, censusAt: -Infinity, censusOwn: null, kept: null, t0: now, stockOkAt: null, stateAt: now, tally: {}, noneAt: {}, refusedAt: null }
+      }
+      const C = this.crew
+      if (typeof bot.mineCrewGate !== 'function') bot.mineCrewGate = (skill, args, o) => this.#crewGateHook(skill, args, o)
+      const pos = this.#crewPos()
+      // a death: the body is at its bed -- a model miner's turn ends there (a deep trip closes itself: skills.mjs deepMine)
+      if (trigger === 'death' && C.hold && !C.hold.deep) this.#crewDrop('death')
+      if (now - C.readAt >= CREW.readMs || now < C.readAt) {
+        C.readAt = now
+        const ownLacks = ironPickNeed(bot.inventory?.items?.() ?? [], { on: true })
+        const files = io.censusRead()
+        C.lacking = files == null ? null : censusLacking(files, { me, ownLacks, now })
+        C.stock = io.stock(bot)
+        if (C.stock?.ok) C.stockOkAt = now
+        C.need = mineNeed({ stock: C.stock, lacking: C.lacking, was: C.was, unreadMs: now - (C.stockOkAt ?? C.t0), noFuelMs: C.noFuelAt == null ? null : now - C.noFuelAt })
+        C.was = C.need.stockOpen
+        if (now - C.censusAt >= CREW.censusEveryMs || C.censusOwn !== ownLacks || C.kept !== JSON.stringify([C.restUntil, C.was])) { C.censusOwn = ownLacks; this.#crewKeep(now) }
+        C.read = io.leases({ me, max: MINECREW.max, now })
+        // a slot of this bot's own that this connection does not know (a restart): adopted with its term -- a run's is let go
+        if (!C.hold && C.read?.mine) {
+          const m = io.meta(C.read.mine.slot) ?? {}
+          C.hold = { slot: C.read.mine.slot, gen: C.read.mine.gen, since: Number(m.since) || Number(C.read.mine.at) || now, for: m.for ?? null, deep: m.deep === true, meta: m, at: now }
+          if (m.run === true) this.#crewDrop('stale_run')
+        } else if (C.hold && C.read?.ok && !C.read.mine) { this.#crewRow('expired', { slot: C.hold.slot, for: C.hold.for }, 'no_effect'); C.hold = null }
+      }
+      const h = C.hold
+      if (h?.deep) {
+        // a deep trip's slot with no trip (the order was displaced, or the trip ended while this loop was away): let go after a minute
+        if (bot.deepTrip) h.at = now
+        else if (now - (h.at ?? 0) > 60_000) this.#crewDrop('trip_end')
+      } else if (h) {
+        if (now - h.since >= CREW.termMs) { this.#crewDrop('turn_over'); C.restUntil = now + CREW.restMs; this.#crewKeep(now) }
+        // the need is per material: a turn granted for iron closes when the town is no longer short of IRON
+        else if (C.need && (CREW_MATERIALS[h.for] ? !C.need.short.includes(h.for) : !C.need.open)) this.#crewDrop('closed')
+        else if (pos?.below) {
+          C.aboveSince = null
+          if (now - C.beatAt >= CREW.heartbeatMs) {
+            C.beatAt = now
+            const g = io.renew(me, h, { now })
+            if (g == null) { this.#crewRow('expired', { slot: h.slot, for: h.for }, 'no_effect'); C.hold = null } else h.gen = g
+          }
+        } else {
+          C.aboveSince ??= now
+          if (now - C.aboveSince >= CREW.upAfterMs) this.#crewDrop('up')
+        }
+      }
+      // how long this bot has been under rock below the way-up line with no turn and no trip (#crewStranded: review r2)
+      if (pos?.below && !C.hold && !bot.deepTrip) C.belowSince ??= now; else C.belowSince = null
+      const held = C.read?.ok ? C.read.mining : null
+      // the view's line is the one `mine` is judged against (the way-up line: minecrew.mjs crewKind)
+      bot.mineCrewView = crewView({ on: true, hold: C.hold, need: C.need, held, max: MINECREW.max, readOk: !!C.read?.ok, restUntil: C.restUntil, lineY: Math.max(crewLineOf(config.world.homeY), crewUpLineOf(config.world.homeY)), now })
+      // a prerequisite whose only means is an ore the crew refuses this bot (smelt with nothing to smelt asks for raw_iron) is not
+      // the task: the gate would refuse it for PREREQ_TTL_MS while the steer stood aside (minecrew.mjs prereqBlocked)
+      if (this.prereq && prereqBlocked(this.prereq, bot.mineCrewView)) { this.#crewRow('prereq_dropped', { items: (this.prereq.items ?? []).slice(0, 3).join('|'), from: this.prereq.fromSkill, when: 'held' }, 'no_effect'); this.prereq = null }
+      // the state row: bots below the line by minute, the holders, the need, and why the steer found no order since the last one
+      if (now - C.stateAt >= CREW.stateRowMs) {
+        C.stateAt = now
+        this.#crewRow('state', { y: pos ? Math.floor(pos.y) : null, below: pos?.below ? 1 : 0, deep: pos?.deep ? 1 : 0, holds: C.hold ? 1 : 0, for: C.hold?.for, held: `${held ?? '?'}/${MINECREW.max}`, run: C.read?.run ? 1 : 0,
+          short: C.need?.short?.join('|') || '-', iron: C.stock?.ok ? C.stock.have.iron : '?', coal: C.stock?.ok ? C.stock.have.coal : '?', lacking: C.lacking ?? '?',
+          why_iron: C.need?.why?.iron, why_coal: C.need?.why?.coal, steer_none: tallyLine(C.tally) })
+        C.tally = {}
+      }
+    } catch { /* a file read must never break the decision loop */ }
+  }
+
+  /** THE ADMISSION GATE'S HOOK (admission.mjs asks it for every proposal): minecrew.mjs crewKind + crewGate over this bot's readings.
+   *  -> null (not limited, or the crew is off) | { ok: true } | { ok: false, why, detail }. Decides only: on a real check the slot a
+   *  proposal needs is left on the bot (`mineCrewPending`) and taken after the whole gate admitted it. Never throws. */
+  #crewGateHook (skill, args, { dry = false, fromOrder = false } = {}) {
+    try {
+      const C = this.crew, bot = this.bot
+      if (!MINECREW.on || !C) return null
+      const pos = this.#crewPos()
+      const lineY = pos?.lineY ?? crewLineOf(config.world.homeY)
+      const kind = crewKind(skill, args, { y: pos?.y ?? null, lineY, upLineY: pos?.upLineY ?? crewUpLineOf(config.world.homeY), fromOrder })
+      if (!kind) return null
+      const now = Date.now(), me = bot.username ?? config.bot.name
+      let oreBelow = null
+      if (kind.kind === 'run') {
+        // the run's nearest ore, as the order's own scan finds it; a bot that already holds a slot needs no second one
+        try { const id = bot.registry?.blocksByName?.[kind.block]?.id; const q = id == null ? null : bot.findBlock?.({ matching: id, maxDistance: 24 }); oreBelow = q?.position ? q.position.y < lineY : null } catch { oreBelow = null }
+        if (C.hold) oreBelow = false
+      }
+      const myHold = C.hold && !C.hold.deep ? C.hold : null
+      let g = crewGate({ on: true, kind, need: C.need, hold: myHold, now, restUntil: C.restUntil, oreBelow })
+      if (g.ok && g.take === 'mining' && !(C.read?.ok && C.read.mining < MINECREW.max)) g = { ok: false, why: 'crew_full' }
+      if (g.ok && g.take === 'run' && !(C.read?.ok && (!C.read.run || C.read.holders?.[`slot${CREW.runSlot}`] === me))) g = { ok: false, why: 'run_busy' }
+      if (!g.ok) return { ok: false, why: g.why, kind: kind.kind, material: kind.material ?? null,
+        detail: crewRefusal({ why: g.why, kind, need: C.need, held: C.read?.mining ?? null, below: !!pos?.below, hold: g.why === 'turn_over' ? null : myHold, restUntil: C.restUntil, now }) }
+      if (!dry) bot.mineCrewPending = g.take ? { take: g.take, for: g.for, kind: kind.kind } : null
+      return { ok: true }
+    } catch { return null }
+  }
+
+  /** THE SLOT IS TAKEN, for a proposal the whole gate admitted -> { ok } | { ok: false, why } (lost to another bot meanwhile). */
+  #crewTake (pend) {
+    try {
+      const C = this.crew, io = this.crewIo, bot = this.bot, me = bot.username ?? config.bot.name, now = Date.now()
+      const pos = this.#crewPos()
+      if (pend.take === 'renew' && C.hold) {
+        const g = io.renew(me, C.hold, { now })
+        if (g != null) { C.hold.gen = g; C.beatAt = now; C.aboveSince = null; return { ok: true } }
+        C.hold = null
+      }
+      if (pend.take === 'run') {
+        const meta = { since: now, for: 'run', run: true }
+        const r = io.takeRun(me, meta, { now })
+        if (!r.ok) return { ok: false, why: 'run_busy' }
+        C.runHold = { slot: r.slot, gen: r.gen, since: now, for: 'run', meta }
+        this.#crewRow('grant', { for: 'run', kind: 'run', slot: r.slot, y: pos ? Math.floor(pos.y) : null })
+        return { ok: true }
+      }
+      const meta = { since: now, for: pend.for ?? null }
+      const r = io.takeMining(me, MINECREW.max, meta, { now })
+      if (!r.ok) return { ok: false, why: 'crew_full' }
+      C.hold = { slot: r.slot, gen: r.gen, since: now, for: pend.for ?? null, deep: false, meta, at: now }
+      C.beatAt = now; C.aboveSince = null
+      if (C.read?.ok) C.read = { ...C.read, mining: Math.min(MINECREW.max, C.read.mining + 1) }
+      this.#crewRow('grant', { for: pend.for, kind: pend.kind, slot: r.slot, held: `${C.read?.ok ? C.read.mining : '?'}/${MINECREW.max}`, y: pos ? Math.floor(pos.y) : null })
+      return { ok: true }
+    } catch { return { ok: false, why: 'crew_full' } }
+  }
+
+  /** A NEW DEEP TRIP'S ORDER -> the order (the crew has a slot for it: taken here, before the trip exists) | null (the need is
+   *  closed for that trip, or the crew is full: no order -- deepmine.mjs deepMineOrder asks again at the next decision). The
+   *  trip's own `deepmine` lease is untouched; this is the ONE count of bodies below the line. MINECREW=off: the order. */
+  #crewDeepStart (o) {
+    if (!MINECREW.on || !this.crew) return o
+    const C = this.crew, bot = this.bot, io = this.crewIo, me = bot.username ?? config.bot.name, now = Date.now()
+    const quiet = (why, f = {}) => { const k = `deep:${why}`; if (now - (C.noneAt[k] ?? -Infinity) >= 30 * 60_000) { C.noneAt[k] = now; this.#crewRow('refuse', { skill: 'deep_mine', why, src: 'order', ...f }, 'no_effect') } return null }
+    try {
+      const items = bot.inventory?.items?.() ?? []
+      const target = o?.args?.target ?? null
+      const buildBusy = target === 'build' ? !!io.buildBusy(me, { now }) : false
+      const oreTarget = buildBusy ? crewTripTarget(deepTripKit(items), null) : null
+      const obsWant = target === 'diamond' || oreTarget === 'diamond' ? crewObsWant({ target: 'diamond', kit: crewObsKit(items), town: C.stock?.obsidian ?? null }).want : 0
+      const g = deepTripGate({ on: true, target, need: C.need, obsWant, buildBusy, oreTarget })
+      if (!g.ok) return quiet(g.why, { target })
+      const meta = { since: now, for: g.for, deep: true }
+      const r = io.takeMining(me, MINECREW.max, meta, { now })
+      if (!r.ok) return quiet('crew_full', { target })
+      const fresh = !C.hold
+      C.hold = { slot: r.slot, gen: r.gen, since: now, for: g.for, deep: true, meta, at: now }
+      C.beatAt = now
+      if (fresh && C.read?.ok) C.read = { ...C.read, mining: Math.min(MINECREW.max, C.read.mining + 1) }
+      this.#crewRow('grant', { for: g.for, kind: 'deep', target, slot: r.slot, held: `${C.read?.ok ? C.read.mining : '?'}/${MINECREW.max}` })
+      return o
+    } catch { return quiet('unreadable') }   // fail closed: no trip the crew did not count
+  }
+
+  /** #crewDeepStart and #crewRunWatch, for the tests (their orders need a finished town stair / a shared town's coal run): never
+   *  called by the bot. */
+  crewDeepStartForTest (o) { return this.#crewDeepStart(o) }
+  crewRunWatchForTest (order, admitted) { return this.#crewRunWatch(order, admitted) }
+
+  /** AN OPEN DEEP TRIP GOES ON: its crew slot is renewed (taken, when it has none and one is free). One the crew can no longer
+   *  count is never cut mid-step: it is sent home through its own return phase (`op=over ... to=return`). */
+  #crewDeepRenew () {
+    if (!MINECREW.on || !this.crew) return
+    try {
+      const C = this.crew, bot = this.bot, io = this.crewIo, me = bot.username ?? config.bot.name, now = Date.now()
+      if (now - C.beatAt < 60_000) { if (C.hold?.deep) C.hold.at = now; return }
+      C.beatAt = now
+      if (C.hold) {
+        const g = io.renew(me, C.hold, { now })
+        if (g != null) { C.hold.gen = g; C.hold.at = now; if (!C.hold.deep) { C.hold.deep = true; C.hold.meta = { ...(C.hold.meta ?? {}), deep: true } } return }
+        C.hold = null
+      }
+      const meta = { since: now, for: bot.deepTrip?.target ?? null, deep: true }
+      const r = io.takeMining(me, MINECREW.max, meta, { now })
+      if (r.ok) { C.hold = { slot: r.slot, gen: r.gen, since: now, for: meta.for, deep: true, meta, at: now }; return }
+      // THE CREW CANNOT COUNT THIS TRIP (its slot lapsed -- a long pause -- and the slots are others' now): it does no more WORK.
+      // Between two calls, never inside one, the trip is put into ITS OWN return phase -- the very assignment skills.mjs deepMine
+      // makes when its own lease is lost (`phase = 'return'`): the trail back, the stair up, the bank, the close. A trip already
+      // returning or banking goes on as it is.
+      const t = bot.deepTrip, from = t?.phase ?? null
+      if (t && ['descend', 'deepen', 'work', 'build'].includes(t.phase)) { t.phase = 'return'; t.returnWhy = 'crew_lost' }
+      this.#crewRow('over', { trip: t?.id, phase: from, to: t?.phase }, 'no_effect')
+    } catch { /* the next call renews */ }
+  }
+
+  /** WOULD THE GATE'S MEMORY REFUSE A STEER ORDER NOW? -> its reason | null. A cooldown and a full repeat window hold the order
+   *  back (it would only be refused); LEARNED failures do not: the gate's own probation lets every fifth attempt through and a
+   *  veto streak forces one, so an order never issued could never clear them -- the grounds would be closed to that bot for good. */
+  #crewMemoryRefuses (skill, args, now) {
+    const m = this.admission.memoryRefuses(skill, args, now)
+    return m === 'learned_avoid' ? null : m
+  }
+
+  /** This bot's share of the first way-up order's wait (minecrew.mjs upJitterMs; a field of `crewIo`, so a test sets it). */
+  #crewJitter () { try { return Number(this.crewIo.jitter(this.bot.username ?? config.bot.name)) || 0 } catch { return 0 } }
+
+  /** minecrew.mjs crewSteer over this bot's readings -> its answer. `dry`: the steer's state is not kept (a look ahead). */
+  #crewSteerEval ({ force = false, dry = false } = {}) {
+    const C = this.crew, bot = this.bot
+    if (!MINECREW.on || !C) return { order: null, kind: 'none', why: 'off', state: {} }
+    const pos = this.#crewPos(), now = Date.now()
+    // the town's stair as skills.mjs stairAscend needs it (a record with an exit and a built landing): read only for a bot under
+    // rock inside the town -- with none there, the way up is the climb
+    let stair = true
+    if (pos?.below && pos.distHome <= CREW.townR) { try { stair = this.crewIo.stair() !== false } catch { stair = true } }
+    const d = crewSteer({ on: true, stair, holds: !!C.hold, tripOpen: !!bot.deepTrip, prereqOpen: !!this.prereq, jobOpen: !!this.coalRunState?.pending, offer: bot.mineCrewView?.offer === true,
+      y: pos?.y ?? null, lineY: pos?.lineY ?? null, upLineY: pos?.upLineY ?? null, roofed: pos?.roofed ?? null, distHome: pos?.distHome ?? null, now, state: C.steer, force,
+      refuses: (sk, a) => this.#crewMemoryRefuses(sk, a, now), grounds: () => this.crewIo.grounds(bot, now), jitterFrom: C.t0, jitterMs: this.#crewJitter() })
+    if (!dry) C.steer = d.state
+    return d
+  }
+
+  /** THE STEER'S ORDER at the end of the order chain, or null. One `_minecrew op=steer` row per order; an answer of "nothing" is
+   *  tallied for the state row and written at most once a minute per reason (never for the rhythm, a holder or an open trip). */
+  #crewSteerOrder () {
+    if (!MINECREW.on || !this.crew) return null
+    const C = this.crew, now = Date.now()
+    const force = this.crewForce === true
+    this.crewForce = false
+    let d
+    try { d = this.#crewSteerEval({ force }) } catch { return null }
+    const pos = this.#crewPos()
+    const at = { y: pos ? Math.floor(pos.y) : null, below: pos?.below ? 1 : 0, home_d: pos ? Math.round(pos.distHome) : null }
+    if (!d.order) {
+      C.tally[d.why] = (C.tally[d.why] ?? 0) + 1
+      if (!['off', 'crew', 'trip', 'rhythm', 'offer'].includes(d.why) && now - (C.noneAt[d.why] ?? -Infinity) >= CREW.noneRowMs) { C.noneAt[d.why] = now; this.#crewRow('steer', { kind: 'none', why: d.why, forced: force ? 1 : 0, ...at }, 'no_effect') }
+      return null
+    }
+    this.#crewRow('steer', { kind: d.kind, why: d.why, skill: d.order.skill, try: d.kind === 'up' ? (Number(C.steer.upTries) || 0) + 1 : null, ...at })
+    return { ...d.order, crewSteer: d.kind, ...(d.climb ? { crewClimb: true } : {}) }
+  }
+
+  /** UNDER ROCK BELOW THE WAY-UP LINE, NO TURN, NO TRIP, FOR CREW.strandedMs (two way-up back-offs) -> bool. The way up has not
+   *  brought this bot up: its crew refusals count for the livelock breaker again (#tick: the breaker's fixation test and its
+   *  escape are the existing rescue -- the watchdog's stranding verdict skips a bot whose milestones are all done). */
+  #crewStranded (now = Date.now()) { const since = this.crew?.belowSince; return since != null && now - since >= CREW.strandedMs }
+
+  /**
+   * WHAT THE DEEP TRIP ACTUALLY IS (review r2 R4). Two bots ordered a BUILD trip in the same minute both read the build lease
+   * free; inside the skill one wins it and the other makes an ORE trip (skills.mjs deepMine: `target = deepTripTarget(kit, null)`)
+   * that no need was asked about, on a crew slot labelled `build`. After the run that opened it: an ore trip under a `build`
+   * label is judged as a new ore trip would have been (deepTripGate) -- allowed, the slot is re-labelled with its material;
+   * not allowed (a surplus), the trip is put into ITS OWN return phase, as a trip the crew cannot count is (#crewDeepRenew), and
+   * the slot stays the body's until it is up (`for=return`).
+   */
+  #crewDeepIs () {
+    try {
+      const C = this.crew, bot = this.bot, t = bot.deepTrip, h = C?.hold
+      if (!t || !h?.deep || h.for !== 'build' || !t.target || t.target === 'build') return
+      const now = Date.now(), me = bot.username ?? config.bot.name, from = t.phase ?? null
+      let obsWant = 0
+      if (t.target === 'diamond') { try { obsWant = crewObsWant({ target: 'diamond', kit: crewObsKit(bot.inventory?.items?.() ?? []), town: C.stock?.obsidian ?? null }).want } catch { obsWant = 0 } }
+      const g = deepTripGate({ on: true, target: t.target, need: C.need, obsWant })
+      if (g.ok) h.for = g.for
+      else { if (['descend', 'deepen', 'work', 'build'].includes(t.phase)) { t.phase = 'return'; t.returnWhy = 'crew_no_need' } h.for = 'return' }
+      h.meta = { ...(h.meta ?? {}), for: h.for }
+      const gen = this.crewIo.renew(me, h, { now })
+      if (gen != null) h.gen = gen
+      this.#crewRow('trip_is', { trip: t.id, target: t.target, was: 'build', for: h.for, why: g.why, phase: from, to: t.phase }, g.ok ? 'success' : 'no_effect')
+    } catch { /* the next run reads it again */ }
+  }
+
+  /** fewerdec.mjs's VETOSKIP for a `mine_crew` veto too (while the crew is on): the tick right after the model's refused mining
+   *  pick, with nothing changed, is not asked again -- the refusal is a fact of the town, as certain as a full repeat window. */
+  #crewVetoCfg () {
+    const cfg = this.fewerDec
+    if (!MINECREW.on || !cfg?.vetoSkip || !cfg.vetoReasons || cfg.vetoReasons.has('mine_crew')) return cfg
+    return (this.crewVetoMemo?.of === cfg ? this.crewVetoMemo : (this.crewVetoMemo = { of: cfg, cfg: { ...cfg, vetoReasons: new Set([...cfg.vetoReasons, 'mine_crew']) } })).cfg
+  }
+
+  /** A steer order a safety order displaced never ran: its rhythm is given back (minecrew.mjs steerAfter notRun). */
+  #crewSteerDisplaced (order) {
+    if (order?.crewSteer && this.crew) this.crew.steer = steerAfter(this.crew.steer, { kind: order.crewSteer, climb: order.crewClimb === true, notRun: true })
+  }
+
+  /** A MINING PROPOSAL WAS REFUSED: the row (what was refused, and the surface order that follows it), and -- WHEN THE STEER HAS AN
+   *  ORDER FOR IT -- the next tick comes in 50 ms with the steer forced: the bot is given a concrete order, not left with the
+   *  refusal. With no order to give, the decision cooldown stands (and the veto skip: #crewVetoCfg). An ORDER's refusal (a
+   *  material run that found slot 3 held) waits its own retry: no force. */
+  #crewRefused (rejection, proposal, order) {
+    try {
+      const C = this.crew
+      if (!MINECREW.on || !C) return
+      const src = order ? (order.continuation ? 'continue' : 'order') : 'model'
+      let then = '-'
+      if (src !== 'order') {
+        const d = this.#crewSteerEval({ force: true, dry: true })
+        then = d.order ? d.order.skill : `none:${d.why}`
+        // THE EARLY TICK ONLY FOR AN ORDER (review r1 B1): with nothing to order, a 50 ms tick would ask the model again at
+        // once, be refused again and tick again -- the model's latency, not the cooldown, would pace the refusals
+        if (d.order) { this.crewForce = true; this.crewRetick = true }
+      }
+      const pos = this.#crewPos()
+      C.refusedAt = Date.now()
+      this.#crewRow('refuse', { skill: proposal?.skill, why: rejection.crew?.why, kind: rejection.crew?.kind, material: rejection.crew?.material, src, then,
+        y: pos ? Math.floor(pos.y) : null, below: pos?.below ? 1 : 0, short: C.need?.short?.join('|') || '-', held: `${C.read?.ok ? C.read.mining : '?'}/${MINECREW.max}` }, 'no_effect')
+    } catch { /* telemetry only */ }
+  }
+
+  /**
+   * A MATERIAL RUN ADMITTED WITH NO SLOT IS WATCHED (review r1 C2). The admission probe reads the NEAREST ore; the tunnel may take
+   * another, below the line -- and a run whose ore the probe did not find was admitted uncounted. While the run lasts, every
+   * CREW.runWatchMs: the body below the crew's line with no slot needs slot 3 AT ONCE -- taken, or the run stands down (the
+   * runner's own cancel: an abort the skill handles like any reflex's) and the way up applies at the next decision.
+   * -> the interval | null (not a material run, or it already holds a slot).
+   */
+  #crewRunWatch (order, admitted) {
+    try {
+      const C = this.crew, bot = this.bot
+      if (!MINECREW.on || !C || !order || order.continuation || order.crewSteer || C.hold || C.runHold) return null
+      const lineY = crewLineOf(config.world.homeY)
+      if (crewKind(admitted.skill, admitted.args, { lineY, fromOrder: true })?.kind !== 'run') return null
+      const me = bot.username ?? config.bot.name
+      const timer = setInterval(() => {
+        try {
+          const y = bot.entity?.position?.y
+          if (!Number.isFinite(y) || y >= lineY || C.runHold || C.hold) return
+          const now = Date.now(), meta = { since: now, for: 'run', run: true }
+          const t = this.crewIo.takeRun(me, meta, { now })
+          if (t.ok) { C.runHold = { slot: t.slot, gen: t.gen, since: now, for: 'run', meta }; this.#crewRow('grant', { for: 'run', kind: 'run', slot: t.slot, y: Math.floor(y), late: 1 }); clearInterval(timer); return }
+          this.#crewRow('run_stood_down', { skill: admitted.skill, block: admitted.args?.block, y: Math.floor(y), why: 'run_busy' }, 'no_effect')
+          clearInterval(timer)
+          this.runner.cancel?.('minecrew_run')
+        } catch { /* the next look */ }
+      }, CREW.runWatchMs)
+      timer.unref?.()
+      return timer
+    } catch { return null }
+  }
+
+  /** AFTER A RUN: the material run's slot goes back; a deep trip that is over gives its slot back; a steer order's outcome moves
+   *  its tries and back-offs (minecrew.mjs steerAfter) and is one `op=steer_end` row; the first run after a refusal is `op=next`;
+   *  a climb the steer did not order, by a bot with no turn under the town, is counted (`op=residual`: it digs as before). */
+  #crewAfterRun ({ order, admitted, r, declined, before, limited = false }) {
+    if (!MINECREW.on || !this.crew) return
+    try {
+      const C = this.crew, bot = this.bot, me = bot.username ?? config.bot.name, now = Date.now()
+      // A HOLDER WHOSE MINING NEVER GETS IT DOWN (review r1): each admitted mining run renews its slot, so a `mine` that keeps
+      // failing at the surface would hold a slot for the whole term. CREW.holderFails such runs in a row -- not a success, the
+      // bot not under the way-up line -- and the slot is let go.
+      if (limited && !declined && C.hold && !C.hold.deep) {
+        if (r?.status === 'success' || this.#crewPos()?.below) C.hold.fails = 0
+        else if ((C.hold.fails = (C.hold.fails ?? 0) + 1) >= CREW.holderFails) { this.#crewDrop('no_descent'); C.restUntil = now + CREW.restMs; this.#crewKeep(now) }   // ...and it rests, or it would take the slot again at once
+      }
+      if (C.runHold) { try { this.crewIo.release(me, C.runHold) } catch { /* lapses */ } this.#crewRow('release', { why: 'run_end', slot: C.runHold.slot, for: 'run' }); C.runHold = null }
+      if (admitted.skill === 'deep_mine' && !declined && C.hold?.deep && bot.deepTrip) this.#crewDeepIs()
+      // this bot's own smelt job as a reading of the town's coal (minecrew.mjs mineNeed `noFuelMs`): it ended `no_fuel`, or worked
+      if (admitted.skill === 'smelt_town' && !declined) { if ((r?.stop ?? r?.failClass) === 'no_fuel') C.noFuelAt = now; else if (r?.status === 'success') C.noFuelAt = null }
+      if (admitted.skill === 'deep_mine' && C.hold?.deep && !bot.deepTrip) this.#crewDrop('trip_end')
+      const pos = this.#crewPos()
+      const src = order ? (order.continuation ? 'continue' : order.crewSteer ? 'steer' : 'order') : 'model'
+      if (order?.crewSteer) {
+        const kind = order.crewSteer
+        const last = kind === 'grounds' ? bot.tidyLast ?? null : null
+        const aborted = r?.status === 'aborted' || !!r?.interruptedBy
+        const worked = kind === 'grounds' && !!last && !aborted && ((Number(last.placed) || 0) > 0 || (Number(last.cleared) || 0) > 0)
+        const arrived = kind === 'up' && !!pos && !pos.below
+        const was = C.steer
+        C.steer = steerAfter(C.steer, { kind, skill: admitted.skill, climb: order.crewClimb === true, notRun: !!declined, arrived, worked, now })
+        this.#crewRow('steer_end', { kind, skill: admitted.skill, status: declined ? 'declined' : r?.status, placed: last?.placed, cleared: last?.cleared, out: kind === 'grounds' ? (aborted ? 'aborted' : last?.outcome ?? r?.stop) : r?.stop ?? r?.failClass,
+          arrived: kind === 'up' ? (arrived ? 1 : 0) : null, idle_n: kind === 'grounds' ? C.steer.idleN ?? 0 : null, y: pos ? Math.floor(pos.y) : null, below: pos?.below ? 1 : 0 }, worked || arrived ? 'success' : 'no_effect')
+        if (kind === 'up' && (C.steer.upBackoffUntil ?? 0) > now && !((was.upBackoffUntil ?? 0) > now)) this.#crewRow('up_backoff', { inside: pos && pos.distHome <= CREW.townR ? 1 : 0, y: pos ? Math.floor(pos.y) : null, min: CREW.upBackoffMs / 60_000, climb_owed: C.steer.upClimbOwed ? 1 : 0 }, 'no_effect')
+        if (kind === 'grounds' && (C.steer.idleBackoffUntil ?? 0) > now && !((was.idleBackoffUntil ?? 0) > now)) this.#crewRow('idle_backoff', { n: C.steer.idleN, min: Math.round((C.steer.idleBackoffUntil - now) / 60_000) }, 'no_effect')
+      }
+      if (C.refusedAt != null && !declined) { this.#crewRow('next', { skill: admitted.skill, src, status: r?.status, y: pos ? Math.floor(pos.y) : null, below: pos?.below ? 1 : 0 }); C.refusedAt = null }
+      if (admitted.skill === 'surface' && !declined && !order?.crewSteer && !C.hold && before?.below && before.distHome <= CREW.townR) this.#crewRow('residual', { skill: 'surface', src, status: r?.status, y0: Math.floor(before.y), y: pos ? Math.floor(pos.y) : null }, 'no_effect')
+    } catch { /* bookkeeping must never break the decision loop */ }
+  }
+
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
@@ -1165,6 +1602,9 @@ export class CognitiveLoop {
     // could never fire: the fleet has never once logged entering the sustaining
     // loop, and nobody noticed because the absence of a log line looks exactly
     // like the condition not being met.
+    // MINECREW-01: the crew's readings and this bot's view of it, BEFORE the rungs are read (milestones.mjs steps the mining
+    // rungs over for a bot the crew has no turn for) and before the prompt is composed
+    this.#crewTick(trigger)
     const wasChainDone = this.milestones.allDone
     this.milestones.refresh()
     if (!wasChainDone && this.milestones.allDone) {
@@ -1269,6 +1709,8 @@ export class CognitiveLoop {
     // model (the trip bounds itself: CALLS_MAX, TRIP_MAX_MS, RETURN_TRIES; its bank phase runs the town deposit itself). The
     // keep-out exit and the sky descent below still override it.
     { const o = deepTripOrder(this.bot?.deepTrip); if (o) order = o }
+    // minecrew-01: the open trip's crew slot is renewed with it (the ONE count of bodies below the line)
+    if (order?.skill === 'deep_mine' && this.bot?.deepTrip) this.#crewDeepRenew()
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1581,7 +2023,8 @@ export class CognitiveLoop {
         const r = deepMineOrder({ now: Date.now(), holds: milestoneHolds({ order, ready }), atStairTop, stair: st,
           kit: deepTripKit(bot.inventory?.items?.() ?? []), health: bot.health ?? 20, me: bot.username ?? '',
           state: { cooldownUntil: bot.deepMineCooldownUntil ?? 0 }, lease: () => deepLeaseNow() })
-        if (r.order) order = r.order
+        // minecrew-01: a NEW trip needs the crew's slot and, for an ore trip, a material the town is short of (#crewDeepStart)
+        if (r.order) order = this.#crewDeepStart(r.order)
         this.deepSkipAt ??= {}
         const why = ['pickaxe', 'seal_blocks', 'room', 'lease_busy', 'preferred_other', 'stair_unfinished', 'no_bottom_landing'].includes(r.skip) ? r.skip : null
         if (why && atStairTop !== false && Date.now() - (this.deepSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
@@ -1647,7 +2090,13 @@ export class CognitiveLoop {
     // CONTINUE (fewerdec.mjs): with no work order at all, the gather the model chose last -- if it served the task and
     // gained items -- fills the cooldown. AFTER every order (planting included); the descent and keep-out exits below
     // still override it.
+    // MINECREW-01: THE STEER, at the end of the order chain and AHEAD of the continuation and the model (minecrew.mjs crewSteer):
+    // a bot with no turn on the mine crew that nothing above has work for is sent up from under rock, home from far away, or to
+    // the town's grounds -- so it is rarely asked, and mining is rarely proposed at all. An order above keeps its turn.
+    if (MINECREW.on) { if (order) this.crewForce = false; else { const so = this.#crewSteerOrder(); if (so) order = so } }
     if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, trigger, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
+    // minecrew-01: a STEER order the two safety orders below displace never ran (see after them: #crewSteerDisplaced)
+    const crewSteer0 = order?.crewSteer ? order : null, crewShop0 = this.shopState
     { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
     // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
@@ -1655,6 +2104,9 @@ export class CognitiveLoop {
     // a decline is (the probe above keeps this rare: it differs from this call only if the exit's backoff ran out in between).
     // junkout-01 x found-01 (JIT 10-24): both refunds stand; each answers {} / nothing for the other's skills.
     { const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }
+    // minecrew-01: ...its own rhythm goes back, and the build order's clock is put back as it was -- the idle visit never charged
+    // it, so the refund above (written for the build order's own visit) must not wipe it
+    if (crewSteer0 && order !== crewSteer0) { this.#crewSteerDisplaced(crewSteer0); this.shopState = crewShop0 }
     // coalfirst-01: a coal run the keep-out exit displaced this tick never ran -- its cooldown and pending mark are refunded
     if (order?.skill === 'keepout_exit' && this.coalRunState?.pending) Object.assign(this, refundDeclined('gather', this))
     if (order) {
@@ -1678,7 +2130,7 @@ export class CognitiveLoop {
       this.contWindow = null
     }
     if (!order) {
-      const vs = vetoSkipDecision({ cfg: this.fewerDec, trigger, last: this.lastModelDecision, sig: fdSig, now: Date.now(),
+      const vs = vetoSkipDecision({ cfg: this.#crewVetoCfg(), trigger, last: this.lastModelDecision, sig: fdSig, now: Date.now(),
                                     memoryRefuses: (s, a) => this.admission.memoryRefuses(s, a) })
       if (vs.skip) {
         const last = this.lastModelDecision
@@ -1699,6 +2151,7 @@ export class CognitiveLoop {
     this.lastDecisionAt = Date.now()
 
     let admitted = null, rejection = null
+    let crewLimited = false   // minecrew-01: this decision's run is a holder's mining (its slot was taken or renewed for it)
     if (res.schemaValid) {
       // The same wanted-set the outcome classifier uses, so "what counts as
       // progress" and "what may never be blocked" cannot drift apart. A null
@@ -1710,9 +2163,32 @@ export class CognitiveLoop {
       // PROPOSAL and this is about the bot's current obligation.
       this.admission.activeMilestoneId = milestone?.id ?? null
       const wantedNow = this.#wantedItems(milestone)
-      const check = this.admission.check(res.proposal, this.bot, wantedNow)
+      // minecrew-01: the gate is told whether a deterministic order issued this (a build's own material run takes the run slot;
+      // the model's ore gather and a continuation of it need a turn), and the slot a limited proposal needs is taken only AFTER
+      // the whole gate admitted it -- lost to another bot in between, it is the crew's refusal
+      this.admission.fromOrder = !!order && !order.continuation
+      this.admission.crewWayUp = MINECREW.on && order?.crewSteer === 'up'   // the steer's way up is not the repeat window's (review r2)
+      if (MINECREW.on && order?.crewSteer === 'home') this.admission.crewWayUp = true   // review r3: nor is its walk home (minecrew.mjs crewSteer S2)
+      crewLimited = false
+      if (MINECREW.on) this.bot.mineCrewPending = null
+      let check = this.admission.check(res.proposal, this.bot, wantedNow)
+      this.admission.crewWayUp = false
+      if (MINECREW.on && check.ok && this.bot.mineCrewPending) {
+        const t = this.#crewTake(this.bot.mineCrewPending)
+        if (!t.ok) {
+          // LOST TO ANOTHER BOT: the reading that offered the slot was wrong -- it is corrected at once (the crew reads full, the
+          // run slot held), or every tick until the next read would offer a turn that cannot be taken
+          if (this.crew?.read) this.crew.read = t.why === 'run_busy' ? { ...this.crew.read, run: true, holders: { ...(this.crew.read.holders ?? {}), [`slot${CREW.runSlot}`]: '?' } } : { ...this.crew.read, mining: MINECREW.max }
+          check = { ok: false, reason: 'mine_crew', crew: { ok: false, why: t.why, kind: this.bot.mineCrewPending.kind },
+            detail: crewRefusal({ why: t.why, need: this.crew?.need, held: MINECREW.max, below: !!this.#crewPos()?.below }) }
+        } else if (this.bot.mineCrewPending.take !== 'run') crewLimited = true
+      }
+      if (MINECREW.on) this.bot.mineCrewPending = null
       if (check.ok) admitted = check
       else rejection = check
+      if (rejection?.reason === 'mine_crew') this.#crewRefused(rejection, res.proposal, order)
+      // a steer order the gate refused never ran: its rhythm is given back (steerAfter notRun)
+      if (!check.ok && order?.crewSteer && this.crew) this.crew.steer = steerAfter(this.crew.steer, { kind: order.crewSteer, climb: order.crewClimb === true, notRun: true })
       // coalfirst-01: a coal run the gate refused never ran -- its pending mark goes (the cooldown charged at issue stands)
       if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
@@ -1744,10 +2220,16 @@ export class CognitiveLoop {
       // CONTINUE (Claude review note 1): a continuation does not take a place in the gate's repeat window, so the model's
       // own repeat of a good gather is judged as before; the continuation is bounded by FEWERDEC_CONTINUE_MAX instead.
       if (order?.continuation && admitted.kind === 'normal') this.admission.forgetLastAdmitted(AdmissionControl.key(admitted.skill, admitted.args))
+      // minecrew-01: nor does a steer order -- an idle bot's admitted actions are mostly the steer's, and four of one key in the
+      // window would refuse the fifth as a repeat loop (the steer bounds itself: its rhythm, its tries, its back-offs)
+      if (order?.crewSteer && admitted.kind === 'normal') this.admission.forgetLastAdmitted(AdmissionControl.key(admitted.skill, admitted.args))
+      const crewBefore = MINECREW.on ? this.#crewPos() : null
       const pipeSource = order ? (order.continuation ? 'continue' : 'order') : 'model'
       const pipeRun = this.#pipeAtRunStart({ source: pipeSource, admitted, milestone })
       const runT0 = Date.now()
+      const crewWatch = this.#crewRunWatch(order, admitted)   // minecrew-01: a material run admitted with no slot is watched
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
+      if (crewWatch) clearInterval(crewWatch)
       if (pipeRun.timer) clearTimeout(pipeRun.timer)
       runMeta = { id: pipeRun.id, source: pipeSource, skill: admitted.skill, ms: Date.now() - runT0, interruptedBy: r.interruptedBy ?? null, declined: runnerDeclined(r) }
       outcome = { status: r.status, detail: r.detail }
@@ -1785,7 +2267,10 @@ export class CognitiveLoop {
       // THE MATERIALS JOB (mats-01): its state, and its body time toward the 10 min per bot-hour budget
       if (!declined && admitted.skill === 'make_material') this.matsState = matsOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.matsState ?? {})
       // THE WORKSHOP (shop-01): the visit's stop rides with the cooldown (S1: no_site waits a day)
-      if (!declined && admitted.skill === 'build_shop') this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
+      // minecrew-01: ...but never the steer's IDLE grounds visit (minecrew.mjs crewIdleVisit): it comes every few minutes, and
+      // written here it would restart the build order's 10-minute clock for ever -- the bot's own projects would never be ordered
+      if (!declined && admitted.skill === 'build_shop' && !crewIdleVisit(admitted.args)) this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
+      this.#crewAfterRun({ order, admitted, r, declined, before: crewBefore, limited: crewLimited })
       // coalfirst-01: the coal run's outcome (a decline refunds the cooldown; no coal gained backs off)
       if (admitted.skill === 'gather' && admitted.args?.coalrun === true) {
         const coalNow = (this.bot.inventory?.items?.() ?? []).filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
@@ -1830,15 +2315,18 @@ export class CognitiveLoop {
         // THE ISSUE-TIME COOLDOWN IS REFUNDED TOO (Codex code r1 P2): pruneOrder / smeltTownOrder / drainOrder / plinthOrder
         // charge it when they ISSUE, before the run; a run the runner declined never happened, so the order is eligible on
         // the next decision -- toolkitOutcome's own refund, the same rule (isBusy() holds the decisions off while reserved).
+        // (minecrew-01: for the steer's own order the build order's clock is put back -- a declined idle visit is not its to refund)
+        const crewShopWas = this.shopState
         Object.assign(this, refundDeclined(admitted.skill, this))
+        if (order?.crewSteer) this.shopState = crewShopWas
       } else if (r.status === 'unknown') {
-        this.admission.noteFailure(admitted.skill, admitted.args)
+        if (!order?.crewSteer) this.admission.noteFailure(admitted.skill, admitted.args)   // minecrew-01: a steer order has its own back-offs; its key is the build order's too
         log('info', 'outcome unknown: throttled, not learned', {
           skill: admitted.skill, failClass: r.failClass ?? 'other',
           detail: String(r.detail ?? '').slice(0, 80),
         })
       } else if (r.status === 'failed') {
-        this.admission.noteFailure(admitted.skill, admitted.args)
+        if (!order?.crewSteer) this.admission.noteFailure(admitted.skill, admitted.args)   // minecrew-01: a steer order has its own back-offs; its key is the build order's too
         // Persist it, so the next RUN starts knowing this, not just the next
         // decision in this one.
         // NOT EVERY FAILURE IS EVIDENCE ABOUT THE WORLD. A lesson claims "this
@@ -1992,8 +2480,15 @@ export class CognitiveLoop {
       // a different choice attractive. Observed happening indefinitely.
       // So a rejection that means "you keep doing this" must be followed by a
       // deterministic action that CHANGES the situation.
-      this.consecutiveRejections = (this.consecutiveRejections ?? 0) + 1
-      if (rejection?.reason === 'repeat_loop' || this.consecutiveRejections >= 3) {
+      // minecrew-01 (review r1 B1): THE CREW'S REFUSAL IS NOT THE BREAKER'S LIVELOCK. The breaker's remedy is a relocation (a walk,
+      // then a dig) so that the model sees something else; a mining proposal is refused wherever the bot stands, and under the town
+      // that relocation is a tunnel. What changes the situation after this refusal is the steer's order (#crewRefused) -- so it is
+      // not counted here (taken back before the count below adds it).
+      // (review r2) ...NOR DOES IT ENTER THE BREAKER on a count other rejections left at 3. ONE EXCEPTION: a bot under rock below
+      // the way-up line with no turn for CREW.strandedMs -- the way up has not brought it up, and the breaker is its rescue.
+      const crewQuiet = MINECREW.on && rejection?.reason === 'mine_crew' && !this.#crewStranded()
+      if (!crewQuiet) this.consecutiveRejections = (this.consecutiveRejections ?? 0) + 1
+      if (!crewQuiet && (rejection?.reason === 'repeat_loop' || this.consecutiveRejections >= 3)) {
         // LATCHED: both rungs failed recently; the rejection itself is the
         // remedy until the rest expires (the model must propose something else).
         if (this.recoveryExhaustedAt) {
