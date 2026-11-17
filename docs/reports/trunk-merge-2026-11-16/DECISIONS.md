@@ -34,6 +34,24 @@ is still missing (one subtest of `idlework2.test.mjs`).
 
 | 7 | snow on a build cell (`stuckcells.test.mjs`) | A cell under snow is "blocked without properties" | gkunblock-01 digs snow (`snow` in the visit's default foreign list) | SETTLED as a pool switch: `SNOWKEEP` (`buildrun.mjs snowKeepOn`), off in the showcase pool, on elsewhere. It moves the visit's default list only; overburden, cover and chest-litter defaults still dig snow in every pool. The wiring subtest now accepts either line's read and proves a snow layer's `layers` is seen through the trunk's (the showcase's lazy read, which carries every block's properties; the fleet's `readBlock` carried snow's only) | pattern of rows 2-6 | `SNOWKEEP=off` |
 
+## Next showcase release to bring in: bagfix-01show `0e33aa99` (tried 2026-11-17 00:45Z, NOT merged)
+
+The control session cleared it (live 11-16 23:04Z, KEEP at +60). A trial merge onto this branch conflicts in two files:
+`bots/src/chestfull.mjs` (1 block) and `bots/src/skills.mjs` (10 blocks). The trial was aborted; nothing of it is here.
+
+- `chestfull.mjs`: plain. The showcase adds `carriedLimitsOn` (the larger carried-chest limits also need `BAGFIX` and
+  `BAGFIX_CHEST` on) and uses it as `chestBudget`'s default. The control session confirms `CHESTCARRY` means the same thing
+  on both lines (bagfix-01show cherry-picked the fleet's chestcarry-01), so the showcase side is taken and the fleet's
+  behaviour is unchanged while `BAGFIX` is unset or on.
+- `skills.mjs`: a REAL overlap, row 8 of this file when it is settled. Both lines implement "merge into a part-full stack
+  on deposit" inside the same two functions. The fleet's chestmerge-01 (on main: `bankInto` returns `merge`, `verifyTown`
+  takes `{ always }` and returns `slots`) and the showcase's bagfix-01 M (`bankInto` returns `bagBefore`, `verifyTown`
+  takes `before` and credits through `creditMoves` / `destHolds`). They cannot both be the body of one function. By the
+  settled pattern the showcase's is the code path in the showcase pool; whether the fleet's chestmerge-01 survives behind
+  a pool-default switch, or is replaced by bagfix-01 M in every pool (it is the same idea, and the showcase's version has
+  a live KEEP read), is not decided. It needs someone to read both and the towndeposit / fullplace / chestmerge / bagfix
+  tests before choosing.
+
 ## Fleet tests the showcase line has replaced with its own piece
 
 Each of these is a fleet-only test whose feature the showcase rebuilt in its own way. The fleet code was not put back
