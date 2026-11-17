@@ -103,6 +103,7 @@ import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RA
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns, isTerrain } from './townground.mjs'
 import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCellAt, topDownRefusal, roofOverY, feetLevel, feetLevels } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
+import { noteCraftOutcome, zoneWalkTarget } from './craftmemo.mjs'   // craftmemo-01show
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -5710,7 +5711,10 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
       }
     }
   }
-  return retook ? { ...out, detail: `${out.detail} (${retook})` } : out
+  const res = retook ? { ...out, detail: `${out.detail} (${retook})` } : out
+  // THE CRAFT REFUSAL MEMO (craftmemo.mjs): the top-level call only, on the bag and spot it ends with.
+  if (depth === 0 && args?.item) noteCraftOutcome(ctx.bot, args.item, res, args.count)
+  return res
 }
 
 async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0, progress = {}) {
@@ -5959,7 +5963,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
           if (built.status === 'success') made.push('crafting_table')
           else if (STOP_CLASSES.has(built.failClass)) return { ...built, ...nothingMade, detail: `${built.detail} [making a crafting_table for ${item}]` }
         }
-        const put = await place(ctx, { item: 'crafting_table' }, signal)
+        const put = await placeTableOrWalk(ctx, signal)
         if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
         if (put.status === 'success') made.push('placed crafting_table')
         // Kept so the refusal below can say what actually stopped it.
@@ -6133,7 +6137,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
     let putSaid = ''
     if (reach > STATION_REACH && carried) {
       check(signal)
-      const put = await place(ctx, { item: 'crafting_table' }, signal)
+      const put = await placeTableOrWalk(ctx, signal)
       if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
       // THE TABLE IT JUST PUT DOWN, by the coordinate place() returns -- not a
       // second nearest-search, which could name a different table. The
@@ -6462,6 +6466,35 @@ function craftRoomNow(bot, plan, owedTables, items = bot.inventory.items()) {
   return admitRoom(items, plan, { owedTables, pickupNear: pickupNearest(bot.entity?.position, bot.entities) })
 }
 
+/**
+ * PUT THE TABLE DOWN, AND TAKE THE WALK THE REFUSAL NAMES (craftmemo-01show). place() refuses inside a protected zone
+ * with `reason=protected_zone goto X Y Z and place crafting_table there`; Comet printed that 104 times in 4 h and never
+ * walked. Here the walk is the craft's own: walkToGoal (arrival, not goto's empty-path resolve) to within 1 block,
+ * bounded, then one more place(). Any other refusal, or a failed walk, returns the refusal as it was (the memo then
+ * holds the craft back until the bot moves or the bag changes). An abort propagates.
+ */
+export const TABLE_ZONE_WALK_MS = 20_000
+async function placeTableOrWalk (ctx, signal) {
+  const { bot } = ctx
+  const put = await place(ctx, { item: 'crafting_table' }, signal)
+  if (put.status === 'success' || put.failClass !== 'protected_zone') return put
+  const to = zoneWalkTarget(put.detail)
+  if (!to || !bot.pathfinder?.setGoal) return put
+  const g = new goals.GoalNear(to.x, to.y, to.z, 1)
+  try {
+    await withTimeout(walkToGoal(bot, g, () => bot.pathfinder.setGoal(g)), TABLE_ZONE_WALK_MS, bot, { what: 'walking out of the protected zone to put a crafting_table down' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    try { if (bot.pathfinder?.goal === g) bot.pathfinder.setGoal(null) } catch {}
+    return { ...put, detail: `${put.detail} [walked toward it: ${String(e?.name ?? e?.message ?? e).slice(0, 40)}]` }
+  }
+  check(signal)
+  const again = await place(ctx, { item: 'crafting_table' }, signal)
+  logEvent({ kind: 'craft_room', status: again.status === 'success' ? 'zone_walk_placed' : 'zone_walk_refused', snapshot: snapshot(bot),
+             detail: `crafting_table: walked out of the protected zone to ${to.x},${to.y},${to.z}: ${again.status === 'success' ? 'placed' : String(again.detail ?? again.failClass).slice(0, 120)}` })
+  return again.status === 'success' ? again : { ...again, detail: `${again.detail} [after walking out of the protected zone to ${to.x},${to.y},${to.z}]` }
+}
+
 /** craftplan.mjs's view of this bot: what it holds, and every recipe as { yield, table, ingredients, ref }. */
 function craftPlanFor (bot, item, count, tableReady) {
   const have = Object.fromEntries(heldCounts(bot.inventory.items()))
@@ -6517,7 +6550,7 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
     if (step.recipe.table && !station) {
       station = findStation()
       if (!station) {
-        const put = await place(ctx, { item: 'crafting_table' }, signal)
+        const put = await placeTableOrWalk(ctx, signal)
         if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
         station = put.status === 'success' && put.at && bot.blockAt(put.at)?.name === 'crafting_table' ? bot.blockAt(put.at) : findStation()
         if (!station) {

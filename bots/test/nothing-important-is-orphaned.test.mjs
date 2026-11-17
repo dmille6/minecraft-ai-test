@@ -44,6 +44,9 @@ const REQUIRED = [
   // topdown-01 / landprev-01show (owner 11-15): gather takes ground only from the top; cobblestone before dirt in the escape
   'bots/src/topdown.mjs',
   'bots/test/topdown.test.mjs',
+  // craftmemo-01show (11-17): a refused craft is not re-proposed with the same bag from the same spot
+  'bots/src/craftmemo.mjs',
+  'bots/test/craftmemo.test.mjs',
   // cleanzone-01 (11-13): no route places a block in the town or its margin; the valve lets a trapped bot out and writes where
   'bots/src/cleanzone.mjs',
   'bots/test/cleanzone.test.mjs',
