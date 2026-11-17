@@ -306,6 +306,52 @@ def test_child_group_killed(R=None):
     assert not alive, 'node outlived its cycle'
 
 
+def test_signal_between_popen_and_register(R=None):
+    """r9 (Codex r7): a SIGTERM arriving right after Popen, before CHILD is set, must still end with the child's group killed."""
+    import shutil
+    import signal
+    import subprocess
+    R = R or OV
+    node = shutil.which('node')
+    if not node:
+        return
+    real, pids = R.subprocess.Popen, []
+
+    def popen(*a, **k):
+        p = real(*a, **k)
+        pids.append(p.pid)
+        os.kill(os.getpid(), signal.SIGTERM)   # the window Codex found
+        return p
+
+    def handler(sig, frm):
+        if R.CHILD is not None:
+            R.kill_group(R.CHILD)
+        raise SystemExit(143)
+    old_h = signal.signal(signal.SIGTERM, handler)
+    R.subprocess.Popen = popen
+    try:
+        R.run_child([node, '-e', 'setInterval(() => {}, 1000)'], '{}', 300, timeout=20)
+    except SystemExit:
+        pass
+    finally:
+        R.subprocess.Popen = real
+        signal.signal(signal.SIGTERM, old_h)
+    time.sleep(0.5)
+    alive = []
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+            alive.append(pid)
+        except ProcessLookupError:
+            pass
+    for pid in alive:
+        try:
+            os.killpg(pid, 9)
+        except Exception:
+            pass
+    assert not alive, 'a child survived a SIGTERM between Popen and registration: %s' % alive
+
+
 def _load_mutant(old, new):
     import importlib.util
     src = open(OV.__file__).read()
@@ -321,6 +367,7 @@ def _load_mutant(old, new):
 def test_mutants():
     """Anchored mutants: each applies exactly once and fails its test."""
     for old, new, test in [
+            ("    signal.pthread_sigmask(signal.SIG_BLOCK, held)\n", '', test_signal_between_popen_and_register),
             ("                if key not in cache:\n                    check_gz(f)", "                if False:\n                    check_gz(f)", test_gzip_truncated),
             ("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass', test_gzip_truncated),
             ("        if now_ms - last < grace_ms:", '        if True:', test_retire_grace),

@@ -51,6 +51,7 @@ pos = its newest row's bot.pos; the `_worklist` rows (the bots' per-job reports)
 from those rows. ONE summary row a cycle: appended to <state>/cycles.jsonl and shipped as kind `showcase_overseer`.
 The set-aside (quarantined) jobs: <state>/setaside.json (for the status page).
 """
+import signal
 import argparse
 import datetime as dt
 import fcntl
@@ -369,9 +370,17 @@ def run_child(cmd, payload, cap_mb, timeout=110, linux=sys.platform.startswith('
     # r8: the child and everything under it in their OWN process group, killed as a group on a timeout and on every exit path
     # (and by the SIGTERM/SIGINT handler main installs), so no node outlives this cycle's lock
     global CHILD
-    p = subprocess.Popen([sys.executable, '-c', MEASURE] + list(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True, start_new_session=True)
-    CHILD = p
+    # r9 (Codex r7): a SIGTERM/SIGINT between the Popen and `CHILD = p` would exit with CHILD unset and leave the group alive.
+    # The two signals are held blocked across creation + registration (the child unblocks them for itself before exec), then
+    # released: a signal that arrived in that window is delivered here, with CHILD set, and the handler kills the group.
+    held = {signal.SIGTERM, signal.SIGINT}
+    signal.pthread_sigmask(signal.SIG_BLOCK, held)
+    try:
+        p = subprocess.Popen([sys.executable, '-c', MEASURE] + list(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, start_new_session=True, preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, held))
+        CHILD = p
+    finally:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, held)
     try:
         stdout, stderr = p.communicate(payload, timeout=timeout)
     except subprocess.TimeoutExpired:
