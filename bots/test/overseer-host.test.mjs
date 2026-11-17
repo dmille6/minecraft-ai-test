@@ -29,7 +29,8 @@ function town ({ cuts, cells = [] }) {
   PJ.publishRecord(pool, PJ.projKey(HOME, 'cottage2'), () => ({ v: 1, plot: 'cottage2', cells: cells.map(at => ({ at, role: 'wall' })) }))
   return pool
 }
-const input = (pool, o = {}) => ({ now: NOW, home: [0, 70, 0], radius: 128, pool, state: tmp('ovs-'), zones: null, live: true, scratch: tmp('ovd-'),
+const zonesFile = (zones = []) => { const f = path.join(tmp('ovz-'), 'zones.json'); fs.writeFileSync(f, JSON.stringify({ version: 1, zones })); return f }
+const input = (pool, o = {}) => ({ now: NOW, home: [0, 70, 0], radius: 128, pool, state: tmp('ovs-'), zones: zonesFile(), live: true, scratch: tmp('ovd-'),
   bots: [{ name: 'Ann', online: true, pos: [-20, 71, 0] }, { name: 'Bo', online: true, pos: [20, 71, 0] }], rows: [], ...o })
 
 const liveScenario = async H => {
@@ -38,11 +39,17 @@ const liveScenario = async H => {
   assert.ok(!JSON.parse(fs.readFileSync(path.join(pool, 'worklist-Bo.json'), 'utf8')).jobs.some(j => j.id === 'r:5,72,5'), 'a record cell is no removal')
   assert.ok(!JSON.parse(fs.readFileSync(path.join(pool, 'worklist-Ann.json'), 'utf8')).jobs.some(j => j.id === 'r:5,72,5'))
 }
+// r1 C6: stopping is a transition -- the live lists go once, then dry never touches the town
 const dryScenario = async H => {
   const pool = town({ cuts: [[-20, 72, 0]] })
-  fs.writeFileSync(path.join(pool, 'worklist-Ann.json'), '{}')
-  H.runCycle(input(pool, { live: false }))
-  assert.ok(!fs.readdirSync(pool).some(f => H.LIST_RE.test(f)))
+  const inp = input(pool)
+  H.runCycle(inp)
+  assert.ok(fs.existsSync(path.join(pool, 'worklist-Ann.json')), 'live: published')
+  const s1 = H.runCycle({ ...inp, live: false, now: NOW + 15 * 60_000 }).summary
+  assert.strictEqual(s1.stopped, 2); assert.ok(!fs.readdirSync(pool).some(f => H.LIST_RE.test(f)), 'switched off: the lists go at once')
+  fs.writeFileSync(path.join(pool, 'worklist-Zed.json'), '{}')
+  const s2 = H.runCycle({ ...inp, live: false, now: NOW + 30 * 60_000 }).summary
+  assert.strictEqual(s2.stopped, null); assert.ok(fs.existsSync(path.join(pool, 'worklist-Zed.json')), 'after that dry never deletes from the town')
 }
 const killed = async (old, neu, sc) => { await sc(H); assert.ok(await withMutant(old, neu, async M => { try { await sc(M); return false } catch (e) { if (e instanceof assert.AssertionError) return true; throw e } }), 'the mutant survived') }
 await t('LIVE: the record\'s removals become two bots\' lists in the town (nearest bot, the guard and the radius respected); each bot accepts its own', async () => {
@@ -61,15 +68,29 @@ await t('LIVE: the record\'s removals become two bots\' lists in the town (neare
   assert.deepStrictEqual(c2.cycle.book.filter(j => j.state === 'done').map(j => j.id).sort(), ['r:-20,72,0', 'r:-20,73,0'])
   assert.strictEqual(H.runCycle({ ...inp, now: NOW + 30 * 60_000, rows }).summary.reports, 0, 'a row is ingested once')
 })
-await t('DRY: the lists go to scratch and the town\'s list files are removed (switching off stops the bots at once)', async () => {
+await t('DRY never writes to or deletes from the town; the lists go to scratch', async () => {
   const pool = town({ cuts: [[-20, 72, 0]] })
-  fs.writeFileSync(path.join(pool, 'worklist-Ann.json'), '{}')
+  fs.writeFileSync(path.join(pool, 'worklist-Ann.json'), '{"x":1}')
+  const before = fs.readdirSync(pool).sort()
   const inp = input(pool, { live: false })
   H.runCycle(inp)
-  assert.ok(!fs.readdirSync(pool).some(f => H.LIST_RE.test(f)), 'no list left in the town')
+  assert.deepStrictEqual(fs.readdirSync(pool).sort(), before); assert.strictEqual(fs.readFileSync(path.join(pool, 'worklist-Ann.json'), 'utf8'), '{"x":1}')
   assert.ok(fs.existsSync(path.join(inp.scratch, 'worklist-Ann.json')))
   assert.ok(fs.existsSync(path.join(inp.state, 'book.dry.json')) && !fs.existsSync(path.join(inp.state, 'book.live.json')), 'a dry book is its own')
   assert.ok(fs.existsSync(path.join(inp.state, 'setaside.json')))
+})
+await t('C6 LIVE -> DRY: the published lists are removed once, then dry leaves the town alone', () => dryScenario(H))
+await t('C4 ZONES: none given, missing, or unreadable -> the cycle throws and writes nothing', async () => {
+  const pool = town({ cuts: [[-20, 72, 0]] })
+  for (const zones of [null, '/nonexistent/zones.json', (() => { const f = path.join(tmp('ovz-'), 'z.json'); fs.writeFileSync(f, '{bad'); return f })(), (() => { const f = path.join(tmp('ovz-'), 'z.json'); fs.writeFileSync(f, '{}'); return f })()]) {
+    const inp = input(pool, { zones })
+    assert.throws(() => H.runCycle(inp), /zones/, String(zones))
+    assert.ok(!fs.readdirSync(pool).some(f => H.LIST_RE.test(f))); assert.deepStrictEqual(fs.readdirSync(inp.state), [])
+  }
+  // and a zone in the file keeps its cells off the lists
+  const inp = input(pool, { zones: zonesFile([{ id: 'v', box: [-30, -64, -5, -10, 90, 5] }]) })
+  H.runCycle(inp)
+  assert.ok(!fs.existsSync(path.join(pool, 'worklist-Ann.json')) || JSON.parse(fs.readFileSync(path.join(pool, 'worklist-Ann.json'), 'utf8')).jobs.length === 0)
 })
 await t('AN UNREADABLE RECORD: the cycle throws and writes nothing', async () => {
   const pool = town({ cuts: [[-20, 72, 0]] })
@@ -81,7 +102,10 @@ await t('AN UNREADABLE RECORD: the cycle throws and writes nothing', async () =>
 })
 
 await t('MUTANT KILLED: the guard is not read', () => killed('for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at)) guard.add(c.at.join(\',\'))', '', liveScenario))
-await t('MUTANT KILLED: dry leaves the town\'s lists', () => killed('    try { fs.unlinkSync(path.join(inp.pool, f)) } catch { /* gone */ }', '', dryScenario))
+await t('MUTANT KILLED: switching off leaves the published lists', () => killed("  if (!st?.published) return null", '  return null', dryScenario))
+await t('MUTANT KILLED: the stop is not recorded (dry deletes every cycle)', () => killed('  writeAtomic(f, { ...st, published: false, stoppedAt: now, stoppedRemoved: n })', '', dryScenario))
+const zoneScenario = async H => { const pool = town({ cuts: [[-20, 72, 0]] }); assert.throws(() => H.runCycle(input(pool, { zones: '/nonexistent/z.json' })), /zones/) }
+await t('MUTANT KILLED: a missing zones file reads as no zones', () => killed("  if (!zdoc || !Array.isArray(zdoc.zones)) throw new Error(`zones unreadable: ${inp.zones}`)", '  if (!zdoc) return { summary: {}, cycle: null }', zoneScenario))
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

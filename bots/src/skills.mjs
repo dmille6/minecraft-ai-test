@@ -290,7 +290,7 @@ import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
-import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf } from './worklist.mjs'   // worklist-01: a bot's own list from the host
+import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, WORKLIST_FILE_RE } from './worklist.mjs'   // worklist-01: a bot's own list from the host
 import { listLease as wlListLease } from './overseer.mjs'   // overseer-01show: the list is worked under buildrun.mjs's clear-part lease `seg-clear-wl<bot>`
 import { claimedAt as wlClaimedAt } from './tidy.mjs'   // worklist-01: a sited building's claim holds a listed cell
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -30020,6 +30020,14 @@ function worklistGuardStrict () {
 /** overseer-01show: THE OVERSEER'S UNSTICK ORDER for this bot, read from its own list file -> { id, why } | null (WORKLIST off, the
  *  town's switch file, no file, a file listCheck refuses, no order, one already acted on: `done(id)`). Never throws. The order chain
  *  (cognitive.mjs) acts on it with the existing way up / home / grounds steer (minecrew.mjs crewSteer, forced). */
+/** r1 C1: the cells on any live list in the town's directory -> Set("x,y,z") (empty when WORKLIST is off or nothing is listed);
+ *  an unreadable list file reads as no file. Read once per shared visit. */
+export function worklistListedNow (now = Date.now()) {
+  if (!WL_ON) return new Set()
+  const dir = townDir(), docs = []
+  try { for (const f of fs.readdirSync(dir)) if (WORKLIST_FILE_RE.test(f)) { try { docs.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))) } catch { /* torn: skipped */ } } } catch { return new Set() }
+  return listedCells(docs, { home: planHomeP(), now })
+}
 export function worklistUnstickNow (bot, { done = () => false, now = Date.now() } = {}) {
   if (!WL_ON) return null
   try {
@@ -30933,7 +30941,8 @@ async function buildTidyVisit (ctx, args, signal) {
     const capHeld = capHeldCols(tidyCuts(rec, read, mem), read, retopPass, visitRec.cells, rec.waived)
     const cutHeld = gradeOn() ? gradeCutsHeld(tidyCuts(rec, read, mem), read, capHeld) : new Set()
     for (const k of lawnPaused) cutHeld.add(k)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !cutHeld.has(q.at.join(',')) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
+    const wlListed = worklistListedNow()   // overseer r1 C1: a cell on a bot's own list is that bot's, never the shared draw's
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !wlListed.has(q.at.join(',')) && !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !cutHeld.has(q.at.join(',')) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open

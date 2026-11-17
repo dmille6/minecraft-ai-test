@@ -10,8 +10,8 @@
 // SOURCES. The clean-up record's removals (`project-<home>.tidy`, its `cut` list -- scarjobs.py's entries reach it through the
 // keeper's litter fold); every record's `cells` are the guard (a cell a project builds is never a removal); protected-zones.json.
 // LIVE (input.live): `worklist-<bot>.json` into the town's directory, atomically; a bot with no list now has its old file removed.
-// DRY: the lists go to `scratch`, and every `worklist-*.json` in the town's directory is removed (switching off stops the bots at
-// once). The book is kept per mode (state/book.live.json, state/book.dry.json): a dry run's stalls never reach a live book.
+// DRY: the lists go to `scratch`; the town's directory is never touched, except once when the switch goes off (stopLive: the
+// lists the live book says it published are removed and the stop is recorded). Zones are required (no file: no cycle). The book is kept per mode (state/book.live.json, state/book.dry.json): a dry run's stalls never reach a live book.
 // Phase 1 is removals only within `radius` of home. Nothing here reads the world: the bot reads every block again before it digs.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -53,6 +53,17 @@ export function townReadings (pool, home) {
   return { cells, guard, keys }
 }
 
+/** r1 C6: LIVE -> NOT LIVE. When the live book says lists were published, the town's list files are removed once and the book
+ *  records when -> the number removed, or null (nothing was published: nothing in the town is touched). */
+export function stopLive (inp, now) {
+  const f = path.join(inp.state, 'book.live.json')
+  const st = readJ(f, null)
+  if (!st?.published) return null
+  let n = 0
+  for (const x of fs.readdirSync(inp.pool)) if (LIST_RE.test(x)) { try { fs.unlinkSync(path.join(inp.pool, x)); n++ } catch { /* gone */ } }
+  writeAtomic(f, { ...st, published: false, stoppedAt: now, stoppedRemoved: n })
+  return n
+}
 /** ONE CYCLE over the input -> the summary (and, unless `write` is false, the files written). */
 export function runCycle (inp, { write = true } = {}) {
   const now = Number(inp.now) || Date.now()
@@ -60,7 +71,12 @@ export function runCycle (inp, { write = true } = {}) {
   const mode = inp.live ? 'live' : 'dry'
   const bookFile = path.join(inp.state, `book.${mode}.json`)
   const st = readJ(bookFile, { v: 1, book: [], cursor: 0, givenAt: {}, unstuckAt: {} })
-  const zones = inp.zones ? (readJ(inp.zones, { zones: [] }).zones ?? []) : []
+  // r1 C4: the zones are REQUIRED -- no file, an unreadable one or one without a zone list is no cycle (protection never fails open)
+  if (!inp.zones) throw new Error('zones: no --zones given')
+  let zdoc = null
+  try { zdoc = readJ(inp.zones, null) } catch (e) { throw new Error(`zones unreadable: ${inp.zones}: ${e?.message ?? e}`) }
+  if (!zdoc || !Array.isArray(zdoc.zones)) throw new Error(`zones unreadable: ${inp.zones}`)
+  const zones = zdoc.zones
   const { cells, guard } = townReadings(inp.pool, home)
   const rr = readRows(inp.rows ?? [], { cursor: st.cursor ?? 0, now })
   const holds = new Map()
@@ -76,15 +92,17 @@ export function runCycle (inp, { write = true } = {}) {
   const summary = { at: now, mode, row: c.row, lists: Object.fromEntries(Object.entries(c.lists).map(([b, d]) => [b, d.order ? `order:${d.order.kind}` : d.jobs.length])),
     orders: c.orders, reports: rr.reports.length, setAside: c.setAside.length }
   if (!write) return { summary, cycle: c }
-  const out = inp.live ? inp.pool : inp.scratch
-  for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(out, listFile(b)), d)
-  // a list file this cycle did not write is removed: live, a bot with no list now; dry, every list in the town (stops the bots)
-  for (const f of fs.readdirSync(inp.pool)) {
-    if (!LIST_RE.test(f)) continue
-    if (inp.live && Object.keys(c.lists).some(b => listFile(b) === f)) continue
-    try { fs.unlinkSync(path.join(inp.pool, f)) } catch { /* gone */ }
+  if (inp.live) {
+    for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.pool, listFile(b)), d)
+    // a list file this cycle did not write is removed: a bot with no list now
+    for (const f of fs.readdirSync(inp.pool)) if (LIST_RE.test(f) && !Object.keys(c.lists).some(b => listFile(b) === f)) { try { fs.unlinkSync(path.join(inp.pool, f)) } catch { /* gone */ } }
+  } else {
+    // r1 C6: DRY NEVER WRITES TO OR DELETES FROM THE TOWN. The one exception is the switch going off: the live book says lists
+    // were published, so they are removed ONCE and the live book records it; after that dry touches only scratch.
+    summary.stopped = stopLive(inp, now)
+    for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.scratch, listFile(b)), d)
   }
-  writeAtomic(bookFile, { v: 1, book: c.book, cursor: rr.cursor, givenAt, unstuckAt, at: now })
+  writeAtomic(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, cursor: rr.cursor, givenAt, unstuckAt, at: now })
   writeAtomic(path.join(inp.state, 'setaside.json'), { v: 1, at: now, mode, n: c.setAside.length, jobs: c.setAside })
   return { summary, cycle: c }
 }

@@ -249,6 +249,25 @@ await t('THE CHAIN: a job the bot passes over does not stop its list -- the rest
   assert.deepStrictEqual(rep.refused, { given: 2, blocked: 1 }, 'the host reads why: its rebalance takes these jobs off the list')
 })
 
+const c1Scenario = async M => {
+  // B's list holds the pillar at (5,0); A works the SHARED record, whose cuts hold the same pillar and one more block
+  const docB = DOC(pillar(5, 0, 2), { bot: 'B' })
+  const listed = M.listedCells([docB, DOC([rm(9, G + 1, 9)], { bot: 'C', expires: NOW - 1 }), DOC([rm(8, G + 1, 8)], { bot: 'D', home: [1, HOME.y, 0] })], { home: HOME, now: NOW })
+  assert.deepStrictEqual([...listed].sort(), [`5,${G + 1},0`, `5,${G + 2},0`], 'only live lists of this home')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wl-'))
+  const srv = stand({ ...col(5, 0, 2), ...col(8, 3, 1) })
+  const shared = [...pillar(5, 0, 2), rm(8, G + 1, 3)].map(j => ({ at: j.at, kind: 'tidy', name: 'dirt', id: j.id })).filter(c => !listed.has(c.at.join(',')))
+  const key = PJ.projKey(HOME, 'tidy')
+  const a = visitP(dir, 'A', [rm(8, G + 1, 3)], srv, { key, extra: { tidy: shared } })
+  const b = visitP(dir, 'B', pillar(5, 0, 2), srv)
+  const log = []
+  const [ra, rb] = await Promise.all([R.runVisit(a.p, digger(srv, 'A', [6, G + 1, 3], log, dir, {}), { maxSteps: 200 }), R.runVisit(b.p, digger(srv, 'B', [3, G + 1, 0], log, dir, {}), { maxSteps: 200 })])
+  assert.ok(!log.some(d => d.by === 'A' && d.cell.startsWith('5,')), 'the shared visit never digs a listed cell')
+  assert.strictEqual(rb.cleared, 2); assert.strictEqual(ra.cleared, 1)
+}
+await t('C1 TWO BOTS: a cell on B\'s list is never in A\'s shared draw -- B digs its pillar, A only the unlisted block', () => c1Scenario(W))
+await mutant('C1 an expired list still holds its cells', ' || now > d.expires) continue', ') continue', c1Scenario)
+await mutant('C1 nothing excluded', '    for (const j of d.jobs) if (isInt3(j?.at)) out.add(K(j.at))', '', c1Scenario)
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 const strip = s => s.split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
 const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
@@ -287,6 +306,8 @@ await t('overseer-01show wiring: the town switch file before the list, the list 
   const CG = strip(fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
   one(CG, '    if (!order && this.#wlUnstick()) this.crewForce = true\n    if (MINECREW.on) { if (order) this.crewForce = false;', 'the unstick forces the steer, just before it')
   one(CG, 'worklistUnstickNow(this.bot, { done: id => id === this.wlUnstickDone, now })', 'one order, once')
+  one(SK, '    const wlListed = worklistListedNow()', 'the shared visit reads the listed cells once')
+  one(SK, 'const cuts0 = tidyCuts(rec, read, mem).filter(q => !wlListed.has(q.at.join(\',\')) && !claimedQ(q) &&', 'and its draw skips them')
 })
 await t('unstickOf: only an accepted file of this bot, only unstick, only once', async () => {
   const ord = { kind: 'unstick', id: 'unstick:A:1', why: 'no_progress 31m' }

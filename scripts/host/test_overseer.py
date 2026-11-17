@@ -36,6 +36,54 @@ def test_roster_and_rows():
     assert wl[0]['t'] == int((NOW - dt.timedelta(minutes=3)).timestamp() * 1000)
 
 
+class _Boom(Exception):
+    pass
+
+
+def test_read_problems():
+    """r1 C3: an unreadable file, or a log directory gone since last cycle, is a problem (the cycle writes nothing)."""
+    import contextlib
+    import io
+
+    def opener(f):
+        if 'bad' in f:
+            raise _Boom('gzip')
+        return contextlib.nullcontext(io.StringIO('{}'))
+    ok = ['/l/Ann/skill-Ann.jsonl', '/l/Bo/skill-Bo.jsonl-20261116.gz']
+    p, dirs = OV.read_problems(ok, ['Ann', 'Bo'], opener)
+    assert p == [] and dirs == {'Ann', 'Bo'}
+    p, _ = OV.read_problems(ok + ['/l/Cy/skill-bad.jsonl'], ['Ann'], opener)
+    assert len(p) == 1 and p[0].startswith('unreadable /l/Cy/'), p
+    p, _ = OV.read_problems(ok[:1], ['Ann', 'Bo'], opener)
+    assert p == ['no log for Bo (seen last cycle)'], p
+
+
+def test_read_problems_mutants():
+    """Anchored mutants: each must apply exactly once and make test_read_problems fail."""
+    import importlib.util
+    src = open(OV.__file__).read()
+    for old, new in [("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass'),
+                     ("    for d in sorted(set(prev_dirs) - dirs):", '    for d in []:')]:
+        assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
+        path = os.path.join(tempfile.mkdtemp(), 'ovm.py')
+        open(path, 'w').write(src.replace(old, new))
+        sys.path.insert(0, os.path.dirname(OV.__file__))
+        spec = importlib.util.spec_from_file_location('ovm', path)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        saved = OV.read_problems
+        OV.read_problems = m.read_problems
+        try:
+            try:
+                test_read_problems()
+                killed = False
+            except AssertionError:
+                killed = True
+        finally:
+            OV.read_problems = saved
+        assert killed, 'mutant survived: ' + old
+
+
 if __name__ == '__main__':
     for n, f in list(globals().items()):
         if n.startswith('test_'):

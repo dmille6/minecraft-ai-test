@@ -10,8 +10,10 @@ docs/reports/overseer-design-2026-11-17.md.
         --scratch ~/digest/overseer/dry --zones <protected-zones.json> [--logs /var/log/mcai] [--radius 128] \
         [--ship /var/log/showcase/heartbeat.jsonl] [--lock /tmp/overseer.lock]
 
-LIVE OR DRY (scarjobs.py's pattern): the lists go into the town's directory only while the --switch file exists and does not say
-`off`; without it they go to --scratch and every list in the town's directory is removed, so switching off stops the bots at once.
+LIVE OR DRY: the lists go into the town's directory only while the --switch file exists and does not say `off`; without it they
+go to --scratch and the town's directory is never written or deleted from (r1 C6) -- except ONCE, on the switch going off: the
+live book says lists were published, they are removed, and the book records it (`stoppedAt`). --zones is required (r1 C4); a log
+file that cannot be read, or a log directory gone since the last cycle, is no cycle at all (r1 C3).
 The bots also stop reading at once when `worklist.OFF` stands in the town's directory (bot-side switch).
 
 THE INPUTS: roster = every bot with a row in the last --window-min (default 180); online = a row in the last --online-min (10);
@@ -30,7 +32,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
-from lib.telemetry import Events, canon  # noqa: E402
+from lib.telemetry import Events, canon, open_log  # noqa: E402
+import glob  # noqa: E402
 
 CYCLE = os.path.join(HERE, 'overseer-cycle.mjs')
 
@@ -43,6 +46,23 @@ def switch_live(path):
     except OSError:
         return False
     return body not in ('off', '0', 'false', 'no')
+
+
+def read_problems(files, prev_dirs, opener=open_log):
+    """r1 C3 -- PURE but for the opener. Events.load skips a file it cannot read, so a bot whose log fails looks ABSENT and its
+    work would be handed on. Fail closed instead: -> (problems, dirs). Every log file must open and read; every log directory
+    seen last cycle (`prev_dirs`) must still hold one. `dirs` = the directories with a log now (kept for the next cycle)."""
+    problems, dirs = [], set()
+    for f in sorted(files):
+        try:
+            with opener(f) as fh:
+                fh.read(1)
+            dirs.add(os.path.basename(os.path.dirname(f)))
+        except Exception as e:  # noqa: BLE001 -- any failure to read is a reason to write nothing
+            problems.append('unreadable %s: %s' % (f, type(e).__name__))
+    for d in sorted(set(prev_dirs) - dirs):
+        problems.append('no log for %s (seen last cycle)' % d)
+    return problems, dirs
 
 
 def inputs_from_rows(rows, now, online_min=10):
@@ -73,7 +93,7 @@ def main(argv=None):
     ap.add_argument('--state', required=True)
     ap.add_argument('--switch', required=True)
     ap.add_argument('--scratch', required=True)
-    ap.add_argument('--zones', default=None)
+    ap.add_argument('--zones', required=True)   # r1 C4: protection never fails open
     ap.add_argument('--logs', default='/var/log/mcai')
     ap.add_argument('--radius', type=int, default=128)
     ap.add_argument('--window-min', type=int, default=180)
@@ -90,6 +110,29 @@ def main(argv=None):
         print('overseer: another cycle holds the lock; this one is skipped')
         return 0
     now = dt.datetime.now(dt.timezone.utc)
+    # r1 C3: a log that cannot be read (or one gone since the last cycle) is no cycle: nothing is written, the row says why
+    dirs_file = os.path.join(a.state, 'logdirs.json')
+    try:
+        with open(dirs_file) as fh:
+            prev = json.load(fh)
+    except OSError:
+        prev = []
+    problems, dirs = read_problems(glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), prev)
+    if problems:
+        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'logs: ' + '; '.join(problems)[:600], 'wrote': 'nothing'}
+        with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
+            fh.write(json.dumps(row, sort_keys=True) + '\n')
+        if a.ship:
+            try:
+                from lib.alarm import ship_row
+                ship_row(a.ship, row)
+            except Exception:
+                pass
+        print(json.dumps(row, sort_keys=True))
+        return 1
+    with open(dirs_file + '.tmp', 'w') as fh:
+        json.dump(sorted(dirs), fh)
+    os.replace(dirs_file + '.tmp', dirs_file)
     ev = Events.load(paths=os.path.join(a.logs, '*', 'skill-*.jsonl*'), since_minutes=a.window_min)
     bots, wl = inputs_from_rows(ev.rows, now, a.online_min)
     live = switch_live(a.switch)

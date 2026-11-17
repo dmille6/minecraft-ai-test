@@ -55,6 +55,20 @@ export const worklistOn = (env = process.env) => !/^(off|0|false|no)$/i.test(Str
 /** overseer-01show: THE TOWN'S SWITCH FILE. While `worklist.OFF` stands in the town's directory no bot reads a list or an order (the
  *  host's dry mode also removes the lists; this one acts at once, whatever the host does). */
 export const WORKLIST_OFF_FILE = 'worklist.OFF'
+export const WORKLIST_FILE_RE = /^worklist-[A-Za-z0-9_-]+\.json$/
+/**
+ * r1 C1: THE CELLS ON ANY BOT'S LIST NOW -> Set("x,y,z"). Pure. Every list file of this home not past its `expires` (any bot's,
+ * this one's too): the shared record's draw never takes such a cell, so two bots under two leases never dig one cell.
+ */
+export function listedCells (docs = [], { home, now = Date.now() } = {}) {
+  const out = new Set()
+  for (const d of docs) {
+    if (!d || d.v !== 1 || d.kind !== 'worklist' || !Array.isArray(d.jobs) || !Number.isFinite(d.expires) || now > d.expires) continue
+    if (!home || !isInt3(d.home) || d.home[0] !== Math.floor(home.x) || d.home[1] !== Math.floor(home.y) || d.home[2] !== Math.floor(home.z)) continue
+    for (const j of d.jobs) if (isInt3(j?.at)) out.add(K(j.at))
+  }
+  return out
+}
 
 const safe = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_')
 /** The bot's file in the town's directory, and its record's plot (the key is buildproj.mjs projKey(home, plot)). Pure. */

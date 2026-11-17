@@ -84,7 +84,7 @@ export function recordAttempt (job, { bot, why, now = Date.now() }, T = OVERSEER
   if (why === 'done' || why === 'gone') return { ...j, state: why, owner: null, closedAt: now }
   const fails = j.attempts.filter(a => !FAIL_NOT.has(a.why))
   const byBot = fails.filter(a => a.bot === bot).length
-  if (byBot >= T.avoidAfter && !j.avoid.includes(bot)) { j.avoid.push(bot); if (j.owner === bot) j.owner = null }
+  if (byBot >= T.avoidAfter && !j.avoid.includes(bot)) { j.avoid.push(bot); if (j.owner === bot) { j.owner = null; j.notBefore = Math.max(Number(j.notBefore) || 0, now + T.leaseMs) } }   // r1 C2: its old lease may still be live
   const bots = new Set(fails.map(a => a.bot))
   if (fails.length >= T.quarantineFails && bots.size >= T.quarantineBots) {
     const n = new Map(); fails.forEach((a, i) => n.set(a.why, [(n.get(a.why)?.[0] ?? 0) + 1, i]))
@@ -198,7 +198,9 @@ export function stalls (book, bots = [], { now = Date.now(), leased = () => 0, T
   for (const b of bots) {
     if (!holds.get(b.name)) continue
     if (b.online === false) { drop.set(b.name, 'offline'); continue }
-    const since = Number(b.lastProgressAt ?? b.givenAt ?? now)
+    // r1 B1: the later of its last progress and the time it was (re)given work -- an old done row still in the window never
+    // re-stalls a bot given work a moment ago
+    const since = Math.max(Number(b.lastProgressAt ?? 0), Number(b.givenAt ?? now))
     if (now - since >= T.stallMs) { drop.set(b.name, 'no_progress'); orders.push({ bot: b.name, order: 'unstick', why: `no_progress ${Math.round((now - since) / 60_000)}m holding ${holds.get(b.name)}` }) }
   }
   // a bot no longer in the roster at all: its jobs are released too
@@ -210,10 +212,38 @@ export function stalls (book, bots = [], { now = Date.now(), leased = () => 0, T
 /** Closed jobs older than T.keepClosedMs leave the book. Pure. */
 export const prune = (book, now, T = OVERSEER) => book.filter(j => j.state === 'open' || j.state === 'quarantined' || now - (j.closedAt ?? now) < T.keepClosedMs)
 
+/**
+ * r1 B2: is job `j` held because a block ABOVE it in its column is still to come out and is not on this same list (`mine`)? Pure.
+ * Open (another bot's, unowned, waiting out a lease) or quarantined above: held -- a block is never dug from under one that stays.
+ */
+export function heldBelow (book, j, mine) {
+  const ids = new Set(mine.map(m => m.id))
+  return book.some(u => u.at[0] === j.at[0] && u.at[2] === j.at[2] && u.at[1] > j.at[1] && (u.state === 'quarantined' || (u.state === 'open' && !ids.has(u.id))))
+}
+/**
+ * r1 C5: EVERY OPEN JOB against the CURRENT zones, guard and radius, each cycle -> { book, dropped }. Pure. A job that fails is
+ * closed `dropped` with its reason (zone | record | far): a zone or a building added after its intake takes it off every list.
+ */
+export function recheck (book, { zones = [], guard = () => false, home = null, radius = Infinity, now = Date.now() } = {}) {
+  let dropped = 0
+  const out = book.map(j => {
+    if (j.state !== 'open') return j
+    const why = inZone(j.at, zones) ? 'zone' : guard(cellKey(j.at)) ? 'record' : home && dist(home, j.at) > radius ? 'far' : null
+    if (!why) return j
+    dropped++
+    return { ...j, state: 'dropped', owner: null, why, closedAt: now }
+  })
+  return { book: out, dropped }
+}
 /** A bot's list file (worklist-01show's v1 format; its listCheck refuses anything else). Pure. Only jobs it may start now. */
 export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs = 2 * OVERSEER.cycleMs, project = 'tidy', order = null, T = OVERSEER } = {}) {
-  const jobs = (order ? [] : book.filter(j => j.state === 'open' && j.owner === bot && j.notBefore <= now)).slice(0, T.maxList)
+  const mine = order ? [] : book.filter(j => j.state === 'open' && j.owner === bot && j.notBefore <= now)
+  const ok = new Set(mine.filter(j => !heldBelow(book, j, mine)).map(j => j.id))
+  // r1 B2: sorted (a column top first) BEFORE the cap, so a cut column keeps its upper cells; a cell under one this list does not
+  // carry (another's, unowned, waiting, set aside) is held back
+  const jobs = mine.filter(j => ok.has(j.id))
     .sort((a, b) => a.at[0] - b.at[0] || a.at[2] - b.at[2] || b.at[1] - a.at[1])     // a column top first
+    .slice(0, T.maxList)
     .map(j => ({ id: j.id, kind: j.kind, at: j.at, ...(j.block ? { block: j.block } : {}) }))
   // a pillar's lower block comes after the one above it (the same column, the next y up, also on the list)
   const ids = new Set(jobs.map(j => j.id))
@@ -238,6 +268,7 @@ export function overseerCycle ({ book = [], reports = [], cells = [], scar = [],
   b = [...b, ...fromRec.added]
   const intake = intakeScar(scar, b, { zones, guard, now, from: 'scar', home: h3, radius, T: { ...T, intakeMax: Math.max(0, T.intakeMax - fromRec.added.length) } })
   b = [...b, ...intake.added]
+  const rc = recheck(b, { zones, guard, home: h3, radius, now }); b = rc.book
   const st = stalls(b, bots, { now, leased, T }); b = st.book
   const stalled = new Set(st.orders.map(o => o.bot))
   const workers = bots.filter(x => !stalled.has(x.name) && !(now - Number(x.unstuckAt ?? -Infinity) < T.unstickMs))
@@ -251,7 +282,7 @@ export function overseerCycle ({ book = [], reports = [], cells = [], scar = [],
   }
   const count = s => b.filter(j => j.state === s).length
   const added = fromRec.added.length + intake.added.length, sk = k => fromRec.skipped[k] + intake.skipped[k]
-  const row = `op=cycle open=${count('open')} unowned=${b.filter(j => j.state === 'open' && !j.owner).length} quarantined=${count('quarantined')} added=${added} dup=${sk('dup')} zone=${sk('zone')} record=${sk('record')} far=${sk('far')} moved=${rb.moved} unstick=${st.orders.length} lists=${Object.keys(lists).length}`
+  const row = `op=cycle open=${count('open')} unowned=${b.filter(j => j.state === 'open' && !j.owner).length} quarantined=${count('quarantined')} added=${added} dup=${sk('dup')} zone=${sk('zone')} record=${sk('record')} far=${sk('far')} dropped=${rc.dropped} moved=${rb.moved} unstick=${st.orders.length} lists=${Object.keys(lists).length}`
   const setAside = b.filter(j => j.state === 'quarantined').map(j => ({ id: j.id, at: j.at, block: j.block, why: j.why, from: j.src?.from ?? null, tries: j.attempts.length }))
   return { book: b, lists, orders: st.orders, row, setAside }
 }

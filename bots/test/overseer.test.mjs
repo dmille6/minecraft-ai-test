@@ -120,13 +120,13 @@ await t('a visit report (worklist-01show shape) becomes attempts', () => ingestS
 // ---------------------------------------------------------------- stalls
 const stallScenario = async M => {
   const book = [job(M, 0, 65, 0, { owner: 'S' }), job(M, 1, 65, 0, { owner: 'S' }), job(M, 9, 65, 0, { owner: 'K' })]
-  const bots = [bot('S', 0, 0, { lastProgressAt: NOW - O.OVERSEER.stallMs }), bot('K', 9, 0)]
+  const bots = [bot('S', 0, 0, { lastProgressAt: NOW - O.OVERSEER.stallMs, givenAt: NOW - O.OVERSEER.stallMs }), bot('K', 9, 0)]
   const { book: out, orders } = M.stalls(book, bots, { now: NOW })
   assert.deepStrictEqual(orders.map(o => [o.bot, o.order]), [['S', 'unstick']])
   assert.deepStrictEqual(out.map(j => j.owner), [null, null, 'K'])
   assert.ok(out[0].notBefore >= NOW + O.OVERSEER.leaseMs)
   // a bot with nothing held is never stalled; a fresh bot is not
-  assert.strictEqual(M.stalls(book, [bot('S', 0, 0, { lastProgressAt: NOW - 1000 }), bot('K', 9, 0, { lastProgressAt: 0 })], { now: NOW }).orders.length, 1)
+  assert.strictEqual(M.stalls(book, [bot('S', 0, 0, { lastProgressAt: NOW - 1000 }), bot('K', 9, 0, { lastProgressAt: 0, givenAt: 0 })], { now: NOW }).orders.length, 1)
   // the whole cycle: the stalled bot's work goes to the other
   const c1 = M.overseerCycle({ book, bots, now: NOW, home: { x: 0, y: 64, z: 0 } })
   assert.ok(c1.book.filter(j => j.at[0] < 5).every(j => j.owner === null), 'released, not handed on inside the old lease')
@@ -170,7 +170,7 @@ await t('listDoc: worklist-01show v1 shape, top-first pillar with after', async 
 // the stalled bot's own file carries the order (and no jobs): the bot reads it from where it is
 await t('a stalled bot gets a list with its unstick order and no jobs; a grace bot gets no list', async () => {
   const book = [job(O, 0, 65, 0, { owner: 'S' }), job(O, 9, 65, 0, { owner: 'K' })]
-  const c = O.overseerCycle({ book, bots: [bot('S', 0, 0, { lastProgressAt: NOW - O.OVERSEER.stallMs }), bot('K', 9, 0)], now: NOW, home: { x: 0, y: 64, z: 0 } })
+  const c = O.overseerCycle({ book, bots: [bot('S', 0, 0, { lastProgressAt: NOW - O.OVERSEER.stallMs, givenAt: NOW - O.OVERSEER.stallMs }), bot('K', 9, 0)], now: NOW, home: { x: 0, y: 64, z: 0 } })
   assert.strictEqual(c.lists.S.order.kind, 'unstick'); assert.strictEqual(c.lists.S.jobs.length, 0); assert.ok(c.lists.S.order.id.startsWith('unstick:S:'))
   assert.ok(!c.lists.K.order); assert.ok(c.lists.K.jobs.length >= 1)
 })
@@ -225,6 +225,58 @@ const rowsScenario = async M => {
 await t('rows: ingested once, rate per hour over 2 h, last progress; a refusal\'s reason reaches the set-aside list', () => rowsScenario(O))
 await mutant('rows ingested again', 'if (r.t > cursor) { reports.push', 'if (true) { reports.push', rowsScenario)
 await mutant('the report\'s reason is dropped', "say.set(id, whyOf(id) ?? rep?.why?.[id] ?? 'refused')", "say.set(id, whyOf(id) ?? 'refused')", rowsScenario)
+
+// ---------------------------------------------------------------- review r1
+// B1: done at 10:00, stalled at 10:30 (unstick), work again at 10:45, and at 11:00 the 10:00 row is still in the window
+const b1Scenario = async M => {
+  const T0 = NOW, m = 60_000, held = [job(M, 0, 65, 0, { owner: 'S' })]
+  const at = (now, o) => M.stalls(held, [bot('S', 0, 0, { lastProgressAt: T0, ...o })], { now }).orders.length
+  assert.strictEqual(at(T0 + 30 * m, { givenAt: T0 }), 1, '10:30: 30 min with nothing done -> unstick')
+  assert.strictEqual(at(T0 + 60 * m, { givenAt: T0 + 45 * m }), 0, '11:00: given work at 10:45 -- not stalled again by the 10:00 row')
+  assert.strictEqual(at(T0 + 75 * m, { givenAt: T0 + 45 * m }), 1, '11:15: 30 min since it was given work -> stalled')
+}
+await t('B1 stall clock: the later of last progress and the time work was given', () => b1Scenario(O))
+await mutant('B1 stall clock reads the old done row first', 'const since = Math.max(Number(b.lastProgressAt ?? 0), Number(b.givenAt ?? now))', 'const since = Number(b.lastProgressAt ?? b.givenAt ?? now)', b1Scenario)
+
+// B2: a column is never handed out bottom-only
+const b2Scenario = async M => {
+  // a column of 3 owned by A, the top set aside: the two below it are held
+  const q = [job(M, 4, 67, 4, { state: 'quarantined' }), job(M, 4, 66, 4, { owner: 'A' }), job(M, 4, 65, 4, { owner: 'A' })]
+  assert.deepStrictEqual(M.listDoc(q, 'A', { home: { x: 0, y: 64, z: 0 }, now: NOW }).jobs, [])
+  // the top block is another bot's (an avoid split the column): the lower one is held
+  const o = [job(M, 5, 66, 5, { owner: 'B' }), job(M, 5, 65, 5, { owner: 'A' })]
+  assert.deepStrictEqual(M.listDoc(o, 'A', { home: { x: 0, y: 64, z: 0 }, now: NOW }).jobs, [])
+  // the cap cuts a column: its UPPER cells are the ones kept
+  const col = [65, 66, 67, 68].map(y => job(M, 7, y, 7, { owner: 'A' }))
+  const d = M.listDoc(col, 'A', { home: { x: 0, y: 64, z: 0 }, now: NOW, T: { ...M.OVERSEER, maxList: 2 } })
+  assert.deepStrictEqual(d.jobs.map(j => j.at[1]), [68, 67])
+}
+await t('B2 a lower cell is never listed without the open cells above it (set aside, another\'s, or past the cap)', () => b2Scenario(O))
+await mutant('B2 nothing held below', '  const ok = new Set(mine.filter(j => !heldBelow(book, j, mine)).map(j => j.id))', '  const ok = new Set(mine.map(j => j.id))', b2Scenario)
+await mutant('B2 cap before the sort', "    .sort((a, b) => a.at[0] - b.at[0] || a.at[2] - b.at[2] || b.at[1] - a.at[1])     // a column top first\n    .slice(0, T.maxList)", "    .slice(0, T.maxList)", b2Scenario)
+
+// C2: the second own failure unowns the job AND makes it wait out the lease
+const c2Scenario = async M => {
+  let j = job(M, 3, 65, 3, { owner: 'A' })
+  j = M.recordAttempt(j, { bot: 'A', why: 'water', now: NOW })
+  j = M.recordAttempt(j, { bot: 'A', why: 'water', now: NOW + 1000 })
+  assert.strictEqual(j.owner, null); assert.ok(j.notBefore >= NOW + 1000 + M.OVERSEER.leaseMs)
+  const out = M.splitOpen([j], [bot('B', 3, 3)], { now: NOW + 2000 })
+  assert.strictEqual(out[0].owner, null, 'not given out inside the old lease')
+}
+await t('C2 a job moved off a bot after its second failure waits out that bot\'s lease', () => c2Scenario(O))
+await mutant('C2 no lease wait on the avoid move', '{ j.owner = null; j.notBefore = Math.max(Number(j.notBefore) || 0, now + T.leaseMs) }', '{ j.owner = null }', c2Scenario)
+
+// C5: a zone or a building that appears after intake takes the job off every list
+const c5Scenario = async M => {
+  const book = [job(M, 60, 65, 0, { owner: 'A' }), job(M, 10, 65, 10, { owner: 'A' }), job(M, 2, 65, 2, { owner: 'A' })]
+  const c = M.overseerCycle({ book, bots: [bot('A', 0, 0)], now: NOW, home: { x: 0, y: 64, z: 0 }, zones: [{ id: 'v', box: [50, -64, -10, 70, 90, 10] }], guard: k => k === '10,65,10' })
+  const st = Object.fromEntries(c.book.map(j => [j.id, [j.state, j.why]]))
+  assert.deepStrictEqual(st['r:60,65,0'], ['dropped', 'zone']); assert.deepStrictEqual(st['r:10,65,10'], ['dropped', 'record']); assert.deepStrictEqual(st['r:2,65,2'], ['open', null])
+  assert.deepStrictEqual(c.lists.A.jobs.map(j => j.id), ['r:2,65,2']); assert.match(c.row, / dropped=2 /)
+}
+await t('C5 every open job is checked again against the current zones and guard each cycle', () => c5Scenario(O))
+await mutant('C5 no recheck', '  const rc = recheck(b, { zones, guard, home: h3, radius, now }); b = rc.book', '  const rc = { book: b, dropped: 0 }', c5Scenario)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
