@@ -11,11 +11,14 @@ User=mcbot
 Group=mcbot
 WorkingDirectory=/srv/showcase/harness
 EnvironmentFile=/srv/showcase/harness/env/%i.env
-# Same envelope as the fleet's mcbot@.service on 10.0.0.31 (768 MB heap, 1G cgroup ceiling).
-ExecStart=/usr/bin/node --max-old-space-size=768 --heapsnapshot-near-heap-limit=1 src/index.mjs
+# OWNER 2026-11-17 ("lets do one 1.5gb for each bot"): 1,152 MB heap under a 1,536M cgroup ceiling (was the fleet's envelope,
+# 768 MB / 1G). Why: a bot doing clean-up (tidy) visits holds +350-450 MB while it works; on the clean-up release six bots
+# reached the 1G ceiling and were killed (15:53-15:57Z). A stopgap, not the fix. Worst case 14 x 1.5 GB + the server's 8 GB
+# heap fits the VM's 31 GB with little to spare: do not raise it again without more RAM.
+ExecStart=/usr/bin/node --max-old-space-size=1152 --heapsnapshot-near-heap-limit=1 src/index.mjs
 Restart=always
 RestartSec=10
-MemoryMax=1G
+MemoryMax=1536M
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
