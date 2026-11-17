@@ -177,7 +177,58 @@ H.step = async (R, label, bot, fn, names = [NAME]) => {
 }
 
 const kindNow = (bot, name) => { try { bot.yardsMemo = null; const k = E.yardKindNow(bot, name); return { room: k.room, over: !!k.over, lanes: k.lanes, cap: k.cap } } catch (e) { return 'threw ' + e.message } }
+const ROWC = Y.rowCells(REC, bp)
+const rowOf = () => ROWC.map((c, i) => ({ at: c.join(','), chest: /passed/.test(rcon(`execute if block ${c[0]} ${c[1]} ${c[2]} minecraft:chest`)[0].reply) })).map(r => (r.chest ? { ...r, holds: chestOf(r.at.split(',').map(Number)).map(e => `${e.slot}:${e.id}x${e.count}`).join(' ') || '-' } : r)).filter(r => r.chest)
+const rowFile = () => { try { const f = fs.readdirSync(path.join(DIR, 'pool')).find(x => x.startsWith('yard-row-')); return f ? JSON.parse(fs.readFileSync(path.join(DIR, 'pool', f), 'utf8')).rows : null } catch { return null } }
+const TC = [[HX - 2, HY, HZ - 3], [HX, HY, HZ - 3], [HX + 2, HY, HZ - 3]]   // the clerk scenario's town chests (single chests, a block apart)
+const UNIT = { coal_block: ['coal', 9], copper_block: ['copper_ingot', 9], lapis_block: ['lapis_lazuli', 9], iron_block: ['iron_ingot', 9] }
+const townOf = names => { const per = TC.map(k => chestOf(k)); const bags = Object.fromEntries(names.map(n => [n, bagOf(n)])); const tot = {}; const add = (id, n) => { const [u, m] = UNIT[id] ?? [id, 1]; tot[u] = (tot[u] ?? 0) + n * m }
+  for (const c of per) for (const e of c) add(e.id, e.count); for (const b of Object.values(bags)) for (const [id, n] of Object.entries(b)) add(id, n)
+  return { chests: per.map(c => { const by = {}; for (const e of c) { (by[e.id] ??= [0, 0]); by[e.id][0] += e.count; by[e.id][1]++ } return `${c.length} slots used: ` + Object.entries(by).map(([id, [n, sl]]) => `${id} ${n} in ${sl}`).join(', ') }), bags, loose: looseOf(), totals: tot } }
 const SCENARIOS = {
+  // 6: THE CHEST ROW -- a bag with chests and seeds places a row chest and banks; a second bot's seeds join it; a second kind; a general deposit beside it
+  async row (bot, R) {
+    await H.spawn('sbx-YardB')
+    const all = [NAME, 'sbx-YardB']
+    const snap = label => { const x = { row: rowOf(), record: rowFile(), bags: Object.fromEntries(all.map(n => [n, bagOf(n)])), loose: looseOf() }; P(label, x); return x }
+    const run = async (label, fn) => { const before = snap(`${label} BEFORE`); bot.yardRestUntil = 0; bot.yardsMemo = null; const res = await fn(); await sleep(2500); const after = snap(`${label} AFTER `); for (const [who, r] of Object.entries(res)) { P(`${label} ${who}:`, { status: r.status, outcome: r.outcome, detail: r.detail, stop: r.stop, ms: r.ms, leasesAfter: r.leasesAfter }); for (const x of r.rows ?? []) P(`   ${who} row`, x) } R.steps.push({ label, before, after, res }) }
+    H.give(NAME, { chest: 3, wheat_seeds: 40 }); await sleep(2500)
+    P('row cells', ROWC.map(c => c.join(',')), 'plan', (() => { try { const h = PJ.recordHead(E.townDir(), E.projKeyOf('yard')); return E.yardRowPlanNow(bot, h.head.rec, bp) } catch (e) { return 'threw ' + e.message } })())
+    await run('6a A: chest 3, wheat_seeds 40 (keep 16)', async () => ({ A: await visit(bot) }))
+    H.give('sbx-YardB', { wheat_seeds: 40 }); await sleep(2500)
+    await run('6b B: wheat_seeds 40, no chest', async () => ({ B: await H.tell('sbx-YardB', { do: 'visit' })() }))
+    H.give(NAME, { stick: 40 }); await sleep(2500)
+    await run('6c A: stick 40 (keep 8), chest 2 left', async () => ({ A: await visit(bot) }))
+    // a general deposit beside the row: the bot stands at the first row chest with coal 30
+    const first = ROWC[0]; rcon(`tp ${NAME} ${first[0] + 0.5} ${first[1]} ${first[2] - 1.5}`); H.give(NAME, { coal: 30 }); await sleep(2500)
+    await run('6d A: town_deposit with coal 30, standing at the row chest', async () => { const t = Date.now(); let r; try { const x = await SK.SKILLS.town_deposit.run({ bot }, {}, new AbortController().signal); r = { status: x.status, detail: x.detail } } catch (e) { r = { status: 'threw', detail: String(e.message).slice(0, 120) } } return { A: { ...r, ms: Date.now() - t, rows: rowsOf(NAME, t).map(x => x.slice(13, 300)) } } })
+  },
+  // 7: THE CLERK'S PASS -- town chests of fragments (moss 10 x 6, coal 13 x 25, copper 270), a crafting table; passes until it has no more
+  async clerk (bot, R) {
+    rcon(...TC.map(k => `setblock ${k[0]} ${k[1]} ${k[2]} minecraft:chest[facing=south]`), `setblock ${HX + 4} ${HY} ${HZ - 3} minecraft:crafting_table`,
+      ...Array.from({ length: 10 }, (_, i) => `item replace block ${TC[0].join(' ')} container.${i * 2} with minecraft:moss_block 6`),
+      ...Array.from({ length: 13 }, (_, i) => `item replace block ${TC[1].join(' ')} container.${i * 2} with minecraft:coal 25`),
+      ...[64, 64, 64, 64, 14].map((n, i) => `item replace block ${TC[2].join(' ')} container.${i * 3} with minecraft:copper_ingot ${n}`))
+    await sleep(1500)
+    const { Vec3 } = req('vec3')
+    for (const k of TC) { try { const w = await bot.openContainer(bot.blockAt(new Vec3(...k))); (E.townIndexObserve ?? SK.townIndexObserve)(bot, new Vec3(...k), w, 'e2e'); w.close() } catch (e) { P('open threw', k, e.message) } await sleep(500) }
+    P('town stock as the bot knows it', (() => { try { const st = E.matsTownStock(bot)?.stock ?? null; return st && Object.fromEntries(Object.entries(st).filter(([k]) => /moss|coal|copper/.test(k))) } catch (e) { return 'threw ' + e.message } })())
+    const first = townOf([NAME]); P('7 START', first); R.start = first
+    for (let i = 1; i <= 8; i++) {
+      bot.yardRestUntil = 0; bot.yardsMemo = null; bot.clerkRestUntil = 0
+      let cp; try { cp = E.clerkPassNow(bot) } catch (e) { cp = 'threw ' + e.message }
+      P(`7 pass ${i} plan`, cp)
+      if (!cp) break
+      const r = await visit(bot); await sleep(2000)
+      const now = townOf([NAME])
+      const conserved = [...new Set([...Object.keys(first.totals), ...Object.keys(now.totals)])].every(k => (first.totals[k] ?? 0) === (now.totals[k] ?? 0)) && now.loose.items === 0
+      P(`7 pass ${i}:`, { status: r.status, outcome: r.outcome, detail: r.detail, stop: r.stop, ms: r.ms, leasesAfter: r.leasesAfter }); for (const x of r.rows ?? []) P('   row', x)
+      for (const x of rowsOf(NAME, Date.now() - r.ms - 2500).filter(x => /clerk|compact/.test(x))) P('   row', x.slice(13, 330))
+      P(`7 after pass ${i}`, now, 'CONSERVED', conserved)
+      R.steps.push({ label: `pass ${i}`, plan: cp, res: r, after: now, conserved })
+    }
+    R.cargoFiles = fs.readdirSync(path.join(DIR, 'pool')).filter(f => /clerk-cargo/.test(f)); P('7 cargo files left', R.cargoFiles)
+  },
   // 1, 2, 4 in order: one lane a kind (16 of each first), gravel to 52 and past it, sand on sand, a fourth kind, a fifth with no lane left
   async lanes2 (bot, R) {
     H.give(NAME, { cobblestone: 80 }); await sleep(2500)
