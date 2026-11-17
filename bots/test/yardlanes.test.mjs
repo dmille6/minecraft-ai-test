@@ -103,7 +103,6 @@ await t('ONE LANE A KIND, the first empty lane the first time it is banked; a ki
   // a kind with room in its lane never opens another; at its cap it opens none
   assert.deepEqual(Y.pileCells(st, { gravel: 10, sand: 5 }, { lanes: ON }).lanes, { gravel: [2], sand: [3] })
   assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON }), false, 'gravel has its lane and ONE lane is left: that one is a first lane\'s (first lanes before second ones)')
-  assert.equal(Y.laneMayOpen(states(world()), 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 0 } } }), false, 'two lanes over the yards: its cap')
   { const w2 = world(); fill(w2, lanes(w2)[0].slots, 164, 'gravel'); assert.equal(Y.laneMayOpen(states(w2), 'gravel', { lanes: ON }), true, 'its lane FULL, three lanes empty: a second may open') }
   assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 0 } } }), false, 'two lanes over the yards: its cap')
   assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 40 } } }), false, 'room in its lane in another yard: bank there, open nothing here')
