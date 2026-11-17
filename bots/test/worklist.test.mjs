@@ -268,6 +268,26 @@ const c1Scenario = async M => {
 await t('C1 TWO BOTS: a cell on B\'s list is never in A\'s shared draw -- B digs its pillar, A only the unlisted block', () => c1Scenario(W))
 await mutant('C1 an expired list still holds its cells', ' || now > d.expires) continue', ') continue', c1Scenario)
 await mutant('C1 nothing excluded', '    for (const j of d.jobs) if (isInt3(j?.at)) out.add(K(j.at))', '', c1Scenario)
+const raceScenario = async M => {
+  // A works the shared record: two single blocks. While A digs the first, the host lists the second on B's list.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wl-'))
+  const srv = stand({ ...col(5, 0, 1), ...col(8, 0, 1) })
+  const docs = []
+  let clock = NOW
+  const fresh = M.listedCache(() => docs, { home: HOME, clock: () => (clock += 6_000) })
+  const key = PJ.projKey(HOME, 'tidy')
+  const cuts = [rm(5, G + 1, 0), rm(8, G + 1, 0)]
+  const a = visitP(dir, 'A', cuts, srv, { key, extra: { tidyOk: q => !fresh().has(q.at.join(',')) } })
+  const log = []
+  const e = digger(srv, 'A', [6, G + 1, 0], log, dir, {})
+  const dig0 = e.dig
+  e.dig = async (c, expect) => { const v = await dig0(c, expect); if (!docs.length) docs.push(DOC([rm(8, G + 1, 0)], { bot: 'B', expires: NOW + 3_600_000 })); return v }
+  await R.runVisit(a.p, e, { maxSteps: 200 })
+  assert.deepStrictEqual(log.map(d => d.cell), [`5,${G + 1},0`], 'the cell listed mid-visit is not dug by the shared visit')
+  assert.strictEqual(srv.read(8, G + 1, 0).name, 'dirt')
+}
+await t('C1 race: a cell listed after the shared visit began is skipped by its next cut (re-read within 5 s)', () => raceScenario(W))
+await mutant('C1 race: the listed cells are read once for the whole visit', '    if (now - at > ttlMs) { at = now;', '    if (at === -Infinity) { at = now;', raceScenario)
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 const strip = s => s.split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
 const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
@@ -307,6 +327,8 @@ await t('overseer-01show wiring: the town switch file before the list, the list 
   one(CG, '    if (!order && this.#wlUnstick()) this.crewForce = true\n    if (MINECREW.on) { if (order) this.crewForce = false;', 'the unstick forces the steer, just before it')
   one(CG, 'worklistUnstickNow(this.bot, { done: id => id === this.wlUnstickDone, now })', 'one order, once')
   one(SK, '    const wlListed = worklistListedNow()', 'the shared visit reads the listed cells once')
+  one(SK, "tidyOk: (q, rd) => !wlFresh().has(q.at.join(',')) && cutSafeNow(", 'each shared cut re-reads the listed cells')
+  one(SK, "} : { tidyOk: q => !wlFresh().has(q.at.join(',')) }),", 'grounds off too')
   one(SK, 'const cuts0 = tidyCuts(rec, read, mem).filter(q => !wlListed.has(q.at.join(\',\')) && !claimedQ(q) &&', 'and its draw skips them')
 })
 await t('unstickOf: only an accepted file of this bot, only unstick, only once', async () => {

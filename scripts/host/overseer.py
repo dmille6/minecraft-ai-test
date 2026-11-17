@@ -48,21 +48,60 @@ def switch_live(path):
     return body not in ('off', '0', 'false', 'no')
 
 
-def read_problems(files, prev_dirs, opener=open_log):
-    """r1 C3 -- PURE but for the opener. Events.load skips a file it cannot read, so a bot whose log fails looks ABSENT and its
-    work would be handed on. Fail closed instead: -> (problems, dirs). Every log file must open and read; every log directory
-    seen last cycle (`prev_dirs`) must still hold one. `dirs` = the directories with a log now (kept for the next cycle)."""
-    problems, dirs = [], set()
+RETIRE_GRACE_MS = 60 * 60 * 1000   # r2: a log directory gone this long is a retired bot, not an unreadable one
+
+
+def gz_ok(path):
+    """r2: a .gz is read to its end (a truncated one raises EOFError / BadGzipFile here, where Events.load would swallow it)."""
+    import gzip
+    with gzip.open(path, 'rb') as fh:
+        while fh.read(1 << 20):
+            pass
+
+
+def plain_ok(path):
+    with open(path, 'rb') as fh:
+        fh.read(1)
+
+
+def read_problems(files, prev, now_ms, gz_cache=None, stat=os.stat, check_gz=gz_ok, check_plain=plain_ok, grace_ms=RETIRE_GRACE_MS):
+    """r1 C3 / r2 -- PURE but for the checks it is given. Events.load skips a file it cannot read, so a bot whose log fails looks
+    ABSENT and its work would be handed on. Fail closed instead.
+      files     the log files of the walk
+      prev      {dir: last ms a log was seen there} from the last cycle (a list from before r2: seen now)
+      gz_cache  {"path|size|mtime": True}: a rotated .gz read to its end once is not read again
+    -> (problems, seen, retired, gz_cache). Every plain file must open and read; every .gz must decompress to its end (once per
+    path, size and mtime); a directory seen before and gone for less than grace_ms is a problem (no cycle), gone longer it is
+    RETIRED (dropped from `seen`: its bot has no rows, so the cycle's roster releases its jobs with notBefore)."""
+    if isinstance(prev, list):
+        prev = {d: now_ms for d in prev}
+    cache = dict(gz_cache or {})
+    problems, here, keep = [], set(), {}
     for f in sorted(files):
         try:
-            with opener(f) as fh:
-                fh.read(1)
-            dirs.add(os.path.basename(os.path.dirname(f)))
+            if f.endswith('.gz'):
+                st = stat(f)
+                key = '%s|%d|%d' % (f, st.st_size, int(st.st_mtime))
+                if key not in cache:
+                    check_gz(f)
+                    cache[key] = True
+                keep[key] = True   # only files still on disk stay in the cache
+            else:
+                check_plain(f)
+            here.add(os.path.basename(os.path.dirname(f)))
         except Exception as e:  # noqa: BLE001 -- any failure to read is a reason to write nothing
             problems.append('unreadable %s: %s' % (f, type(e).__name__))
-    for d in sorted(set(prev_dirs) - dirs):
-        problems.append('no log for %s (seen last cycle)' % d)
-    return problems, dirs
+    seen = {d: now_ms for d in here}
+    retired = []
+    for d, last in sorted(prev.items()):
+        if d in here:
+            continue
+        if now_ms - last < grace_ms:
+            problems.append('no log for %s (seen %d min ago)' % (d, (now_ms - last) // 60000))
+            seen[d] = last
+        else:
+            retired.append(d)
+    return problems, seen, retired, keep
 
 
 def inputs_from_rows(rows, now, online_min=10):
@@ -111,28 +150,42 @@ def main(argv=None):
         return 0
     now = dt.datetime.now(dt.timezone.utc)
     # r1 C3: a log that cannot be read (or one gone since the last cycle) is no cycle: nothing is written, the row says why
-    dirs_file = os.path.join(a.state, 'logdirs.json')
-    try:
-        with open(dirs_file) as fh:
-            prev = json.load(fh)
-    except OSError:
-        prev = []
-    problems, dirs = read_problems(glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), prev)
-    if problems:
-        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'logs: ' + '; '.join(problems)[:600], 'wrote': 'nothing'}
+    dirs_file, gz_file = os.path.join(a.state, 'logdirs.json'), os.path.join(a.state, 'gzcheck.json')
+
+    def jread(f, dflt):
+        try:
+            with open(f) as fh:
+                return json.load(fh)
+        except OSError:
+            return dflt
+
+    def jwrite(f, obj):
+        with open(f + '.tmp', 'w') as fh:
+            json.dump(obj, fh, sort_keys=True)
+        os.replace(f + '.tmp', f)
+
+    def log_row(row):
         with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
-            fh.write(json.dumps(row, sort_keys=True) + '\n')
+            fh.write(json.dumps(row, sort_keys=True, default=str) + '\n')
         if a.ship:
             try:
                 from lib.alarm import ship_row
                 ship_row(a.ship, row)
             except Exception:
                 pass
+    now_ms = int(time.time() * 1000)
+    problems, seen, retired, gzc = read_problems(glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), jread(dirs_file, {}), now_ms,
+                                                 jread(gz_file, {}))
+    jwrite(gz_file, gzc)
+    if problems:
+        # r1 C3: a log that cannot be read (or one gone less than the grace) is no cycle: nothing is written, the row says why
+        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'logs: ' + '; '.join(problems)[:600], 'wrote': 'nothing'}
+        log_row(row)
         print(json.dumps(row, sort_keys=True))
         return 1
-    with open(dirs_file + '.tmp', 'w') as fh:
-        json.dump(sorted(dirs), fh)
-    os.replace(dirs_file + '.tmp', dirs_file)
+    for d in retired:   # r2: one row a retirement; the directory leaves logdirs.json, so the next cycles run
+        log_row({'kind': 'showcase_overseer', 'op': 'retired', 'at': now.isoformat(), 'dir': d})
+    jwrite(dirs_file, seen)
     ev = Events.load(paths=os.path.join(a.logs, '*', 'skill-*.jsonl*'), since_minutes=a.window_min)
     bots, wl = inputs_from_rows(ev.rows, now, a.online_min)
     live = switch_live(a.switch)

@@ -290,7 +290,7 @@ import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
-import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, WORKLIST_FILE_RE } from './worklist.mjs'   // worklist-01: a bot's own list from the host
+import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, listedCache, WORKLIST_FILE_RE } from './worklist.mjs'   // worklist-01: a bot's own list from the host
 import { listLease as wlListLease } from './overseer.mjs'   // overseer-01show: the list is worked under buildrun.mjs's clear-part lease `seg-clear-wl<bot>`
 import { claimedAt as wlClaimedAt } from './tidy.mjs'   // worklist-01: a sited building's claim holds a listed cell
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -30022,12 +30022,17 @@ function worklistGuardStrict () {
  *  (cognitive.mjs) acts on it with the existing way up / home / grounds steer (minecrew.mjs crewSteer, forced). */
 /** r1 C1: the cells on any live list in the town's directory -> Set("x,y,z") (empty when WORKLIST is off or nothing is listed);
  *  an unreadable list file reads as no file. Read once per shared visit. */
+function worklistDocsNow () {
+  const dir = townDir(), docs = []
+  for (const f of fs.readdirSync(dir)) if (WORKLIST_FILE_RE.test(f)) { try { docs.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))) } catch { /* torn: skipped */ } }
+  return docs
+}
 export function worklistListedNow (now = Date.now()) {
   if (!WL_ON) return new Set()
-  const dir = townDir(), docs = []
-  try { for (const f of fs.readdirSync(dir)) if (WORKLIST_FILE_RE.test(f)) { try { docs.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))) } catch { /* torn: skipped */ } } } catch { return new Set() }
-  return listedCells(docs, { home: planHomeP(), now })
+  try { return listedCells(worklistDocsNow(), { home: planHomeP(), now }) } catch { return new Set() }
 }
+/** r2: the listed cells for one shared visit, re-read at most every 5 s (worklist.mjs listedCache) -- asked again before each cut. */
+const worklistListedFresh = () => (WL_ON ? listedCache(worklistDocsNow, { home: planHomeP() }) : () => new Set())
 export function worklistUnstickNow (bot, { done = () => false, now = Date.now() } = {}) {
   if (!WL_ON) return null
   try {
@@ -30942,6 +30947,7 @@ async function buildTidyVisit (ctx, args, signal) {
     const cutHeld = gradeOn() ? gradeCutsHeld(tidyCuts(rec, read, mem), read, capHeld) : new Set()
     for (const k of lawnPaused) cutHeld.add(k)
     const wlListed = worklistListedNow()   // overseer r1 C1: a cell on a bot's own list is that bot's, never the shared draw's
+    const wlFresh = worklistListedFresh()   // overseer r2: ...and again before each cut (a cell listed after the draw)
     const cuts0 = tidyCuts(rec, read, mem).filter(q => !wlListed.has(q.at.join(',')) && !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !cutHeld.has(q.at.join(',')) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
@@ -31019,7 +31025,7 @@ async function buildTidyVisit (ctx, args, signal) {
       ...tempStandOf(bot, c, TIDY_PLOT), ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree; tempstand-01
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
-      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) && gradeCutOk(q, rd, n => !!effects?.has?.(n)) && handedBare(q, rd) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it; litter-01 r1: a handed cut is dug only while nothing stands on it NOW
+      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => !wlFresh().has(q.at.join(',')) && cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) && gradeCutOk(q, rd, n => !!effects?.has?.(n)) && handedBare(q, rd) } : { tidyOk: q => !wlFresh().has(q.at.join(',')) }),   // roughground-1b: a crust cut waits while a body is in the hollow under it; litter-01 r1: a handed cut is dug only while nothing stands on it NOW
       ...(parkish ? { useFor: q => (q.role === 'till' ? hoeUse : q.role === 'meadow' ? mealUse : null), openRole: role => OPEN_ROLES.has(role) } : {}),
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)

@@ -60,6 +60,18 @@ export const WORKLIST_FILE_RE = /^worklist-[A-Za-z0-9_-]+\.json$/
  * r1 C1: THE CELLS ON ANY BOT'S LIST NOW -> Set("x,y,z"). Pure. Every list file of this home not past its `expires` (any bot's,
  * this one's too): the shared record's draw never takes such a cell, so two bots under two leases never dig one cell.
  */
+/**
+ * r2 (C1 race): THE LISTED CELLS, RE-READ before each shared cut -> (now?) => Set. Pure over `readDocs` and `clock`. The read is
+ * kept at most `ttlMs` (5 s): a cell the host lists after the shared visit began is skipped by its next cut.
+ */
+export function listedCache (readDocs, { home, ttlMs = 5_000, clock = Date.now } = {}) {
+  let at = -Infinity, set = new Set()
+  return () => {
+    const now = clock()
+    if (now - at > ttlMs) { at = now; let docs = []; try { docs = readDocs() ?? [] } catch { docs = [] }; set = listedCells(docs, { home, now }) }
+    return set
+  }
+}
 export function listedCells (docs = [], { home, now = Date.now() } = {}) {
   const out = new Set()
   for (const d of docs) {

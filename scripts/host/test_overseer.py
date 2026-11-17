@@ -36,51 +36,88 @@ def test_roster_and_rows():
     assert wl[0]['t'] == int((NOW - dt.timedelta(minutes=3)).timestamp() * 1000)
 
 
-class _Boom(Exception):
-    pass
+H = 3600 * 1000
+NOWMS = 1_800_000_000_000
 
 
-def test_read_problems():
-    """r1 C3: an unreadable file, or a log directory gone since last cycle, is a problem (the cycle writes nothing)."""
-    import contextlib
-    import io
-
-    def opener(f):
-        if 'bad' in f:
-            raise _Boom('gzip')
-        return contextlib.nullcontext(io.StringIO('{}'))
-    ok = ['/l/Ann/skill-Ann.jsonl', '/l/Bo/skill-Bo.jsonl-20261116.gz']
-    p, dirs = OV.read_problems(ok, ['Ann', 'Bo'], opener)
-    assert p == [] and dirs == {'Ann', 'Bo'}
-    p, _ = OV.read_problems(ok + ['/l/Cy/skill-bad.jsonl'], ['Ann'], opener)
-    assert len(p) == 1 and p[0].startswith('unreadable /l/Cy/'), p
-    p, _ = OV.read_problems(ok[:1], ['Ann', 'Bo'], opener)
-    assert p == ['no log for Bo (seen last cycle)'], p
+def _mklogs():
+    """A log tree: Ann (plain), Bo (a good rotated .gz)."""
+    import gzip
+    root = tempfile.mkdtemp()
+    for d in ('Ann', 'Bo'):
+        os.makedirs(os.path.join(root, d))
+    open(os.path.join(root, 'Ann', 'skill-Ann.jsonl'), 'w').write('{}\n')
+    with gzip.open(os.path.join(root, 'Bo', 'skill-Bo.jsonl-20261116.gz'), 'wb') as fh:
+        fh.write(b'{"a": 1}\n' * 5000)
+    return root
 
 
-def test_read_problems_mutants():
-    """Anchored mutants: each must apply exactly once and make test_read_problems fail."""
+def _files(root):
+    import glob
+    return glob.glob(os.path.join(root, '*', 'skill-*.jsonl*'))
+
+
+def test_gzip_truncated(R=None):
+    """r2: a truncated .gz fails the cycle closed (a 1-character read would not); a good one is read once, then cached."""
+    R = R or OV
+    root = _mklogs()
+    p, seen, ret, cache = R.read_problems(_files(root), {}, NOWMS)
+    assert p == [] and set(seen) == {'Ann', 'Bo'} and len(cache) == 1, (p, cache)
+    calls = []
+    p2, _, _, _ = R.read_problems(_files(root), {}, NOWMS, cache, check_gz=lambda f: calls.append(f))
+    assert p2 == [] and calls == [], 'a checked rotated file is not read again'
+    gz = os.path.join(root, 'Bo', 'skill-Bo.jsonl-20261116.gz')
+    data = open(gz, 'rb').read()
+    open(gz, 'wb').write(data[:len(data) // 2])
+    os.utime(gz, (1, 1))
+    p3, _, _, _ = R.read_problems(_files(root), {}, NOWMS, cache)
+    assert len(p3) == 1 and 'unreadable' in p3[0] and 'Bo' in p3[0], p3
+    os.chmod(os.path.join(root, 'Ann', 'skill-Ann.jsonl'), 0)
+    if os.geteuid() != 0:
+        p4, _, _, _ = R.read_problems([os.path.join(root, 'Ann', 'skill-Ann.jsonl')], {}, NOWMS)
+        assert len(p4) == 1, 'an unreadable plain file fails closed'
+
+
+def test_retire_grace(R=None):
+    """r2: a directory gone < 60 min stops the cycle; gone longer it is retired once, and the next cycle runs."""
+    R = R or OV
+    root = _mklogs()
+    prev = {'Ann': NOWMS - 10 * 60000, 'Bo': NOWMS - 10 * 60000, 'Cy': NOWMS - 30 * 60000}
+    p, seen, ret, _ = R.read_problems(_files(root), prev, NOWMS)
+    assert len(p) == 1 and 'Cy' in p[0] and ret == [] and seen['Cy'] == prev['Cy'], (p, ret)
+    p, seen, ret, _ = R.read_problems(_files(root), seen, NOWMS + 31 * 60000)
+    assert p == [] and ret == ['Cy'] and 'Cy' not in seen, (p, ret, seen)
+    p, seen2, ret, _ = R.read_problems(_files(root), seen, NOWMS + 46 * 60000)
+    assert p == [] and ret == [], 'cycles resume after the retirement'
+    p, _, _, _ = R.read_problems(_files(root), ['Ann', 'Gone'], NOWMS)
+    assert len(p) == 1 and 'Gone' in p[0], 'a pre-r2 list reads as seen now'
+
+
+def _load_mutant(old, new):
     import importlib.util
     src = open(OV.__file__).read()
-    for old, new in [("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass'),
-                     ("    for d in sorted(set(prev_dirs) - dirs):", '    for d in []:')]:
-        assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
-        path = os.path.join(tempfile.mkdtemp(), 'ovm.py')
-        open(path, 'w').write(src.replace(old, new))
-        sys.path.insert(0, os.path.dirname(OV.__file__))
-        spec = importlib.util.spec_from_file_location('ovm', path)
-        m = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(m)
-        saved = OV.read_problems
-        OV.read_problems = m.read_problems
+    assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
+    path = os.path.join(tempfile.mkdtemp(), 'ovm.py')
+    open(path, 'w').write(src.replace(old, new))
+    spec = importlib.util.spec_from_file_location('ovm', path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_mutants():
+    """Anchored mutants: each applies exactly once and fails its test."""
+    for old, new, test in [
+            ("                if key not in cache:\n                    check_gz(f)", "                if False:\n                    check_gz(f)", test_gzip_truncated),
+            ("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass', test_gzip_truncated),
+            ("        if now_ms - last < grace_ms:", '        if True:', test_retire_grace),
+            ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace)]:
+        m = _load_mutant(old, new)
         try:
-            try:
-                test_read_problems()
-                killed = False
-            except AssertionError:
-                killed = True
-        finally:
-            OV.read_problems = saved
+            test(m)
+            killed = False
+        except AssertionError:
+            killed = True
         assert killed, 'mutant survived: ' + old
 
 

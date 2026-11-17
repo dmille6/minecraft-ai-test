@@ -278,5 +278,15 @@ const c5Scenario = async M => {
 await t('C5 every open job is checked again against the current zones and guard each cycle', () => c5Scenario(O))
 await mutant('C5 no recheck', '  const rc = recheck(b, { zones, guard, home: h3, radius, now }); b = rc.book', '  const rc = { book: b, dropped: 0 }', c5Scenario)
 
+// r2 (C3 retire): a retired bot (its log directory gone past the grace: no rows, so no roster entry) loses its jobs, which wait out its lease
+const retireScenario = async M => {
+  const book = [job(M, 0, 65, 0, { owner: 'Gone' }), job(M, 9, 65, 0, { owner: 'K' })]
+  const { book: out, orders } = M.stalls(book, [bot('K', 9, 0)], { now: NOW })
+  assert.strictEqual(orders.length, 0, 'no order to a bot that is gone')
+  assert.strictEqual(out[0].owner, null); assert.ok(out[0].notBefore >= NOW + M.OVERSEER.leaseMs); assert.strictEqual(out[1].owner, 'K')
+}
+await t('retired bot: its jobs are released with notBefore, no order', () => retireScenario(O))
+await mutant('a bot gone from the roster keeps its jobs', "  for (const [owner] of holds) if (!bots.some(b => b.name === owner)) drop.set(owner, 'gone')", '', retireScenario)
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
