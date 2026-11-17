@@ -118,6 +118,14 @@ const LOG_KINDS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_l
 export const LANE_KINDS = Object.freeze([...YARD_BULK, 'deepslate', 'stone', 'dirt', 'gravel', 'sand', 'tuff', 'andesite', 'diorite', 'granite', 'clay', 'snow_block', ...LOG_KINDS])
 /** The kinds the piles hold -> [name]. Pure. */
 export const yardKinds = (on = LANES.on) => (on ? LANE_KINDS : YARD_BULK)
+/** HOW MANY YARDS ARE WANTED -> n. Pure. The setting's (LANES.modules), and ONE MORE than stand when a kind has no lane anywhere
+ *  (`noLaneAt`: when a visit last answered `no_lane`, inside YARD_WANT_MS) -- up to every yard the list has. */
+export const YARD_WANT_MS = 24 * 60 * 60_000
+export function yardsWanted ({ lanes = LANES, standing = 0, noLaneAt = null, now = Date.now() } = {}) {
+  if (!lanes?.on) return 1
+  const more = Number.isFinite(noLaneAt) && now - noLaneAt < YARD_WANT_MS ? standing + 1 : 0
+  return Math.max(1, Math.min(YARD_PLOTS_ALL.length, Math.max(lanes.modules, more)))
+}
 /** A kind's lane cap over every yard -> n. Pure. */
 export const laneCapOf = (name, caps = LANES.caps) => (Number.isInteger(caps?.[name]) ? caps[name] : (caps?.['*'] ?? 2))
 /** THE YARDS' PLOTS, the first one the old yard's. */
@@ -164,7 +172,12 @@ export function laneMayOpen (states = [], name, { lanes = LANES, others = {} } =
   if (!lanes?.on) return true
   const o = others?.[name] ?? { lanes: 0, room: 0 }
   if (o.room > 0) return false
-  return states.filter(s => s.name === name).length + o.lanes < laneCapOf(name, lanes.caps)
+  const mine = states.filter(s => s.name === name).length + o.lanes
+  if (!(mine < laneCapOf(name, lanes.caps))) return false
+  // PAPER PROOF 11-17 (defect B): FIRST LANES COME BEFORE SECOND ONES -- a kind that already has a lane opens another here only
+  // while one empty lane would still be left for a kind with none (three kinds took all four lanes; andesite and diorite got none)
+  if (mine > 0 && states.filter(s => s.name == null && s.foreign === 0 && s.free > 0).length < 2) return false
+  return true
 }
 /** IS A KIND FULL (every lane it may have, here and elsewhere, is full or cannot be opened)? -> bool. Pure. `empty` the empty lanes
  *  over every yard. The owner's cap: a full kind is banked no more, and only then may the well take it (`over_cap`). */
@@ -187,7 +200,10 @@ export function wellHold ({ on = true, room = 0 } = {}) {
  *  comes back after YARD_JAM_REST_MS (the well is held off its kinds while they have room: the remedy for a full bag is the BANK
  *  step again, soon -- never the well); any other bag, and the old yard: YARD_REST_MS. */
 export const YARD_JAM_REST_MS = 2 * 60_000
-export const yardRestMs = ({ lanes = LANES, slots = 0 } = {}) => (lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)
+/** ...and a visit that placed nothing because its LANE WAS ANOTHER BOT'S comes back after YARD_HELD_REST_MS (Paper proof 11-17,
+ *  defect A: such a bot was rested 20 minutes with its bag still full). */
+export const YARD_HELD_REST_MS = 45_000
+export const yardRestMs = ({ lanes = LANES, slots = 0, held = false } = {}) => (lanes?.on && held ? YARD_HELD_REST_MS : lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)
 /** WELL_HOLD=off|0|false|no switches the hold off alone (the well as before). Pure. */
 export const wellHoldOn = (env = process.env) => !isOffV(env?.WELL_HOLD)
 /** `_yard_over_cap` row detail. Pure. */
@@ -453,18 +469,27 @@ export function bayStates (bays = [], read = () => null, { kinds = yardKinds() }
  * and its lane is as long as what stands in it needs (laneLen): 8 rows, then 16, then the bay. An unread bay keeps its whole length
  * (never a guess that hides blocks). Lanes off: the whole bays, as before.
  */
-export function laneBays (rec, bp, read = () => null, { lanes = LANES, h = YARD_H } = {}) {
+export function laneBays (rec, bp, read = () => null, { lanes = LANES, h = YARD_H } = {}) {   // eslint-disable-line no-unused-vars
   const whole = pileSlots(rec, bp, { h })
   if (!lanes?.on) return whole
-  const len = new Map()
-  for (const b of (bp?.bays ?? [])) {
-    const bay = whole.find(x => x.id === b.id)
-    const full = b.v[1] - b.v[0] + 1, w = b.u[1] - b.u[0] + 1
-    let held = 0, unread = false
-    for (const sl of (bay?.slots ?? [])) { const x = read(...sl); if (x == null) { unread = true; break } if (!isAir(x)) held++ }
-    len.set(b.id, unread ? full : laneLen(held, full, { start: lanes.start, step: lanes.step, w, h }))
-  }
-  return pileSlots(rec, bp, { h, lenOf: id => len.get(id) })
+  // PAPER PROOF 11-17 (defect B): a lane's length was fixed for the whole visit, so 64 sand became 52 + 12 in TWO lanes and three kinds
+  // took all four. A lane is now ONE list in GROWTH ORDER -- the 8-row ramp's slots, then what 16 rows add, then the bay's own length --
+  // so a plan that fills the first 52 simply goes on into the next rows (bayStates `next` keeps the order and needs each slot's
+  // support, which the list always places before it). Nothing is read from the world: the order alone is the growth.
+  return (bp?.bays ?? []).map(b => {
+    const full = b.v[1] - b.v[0] + 1
+    const seen = new Set(), slots = []
+    const stages = []
+    for (let len = Math.min(full, Math.max(1, lanes.start)); len < full; len += Math.max(1, lanes.step)) stages.push(len)
+    stages.push(full)
+    for (const len of stages) {
+      for (const sl of (pileSlots(rec, bp, { h, lenOf: id => (id === b.id ? len : full) }).find(x => x.id === b.id)?.slots ?? [])) {
+        const k = k3(sl)
+        if (!seen.has(k)) { seen.add(k); slots.push(sl) }
+      }
+    }
+    return { id: b.id, slots }
+  })
 }
 /** THE BAY a name goes to -> a state | null: the bay already holding it with room, else the first empty bay (YARD_BULK's own order
  *  never reserves one). Pure. */
@@ -528,6 +553,9 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
     if (want > 0) { place[name] = want; left -= want }
   }
   const placed = Object.values(place).reduce((t, v) => t + v, 0)
+  // PAPER PROOF 11-17 (defect B): a kind the bag holds a surplus of that this yard has NO LANE for (none of its own with room, none it
+  // may open) is named -- the visit's answer is `no_lane`, never a bare idle, and it is what makes the next yard wanted
+  const noLane = lanes?.on ? yardKinds(true).filter(k => (sur[k] ?? 0) > 0 && !(yardRoomFor(states, k, { lanes, others }) > 0) && !((others?.[k]?.room ?? 0) > 0)) : []
   // yarduse-01: a bag whose cobble the WELL left for the yard (`deferred`) is under pressure whatever its slots
   const pressed = slots >= YARD_URGENT_SLOTS || !!deferred
   // yarduse-01: a BAY BLOCKED by clutter (LIVE showcase 11-04: 5 spruce leaves on bay 3's top layer locked its 76 slots for 26 h)
@@ -538,7 +566,7 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
   if (bayClutter.length && placed < stockMin) return { kind: 'upkeep', urgent: pressed && surplus > 0, first: true, place: {}, draw: {}, dig: {}, why: `bay_clutter:${bayClutter.length}` }
   // yardlanes-01 (a): with the lanes a stock is the bot's FIRST work at town whatever its project (`urgent`: activeProject's repair loop,
   // bounded by its back-off) -- banking never waits for the yard to be the bot's project; the visit itself is bounded (LANES.passMs)
-  if (placed >= stockMin || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed || !!lanes?.on, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
+  if (placed >= stockMin || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed || !!lanes?.on, place, draw: {}, dig: {}, why: `bag_surplus:${placed}`, noLane }
   // the clerk and the refill are the FIRST yard's (the town's chests against the cobblestone pile)
   if (first && town && typeof town === 'object') {
     const draw = {}
@@ -563,8 +591,8 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
       if (dig > 0) return { kind: 'refill', urgent: false, place: {}, draw: {}, dig: { cobblestone: dig }, why: `chests_short:${short}` }
     }
   }
-  if (clutter.length) return { kind: 'upkeep', urgent: false, place: {}, draw: {}, dig: {}, why: `clutter:${clutter.length}` }
-  return { kind: null, urgent: false, place: {}, draw: {}, dig: {}, why: 'idle' }
+  if (clutter.length) return { kind: 'upkeep', urgent: false, place: {}, draw: {}, dig: {}, why: `clutter:${clutter.length}`, noLane }
+  return { kind: null, urgent: false, place: {}, draw: {}, dig: {}, why: noLane.length ? `no_lane:${noLane.join('+')}`.slice(0, 80) : 'idle', noLane }
 }
 
 /**
@@ -574,24 +602,50 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
 export function pileCells (states = [], place = {}, { lanes = LANES, others = {}, skip = null } = {}) {
   const cells = [], palette = {}, bays = {}, lanesUsed = {}
   const used = new Set()
-  const st = states.map(s => ({ ...s, next: s.next.slice() }))
-  for (const name of yardKinds(!!lanes?.on)) {
-    let n = Math.max(0, Number(place?.[name]) || 0)
-    while (n > 0) {
-      // yardlanes-01: `skip` (a lane another bot holds) is never this visit's; an empty lane only under the kind's cap (laneMayOpen)
-      const mine = s => !(skip?.has?.(s.id))
-      const b = st.find(s => s.name === name && s.next.length && mine(s)) ?? (laneMayOpen(st, name, { lanes, others }) ? st.find(s => s.name == null && s.foreign === 0 && s.next.length && !used.has(s.id) && mine(s)) : null)
-      if (!b) break
-      if (b.name == null) { b.name = name; used.add(b.id) }
-      const take = b.next.splice(0, n)
-      for (const at of take) cells.push({ at, role: `pile_${name}`, seg: 'pile' })
-      palette[`pile_${name}`] = [name]
-      bays[name] = b.id
-      ;(lanesUsed[name] ??= []).includes(b.id) || lanesUsed[name].push(b.id)
-      n -= take.length
+  const st = states.map(s => ({ ...s, next: s.next.slice(), free: s.next.length }))
+  const on = !!lanes?.on
+  // PAPER PROOF 11-17 (defect A): ONE SEGMENT A LANE -- the build runner leases a SEGMENT (buildrun.mjs runVisit: `seg-<name>`), and
+  // with every pile cell in the one segment `pile` a second bot in another lane placed nothing. `pile<id>`: the runner's lease IS the
+  // lane's, and a lane another bot holds is passed for the visit's next one. The old yard (lanes off): the one segment, as before.
+  const segOf = b => (on ? `pile${b.id}` : 'pile')
+  const mine = s => !(skip?.has?.(s.id))
+  const left = {}
+  const put = (name, b) => {
+    if (b.name == null) { b.name = name; used.add(b.id) }
+    const take = b.next.splice(0, left[name])
+    b.free = b.next.length
+    for (const at of take) cells.push({ at, role: `pile_${name}`, seg: segOf(b) })
+    palette[`pile_${name}`] = [name]
+    bays[name] = b.id
+    ;(lanesUsed[name] ??= []).includes(b.id) || lanesUsed[name].push(b.id)
+    left[name] -= take.length
+  }
+  const kinds = yardKinds(on)
+  for (const name of kinds) left[name] = Math.max(0, Number(place?.[name]) || 0)
+  const empty = () => st.find(s => s.name == null && s.foreign === 0 && s.next.length && !used.has(s.id) && mine(s))
+  // 1. each kind into the lanes it HAS (a lane grows to its full length before any other is opened), then its FIRST lane
+  for (const name of kinds) {
+    while (left[name] > 0) {
+      const b = st.find(s => s.name === name && s.next.length && mine(s))
+      if (b) { put(name, b); continue }
+      const hasLane = st.some(s => s.name === name) || ((others?.[name]?.lanes ?? 0) > 0)
+      const e = (!on || !hasLane) && laneMayOpen(st, name, { lanes, others }) ? empty() : null
+      if (!e) break
+      put(name, e)
     }
   }
-  return { cells, palette, bays, lanes: lanesUsed }
+  // 2. what is left: a SECOND lane, only now (every kind of this plan has had its first) and only as laneMayOpen allows
+  if (on) {
+    for (const name of kinds) {
+      while (left[name] > 0) {
+        const b = st.find(s => s.name === name && s.next.length && mine(s)) ?? (laneMayOpen(st, name, { lanes, others }) ? empty() : null)
+        if (!b) break
+        put(name, b)
+      }
+    }
+  }
+  const segs = [...new Set(cells.map(c => c.seg))]
+  return { cells, palette, bays, lanes: lanesUsed, segs, segments: segs.map(seg => ({ seg, layer: 0, deps: [] })) }
 }
 
 /**
@@ -604,7 +658,7 @@ export function pileCells (states = [], place = {}, { lanes = LANES, others = {}
 export function leasedPileCells (states = [], place = {}, opts = {}, tryLease = () => true) {
   const lanes = opts?.lanes ?? LANES
   let pc = pileCells(states, place, opts)
-  if (!lanes?.on || !pc.cells.length) return { pc, leased: [] }
+  if (!lanes?.on || !pc.cells.length) return { pc, leased: [], busy: [] }
   const leased = []
   const lease = id => { if (leased.includes(id)) return true; let ok = false; try { ok = !!tryLease(id) } catch { ok = false } if (ok) leased.push(id); return ok }
   const idsOf = p => [...new Set(Object.values(p.lanes ?? {}).flat())]
@@ -613,7 +667,7 @@ export function leasedPileCells (states = [], place = {}, opts = {}, tryLease = 
     pc = pileCells(states, place, { ...opts, skip: busy })
     if (idsOf(pc).some(id => !lease(id))) pc = { ...pc, cells: [] }
   }
-  return { pc, leased }
+  return { pc, leased, busy: [...busy] }
 }
 /** THE REFILL'S PICKAXE from the bag's items ({ name, uses left }) -> the item | null: a pickaxe with at least 2 uses left, the
  *  cheapest tier first (wooden, stone, then the rest), so the iron pickaxe a miner needs is the last spent. Pure: `left(item)` the

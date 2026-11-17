@@ -107,6 +107,33 @@ await t('MUTANT KILLED: a flat stack (no ramp) leaves the layers above the eye w
     assert.ok(r.placed < 88, `the flat stack placed ${r.placed} of 88`)
   })
 })
+// PAPER PROOF 11-17 (defect A): two bots could not stock one yard at once -- the runner leases a SEGMENT and every pile cell was in
+// the one segment `pile`. Through the REAL runVisit on the fake server: two bots, two lanes, the same visit window.
+const twoBots = async (M, lanesOn) => {
+  await built()
+  const srv = server(Object.fromEntries(BUILT.cells)), { p } = project(SITE.record, ['A', 'B'])
+  const ON = M.laneSettings({ YARD: 'on' })
+  const opts = lanesOn ? { lanes: ON } : { lanes: M.laneSettings({ YARD: 'on', YARDLANES: 'off' }) }
+  const st = M.bayStates(M.laneBays(SITE.record, BP, srv.read, opts), srv.read, { kinds: M.LANE_KINDS })
+  const pcA = M.pileCells(st, { cobblestone: 20 }, opts)
+  const pcB = M.pileCells(st, { cobbled_deepslate: 20 }, { ...opts, skip: new Set([pcA.bays.cobblestone]) })   // B plans around A's lane
+  assert.notStrictEqual(pcA.bays.cobblestone, pcB.bays.cobbled_deepslate, 'two lanes')
+  const run = (name, pc, inv) => R.runVisit({ ...p(name), record: { ...SITE.record, cells: pc.cells, segments: pc.segments ?? [{ seg: 'pile', layer: 0, deps: [] }], clear: [], replant: [] }, palette: { ...BP.palette, ...pc.palette } }, bot(srv, name, { inv }), { maxSteps: 3000 })
+  const [a, b] = await Promise.all([run('A', pcA, { cobblestone: 64 }), run('B', pcB, { cobbled_deepslate: 64 })])
+  return { a, b, pcA, pcB, srv, M }
+}
+await t('TWO BOTS, TWO LANES, ONE VISIT WINDOW (the real runner): each lane is its own segment, so both place all 20; MUTANT: one segment for every lane -> one bot places nothing', async () => {
+  const { a, b, pcA, pcB, srv } = await twoBots(Y, true)
+  assert.deepStrictEqual([pcA.segs, pcB.segs], [[`pile${pcA.bays.cobblestone}`], [`pile${pcB.bays.cobbled_deepslate}`]], 'a segment a lane')
+  assert.deepStrictEqual([a.placed, b.placed], [20, 20], JSON.stringify({ a: [a.stop, a.why, a.placed], b: [b.stop, b.why, b.placed] }))
+  const st = Y.bayStates(Y.laneBays(SITE.record, BP, srv.read, { lanes: Y.laneSettings({ YARD: 'on' }) }), srv.read, { kinds: Y.LANE_KINDS })
+  assert.deepStrictEqual(st.filter(x => x.name).map(x => [x.name, x.filled]).sort(), [['cobbled_deepslate', 20], ['cobblestone', 20]])
+  // the defect, reproduced: the SAME two visits with every cell in the one segment `pile` -- one of the two bots places nothing
+  await withMutant(YARD_PATH, "  const segOf = b => (on ? `pile${b.id}` : 'pile')", "  const segOf = () => 'pile'", async M => {
+    const r = await twoBots(M, true)
+    assert.ok(Math.min(r.a.placed, r.b.placed) === 0 && Math.max(r.a.placed, r.b.placed) === 20, `the one-segment yard: ${r.a.placed} and ${r.b.placed} (Paper: the second bot placed 0, stop=unknown)`)
+  })
+})
 await t('a second name goes to the next empty bay; a full yard takes nothing more', async () => {
   const { srv } = await bayRun()
   let st = Y.bayStates(SLOTS, srv.read)

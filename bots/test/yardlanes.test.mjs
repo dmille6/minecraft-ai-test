@@ -61,22 +61,33 @@ await t('A LANE STARTS 8 ROWS LONG AND GROWS BY 8 TO ITS BAY, stepped to 4: 52 -
   assert.equal(Y.laneLen(0, 22), 8); assert.equal(Y.laneLen(51, 22), 8); assert.equal(Y.laneLen(52, 22), 16, 'full at 52: the next 8 rows')
   assert.equal(Y.laneLen(115, 22), 16); assert.equal(Y.laneLen(116, 22), 22); assert.equal(Y.laneLen(500, 22), 22, 'never past the bay (the hard cap)')
   assert.equal(Y.laneLen(0, 11), 8); assert.equal(Y.laneLen(52, 11), 11, 'yard@1\'s shorter bay')
+  // PAPER PROOF 11-17 (defect B): a lane's length was fixed for the visit, so 64 sand became 52 + 12 in TWO lanes. A lane is now one
+  // list in GROWTH ORDER: the 8-row ramp's 52 slots, then what 16 rows add (to 116), then the bay (164) -- it grows WITHIN a plan
   const read = world()
   const l0 = lanes(read)
-  assert.deepEqual(l0.map(b => b.slots.length), [52, 52, 52, 52], 'four empty lanes, 8 rows each')
-  // the 8 rows are the bay's FAR end, and every slot of a short lane is a slot of the whole bay (a lane never leaves its bay)
+  assert.deepEqual(l0.map(b => b.slots.length), [164, 164, 164, 164], 'every lane lists its whole bay, in growth order')
   const whole = Y.pileSlots(REC, BP)
-  for (const [i, b] of l0.entries()) { const all = new Set(whole[i].slots.map(s => s.join(','))); assert.ok(b.slots.every(s => all.has(s.join(',')))) }
-  assert.equal(l0[0].slots.filter(s => s[1] === 71).length, 16, 'the floor layer: 2 wide x 8 rows')
-  assert.deepEqual(l0[0].slots.slice(0, 16), whole[0].slots.slice(0, 16), 'the far end: the whole bay\'s own first 8 rows (its fill order is far end first)')
-  // filled: the lane is longer; an old pile standing past the lane's rows is never hidden (the lane covers what stands)
-  fill(read, l0[0].slots, 52, 'cobblestone')
-  assert.deepEqual(lanes(read).map(b => b.slots.length), [116, 52, 52, 52])
-  const old = world(); fill(old, whole[1].slots, 150, 'cobblestone')
-  assert.equal(lanes(old)[1].slots.length, 164, 'the old yard\'s full bay reads whole')
+  const ramp = len => Y.pileSlots(REC, BP, { lenOf: id => (id === 0 ? len : 22) })[0].slots.map(s => s.join(','))
+  const key0 = l0[0].slots.map(s => s.join(','))
+  assert.deepEqual(key0.slice(0, 52), ramp(8), 'first the 8-row ramp, exactly as it was placed before')
+  assert.deepEqual([...key0.slice(0, 116)].sort(), [...ramp(16)].sort(), 'then what 16 rows add')
+  assert.deepEqual([...key0].sort(), whole[0].slots.map(s => s.join(',')).sort(), 'then the bay: the same 164 slots, no more')
+  // EVERY slot's support comes before it in the list (the floor, or a slot listed earlier): the growth never asks for a floating block
+  const before = new Set()
+  for (const sl of l0[0].slots) { assert.ok(sl[1] === 71 || before.has([sl[0], sl[1] - 1, sl[2]].join(',')), `support of ${sl}`); before.add(sl.join(',')) }
+  // the exact cases: 64 sand is ONE lane (52 + 12 in the same lane); 128 cobblestone is ONE lane
+  const st0 = Y.bayStates(l0, read, { kinds: Y.yardKinds(true) })
+  const sand = Y.pileCells(st0, { sand: 64 }, { lanes: ON })
+  assert.deepEqual([sand.lanes, sand.cells.length, sand.segs], [{ sand: [0] }, 64, ['pile0']])
+  assert.deepEqual(sand.cells.map(c => c.at.join(',')), key0.slice(0, 64), 'in growth order: the ramp, then the next rows')
+  const cob = Y.pileCells(st0, { cobblestone: 128 }, { lanes: ON })
+  assert.deepEqual([cob.lanes, cob.cells.length], [{ cobblestone: [0] }, 128], 'one lane, not three')
+  // three kinds of 64 take three lanes and leave the fourth for the next kind (Paper: three kinds used all four)
+  const three = Y.pileCells(st0, { cobblestone: 64, gravel: 64, sand: 64 }, { lanes: ON })
+  assert.deepEqual(three.lanes, { cobblestone: [0], gravel: [1], sand: [2] }); assert.deepEqual(three.segs.sort(), ['pile0', 'pile1', 'pile2'])
   assert.deepEqual(lanes(read, OFF).map(b => b.slots.length), [164, 164, 164, 164], 'YARDLANES=off: the whole bays, as before')
-  const unread = (x, y, z) => null
-  assert.equal(Y.laneBays(REC, BP, unread, { lanes: ON })[0].slots.length, 164, 'an unread bay keeps its whole length (never a guess)')
+  assert.deepEqual(lanes(read, OFF)[0].slots, whole[0].slots, 'off: the old fill order exactly')
+  assert.deepEqual(Y.pileCells(Y.bayStates(whole, read), { cobblestone: 10 }, { lanes: OFF }).cells[0].seg, 'pile', 'off: the one segment, as before')
 })
 
 await t('ONE LANE A KIND, the first empty lane the first time it is banked; a kind\'s second lane only when the first is full and under its cap', () => {
@@ -91,18 +102,21 @@ await t('ONE LANE A KIND, the first empty lane the first time it is banked; a ki
   for (const c of pc.cells) { const below = read(c.at[0], c.at[1] - 1, c.at[2]).name; assert.ok(c.at[1] === 71 || below === c.role.replace(/^pile_/, ''), `${c.role} at ${c.at} over ${below}`) }
   // a kind with room in its lane never opens another; at its cap it opens none
   assert.deepEqual(Y.pileCells(st, { gravel: 10, sand: 5 }, { lanes: ON }).lanes, { gravel: [2], sand: [3] })
-  assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON }), true, 'one lane of two')
+  assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON }), false, 'gravel has its lane and ONE lane is left: that one is a first lane\'s (first lanes before second ones)')
+  assert.equal(Y.laneMayOpen(states(world()), 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 0 } } }), false, 'two lanes over the yards: its cap')
+  { const w2 = world(); fill(w2, lanes(w2)[0].slots, 164, 'gravel'); assert.equal(Y.laneMayOpen(states(w2), 'gravel', { lanes: ON }), true, 'its lane FULL, three lanes empty: a second may open') }
   assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 0 } } }), false, 'two lanes over the yards: its cap')
   assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 40 } } }), false, 'room in its lane in another yard: bank there, open nothing here')
-  assert.equal(Y.laneMayOpen(st, 'cobblestone', { lanes: ON, others: { cobblestone: { lanes: 2, room: 0 } } }), true, 'cobblestone may hold four')
+  assert.equal(Y.laneMayOpen(states(world()), 'cobblestone', { lanes: ON, others: { cobblestone: { lanes: 2, room: 0 } } }), true, 'cobblestone may hold four')
+  assert.equal(Y.laneMayOpen(states(world()), 'andesite', { lanes: ON }), true, 'a kind with no lane takes any empty one, the last too')
   assert.equal(Y.laneMayOpen(st, 'gravel', { lanes: OFF, others: { gravel: { lanes: 9, room: 0 } } }), true, 'off: the old yard has no caps')
 })
 
 await t('ROOM AND THE CAP: a kind\'s room is its lanes\' and the lanes it may still open; FULL at the cap is over_cap; a lane another bot holds is skipped', () => {
   const read = world()
   const st0 = states(read)
-  assert.equal(Y.yardRoomFor(st0, 'gravel', { lanes: ON }), 104, 'two lanes of 52 at the start')
-  assert.equal(Y.yardRoomFor(st0, 'cobblestone', { lanes: ON }), 208, 'four')
+  assert.equal(Y.yardRoomFor(st0, 'gravel', { lanes: ON }), 328, 'two lanes of 164')
+  assert.equal(Y.yardRoomFor(st0, 'cobblestone', { lanes: ON }), 656, 'four')
   assert.equal(Y.yardRoomFor(st0, 'gravel', { lanes: ON, others: { gravel: { lanes: 2, room: 0 } } }), 0, 'at its cap elsewhere: none here')
   assert.equal(Y.yardRoomFor(states(read, OFF), 'cobblestone', { lanes: OFF }), 656, 'off: every empty bay, whole, as before')
   assert.equal(Y.kindOverCap('gravel', { lanes: ON, held: { lanes: 2, room: 0 }, empty: 3 }), true)
@@ -190,9 +204,9 @@ await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap i
   await killedBy(YP, Y, 'if (laneCapacity(len, { w, h }) > held) return len', 'if (true) return len', M => assert.equal(M.laneLen(52, 22), 16))
   await killedBy(YP, Y, '  return f\n}\n/** THE RANK OF A SITE', '  return f + 8\n}\n/** THE RANK OF A SITE', M => assert.equal(M.laneLen(500, 22), 22))
   const st = () => states(world())
-  await killedBy(YP, Y, '  return states.filter(s => s.name === name).length + o.lanes < laneCapOf(name, lanes.caps)', '  return true', M => assert.equal(M.laneMayOpen(st(), 'gravel', { lanes: ON, others: { gravel: { lanes: 2, room: 0 } } }), false))
+  await killedBy(YP, Y, '  if (!(mine < laneCapOf(name, lanes.caps))) return false\n', '', M => assert.equal(M.laneMayOpen(st(), 'gravel', { lanes: ON, others: { gravel: { lanes: 2, room: 0 } } }), false))
   await killedBy(YP, Y, '  if (o.room > 0) return false\n', '', M => assert.equal(M.laneMayOpen(st(), 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 40 } } }), false))
-  await killedBy(YP, Y, '      const mine = s => !(skip?.has?.(s.id))', '      const mine = () => true', M => assert.deepEqual(M.pileCells(st(), { cobblestone: 10 }, { lanes: ON, skip: new Set([0]) }).lanes, { cobblestone: [1] }))
+  await killedBy(YP, Y, '  const mine = s => !(skip?.has?.(s.id))', '  const mine = () => true', M => assert.deepEqual(M.pileCells(st(), { cobblestone: 10 }, { lanes: ON, skip: new Set([0]) }).lanes, { cobblestone: [1] }))
   await killedBy(YP, Y, '  return { hold: !!on && Number(room) > 0 }', '  return { hold: !!on }', M => assert.equal(M.wellHold({ room: 0 }).hold, false))
   await killedBy(YP, Y, 'export const yardRestMs = ({ lanes = LANES, slots = 0 } = {}) => (lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)', 'export const yardRestMs = () => YARD_REST_MS', M => assert.equal(M.yardRestMs({ lanes: ON, slots: 34 }), 2 * 60_000))
   await killedBy(YP, Y, "return { kind: 'stock', urgent: pressed || !!lanes?.on, place,", "return { kind: 'stock', urgent: pressed, place,", M => assert.equal(M.yardWork({ held: { gravel: 16 }, slots: 20, states: st(), lanes: ON, keeps: {} }).urgent, true))
@@ -211,16 +225,20 @@ await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' le
   one(sk, 'rankKey: firstRec \\? site => nearYardRank\\(firstRec, site\\.pad\\) \\* 100 \\+ step\\.rankKey\\(site\\) : step\\.rankKey', 'nearest the first yard')
   one(sk, 'return yardVisit\\(ctx, rec, rh\\.head\\.gen, signal, out, t0, \\{ plot, \\.\\.\\.\\(LANES\\.on \\? \\{ until: t0 \\+ LANES\\.passMs \\} : \\{\\}\\) \\}\\)', 'a complete yard gets the yard\'s visit, bounded')
   one(sk, 'const slot = takeSlot\\(dir, key, me, LANES\\.on && !\\(Number\\(draw\\) > 0\\) \\? LANES\\.visitors : YARD_BUILDERS\\)', 'several visitors')
-  one(sk, 'const laneLease = id => \\{ const l = projTakeLease\\(dir, key, `lane\\$\\{id\\}`, me\\)', 'one lease a lane')
+  one(sk, 'const laneLease = id => \\{ try \\{ const l = projLeaseState\\(dir, key, `seg-pile\\$\\{id\\}`\\); return !\\(l && l\\.rec\\?\\.holder && l\\.rec\\.holder !== me && Date\\.now\\(\\) < \\(l\\.holdsUntil \\?\\? 0\\)\\)', 'the lane\'s lease is the runner\'s segment lease: the plan asks who holds it')
+  assert.equal((sk.match(/segments: pc\.segments \}/g) ?? []).length, 2, 'both stocking paths hand the runner one segment a lane')
+  one(sk, "const laneHeld = LANES\\.on && \\(w\\.kind === 'stock' \\|\\| w\\.kind === 'clerk'\\) && \\(lanesBusy\\.length > 0 \\|\\| r\\?\\.stop === 'unknown'\\)", 'a zero-block visit behind a held lane is not an empty visit')
+  one(sk, "stop = held \\? 'lane_held' : \\(w\\.noLane\\?\\.length \\? 'no_lane' : 'yard_full'\\)", 'the stop names the reason')
+  one(sk, 'if \\(LANES\\.on && w\\.noLane\\?\\.length\\) yardNoLaneNote\\(bot, plot, w\\.noLane, now\\)', 'no lane anywhere stamps the town\'s want')
+  one(sk, 'if \\(LANES\\.on\\) setYardsWanted\\(\\(\\) => yardsWantedNow\\(activeMem\\?\\.bot \\?\\? null\\)\\)', 'the order reads how many yards are wanted')
   // Codex r1 BLOCKER 6: EVERY path that places on the piles takes its lanes' leases (the upkeep's clear-then-stock had none)
-  assert.equal((sk.match(/const \{ pc \} = leasedPileCells\(states, (place|w2\.place), laneOpts, laneLease\)/g) ?? []).length, 2, 'the stock and the upkeep-then-stock paths')
+  assert.equal((sk.match(/const \{ pc, busy \} = leasedPileCells\(states, (place|w2\.place), laneOpts, laneLease\)/g) ?? []).length, 2, 'the stock and the upkeep-then-stock paths')
   assert.equal((sk.match(/[^a-zA-Z]pileCells\(/g) ?? []).length, 0, 'no bare pileCells call is left in skills.mjs')
   // Codex r1 BLOCKER 1: the hold reads no back-off and no clock
   const hold = sk.slice(sk.indexOf('function yardHoldNow ('), sk.indexOf('export function yardLanesInstall'))
   assert.ok(hold.length > 100 && !/yardRestUntil|yardHoldAt|stockAt/.test(hold), 'yardHoldNow reads the room alone')
   one(sk, 'return wellHold\\(\\{ room: k\\.room \\}\\)\\.hold', 'the hold is the room')
   assert.equal((sk.match(/yardRestUntil = Date\.now\(\) \+ yardRestMs\(\{ slots: slotsNow\(\) \}\)/g) ?? []).length, 3, 'a visit that banked nothing rests by the bag\'s pressure')
-  one(sk, 'for \\(const l of laneLeases\\) \\{ try \\{ releaseLease\\(dir, key, l\\.name, me, l\\.gen\\) \\}', 'released when the visit ends')
   one(sk, 'if \\(LANES\\.on && wellHoldOn\\(\\)\\) \\{ setYardHold\\(yardHoldNow\\); setYardFull\\(', 'WELL_HOLD installed')
   one(sk, "dispose_well: \\{ run: \\(ctx, a, signal\\) => withOverCap\\(ctx, \\(\\) => disposeWell\\(ctx, a, signal\\)\\)", 'the over_cap row wraps the well')
   one(sk, "if \\(k\\.over\\) logEvent\\(\\{ kind: 'yard_over_cap'", 'only a kind FULL at its cap is logged over_cap')
@@ -344,9 +362,9 @@ await t('BAGCLEAR_UNTIL: unset is off; while it lasts a visit banks ANY surplus,
   // the bag: 3 gravel is a stock under the clear (positive control: without it, no trip)
   assert.equal(Y.yardWork({ held: { gravel: 3 }, slots: 10, states: st, lanes: ON, keeps: {} }).kind, null)
   assert.equal(Y.yardWork({ held: { gravel: 3 }, slots: 10, states: st, lanes: ON, keeps: {}, clear: true }).kind, 'stock')
-  // the per-visit limit is lifted: 208 cobblestone of room, all of it (128 without)
+  // the per-visit limit is lifted: 500 cobblestone, all of it (128 without)
   assert.equal(Y.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st, lanes: ON, keeps: {} }).place.cobblestone, 128)
-  assert.equal(Y.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st, lanes: ON, keeps: {}, clear: true }).place.cobblestone, 208)
+  assert.equal(Y.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st, lanes: ON, keeps: {}, clear: true }).place.cobblestone, 500)
   assert.equal(Y.CLEAR_VISIT_MAX, 640)
   // the chests: LIVE 11-16 cobbled_deepslate 945, spruce_log 414, stone 319, cobblestone 52 -> the clear's clerk draws the stone kinds;
   // the logs stay under the build reserve's 512, cobblestone under its 256
@@ -365,7 +383,7 @@ await t('the room bank under the clear keeps nothing of a name it may move -- a 
   assert.deepEqual(BRx.roomBankSteps(bagX, { eligible: elig, keep: { ladder: 64 }, hard: n => n === 'ladder', clear: true }).map(s => s.name), ['sugar_cane'], 'the goal\'s want stands')
   const YP = P('yard')
   const st = () => states(world())
-  await killedBy(YP, Y, '  let left = lanes?.on ? (clear ? CLEAR_VISIT_MAX : lanes.visitMax) : YARD_VISIT_MAX', '  let left = lanes?.on ? lanes.visitMax : YARD_VISIT_MAX', M => assert.equal(M.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st(), lanes: ON, keeps: {}, clear: true }).place.cobblestone, 208))
+  await killedBy(YP, Y, '  let left = lanes?.on ? (clear ? CLEAR_VISIT_MAX : lanes.visitMax) : YARD_VISIT_MAX', '  let left = lanes?.on ? lanes.visitMax : YARD_VISIT_MAX', M => assert.equal(M.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st(), lanes: ON, keeps: {}, clear: true }).place.cobblestone, 500))
   await killedBy(YP, Y, "(clear && lanes?.on ? (CLEAR_CHEST_KEEP[name] ?? 0) : YARD_CHEST_KEEP[name]))", "(clear && lanes?.on ? 0 : YARD_CHEST_KEEP[name]))", M => assert.equal(M.yardWork({ held: {}, slots: 5, freeSlots: 31, town: { spruce_log: 414, stone: 319 }, states: st(), lanes: ON, keeps: {}, clear: true }).draw.spruce_log, undefined))
   await killedBy(P('bagroom'), BRx, '    let room = total - (clear && !hard(name) ? 0 : k)\n', '    let room = total - (clear ? 0 : k)\n', M => assert.deepEqual(M.roomBankSteps(bagX, { eligible: elig, keep: { ladder: 64 }, hard: n => n === 'ladder', clear: true }).map(s => s.name), ['sugar_cane']))
   const sk = strip(readFileSync(P('skills'), 'utf8'))
@@ -394,6 +412,67 @@ await t('LEASED PILE CELLS: each lane used is leased; a held lane is skipped and
   assert.equal(Y.leasedPileCells(states(world(), OFF), { cobblestone: 10 }, { lanes: OFF }, () => { n++; return false }).pc.cells.length, 10); assert.equal(n, 0)
   await killedBy(P('yard'), Y, '  const busy = new Set(idsOf(pc).filter(id => !lease(id)))', '  const busy = new Set()', M => assert.equal(M.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, () => false).pc.cells.length, 0))
   await killedBy(P('yard'), Y, '    if (idsOf(pc).some(id => !lease(id))) pc = { ...pc, cells: [] }', '', M => assert.equal(M.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, id => id > 1).pc.cells.length, 0))
+})
+
+// ---- Paper proof 11-17, defects A and B: the reasons a visit names, first lanes before second, the next yard wanted --------------------
+await t('FIRST LANES BEFORE SECOND ONES: a kind opens a second lane only when its first is FULL, its cap allows, and a lane is still left for a kind with none', () => {
+  const w = world()
+  const L = lanes(w)
+  fill(w, L[0].slots, 164, 'cobblestone')   // cobblestone's lane is at its full length
+  const st = states(w)
+  // one plan with more cobblestone AND three kinds that have no lane: the three get the lanes; cobblestone's second waits
+  const pc = Y.pileCells(st, { cobblestone: 64, gravel: 10, sand: 10, andesite: 10 }, { lanes: ON })
+  assert.deepEqual(pc.lanes, { gravel: [1], sand: [2], andesite: [3] }, 'the kinds\' own order would have given cobblestone lane 1 first')
+  // only cobblestone carried: a second lane opens (three empty)...
+  assert.deepEqual(Y.pileCells(st, { cobblestone: 64 }, { lanes: ON }).lanes, { cobblestone: [1] })
+  // ...but never the LAST empty lane (it is a first lane's)
+  fill(w, L[1].slots, 10, 'gravel'); fill(w, L[2].slots, 10, 'sand')
+  assert.equal(Y.pileCells(states(w), { cobblestone: 64 }, { lanes: ON }).cells.length, 0)
+  assert.deepEqual(Y.pileCells(states(w), { andesite: 5 }, { lanes: ON }).lanes, { andesite: [3] }, 'positive control: a first lane takes it')
+})
+await t('THE VISIT NAMES ITS REASON: no_lane (never a bare idle) when this yard has no lane for a kind the bag carries; lane_held is a short retry, not an empty visit', () => {
+  const w = world()
+  const L = lanes(w)
+  for (const [i, k] of ['cobblestone', 'gravel', 'sand', 'dirt'].entries()) fill(w, L[i].slots, 10, k)
+  const st = states(w)
+  const r = Y.yardWork({ held: { andesite: 40, diorite: 20 }, slots: 12, states: st, lanes: ON, keeps: {} })
+  assert.deepEqual([r.kind, r.why, r.noLane], [null, 'no_lane:andesite+diorite', ['andesite', 'diorite']])
+  assert.equal(Y.yardWork({ held: { andesite: 40 }, slots: 12, states: st, lanes: ON, keeps: {}, others: { andesite: { lanes: 1, room: 100 } } }).why, 'idle', 'a lane with room in ANOTHER yard: not "no lane" (the bot banks there)')
+  assert.deepEqual(Y.yardWork({ held: { andesite: 40, gravel: 40 }, slots: 12, states: st, lanes: ON, keeps: {} }).noLane, ['andesite'], 'a stock still names the kind it could not place')
+  assert.equal(Y.yardWork({ held: { gravel: 3 }, slots: 12, states: st, lanes: ON, keeps: {} }).why, 'idle', 'positive control: nothing to bank is idle')
+  // the rests: a held lane 45 s, a jammed bag 2 min, an idle bag 20 min
+  assert.deepEqual([Y.yardRestMs({ lanes: ON, slots: 36, held: true }), Y.yardRestMs({ lanes: ON, slots: 36 }), Y.yardRestMs({ lanes: ON, slots: 10 })], [45_000, 120_000, Y.YARD_REST_MS])
+  assert.equal(Y.yardRestMs({ lanes: OFF, slots: 36, held: true }), Y.YARD_REST_MS)
+  // leasedPileCells says which lanes were another bot's
+  assert.deepEqual(Y.leasedPileCells(states(world()), { cobblestone: 10 }, { lanes: ON }, id => id !== 0).busy, [0])
+})
+await t('"A KIND HAS NO LANE ANYWHERE" MAKES THE NEXT YARD WANTED: the setting\'s four, then one more than stand while the want is fresh, never past the list', () => {
+  const NOW = 1e12
+  assert.equal(Y.yardsWanted({ lanes: ON, standing: 4, noLaneAt: null, now: NOW }), 4, 'no want: the setting\'s')
+  assert.equal(Y.yardsWanted({ lanes: ON, standing: 4, noLaneAt: NOW - 60_000, now: NOW }), 5)
+  assert.equal(Y.yardsWanted({ lanes: ON, standing: 2, noLaneAt: NOW - 60_000, now: NOW }), 4, 'yards still to build under the setting: no extra one')
+  assert.equal(Y.yardsWanted({ lanes: ON, standing: 6, noLaneAt: NOW - 60_000, now: NOW }), 6, 'never past the list')
+  assert.equal(Y.yardsWanted({ lanes: ON, standing: 4, noLaneAt: NOW - Y.YARD_WANT_MS, now: NOW }), 4, 'a want a day old is over')
+  assert.equal(Y.yardsWanted({ lanes: OFF, standing: 4, noLaneAt: NOW, now: NOW }), 1)
+  // the order's list follows it
+  try {
+    assert.equal(S.yardOffered('yard'), true)
+    S.setYardsWanted(() => 5)
+    assert.equal(S.yardOffered('yard5'), Y.LANES.on, 'offered only where the lanes are')
+    assert.equal(S.yardOffered('yard6'), false)
+  } finally { S.setYardsWanted(null) }
+})
+await t('MUTANTS KILLED (Paper 11-17): the last lane given to a second lane; first lanes not first; the reason unnamed; a held lane resting long; the want that never ends', async () => {
+  const YP = P('yard')
+  const w = world(); const L = lanes(w)
+  fill(w, L[0].slots, 164, 'cobblestone'); fill(w, L[1].slots, 10, 'gravel'); fill(w, L[2].slots, 10, 'sand')
+  await killedBy(YP, Y, "  if (mine > 0 && states.filter(s => s.name == null && s.foreign === 0 && s.free > 0).length < 2) return false\n", '', M => assert.equal(M.pileCells(M.bayStates(M.laneBays(REC, BP, w, { lanes: ON }), w, { kinds: M.LANE_KINDS }), { cobblestone: 64 }, { lanes: ON }).cells.length, 0))
+  const w2 = world(); fill(w2, lanes(w2)[0].slots, 164, 'cobblestone')
+  await killedBy(YP, Y, "      const e = (!on || !hasLane) && laneMayOpen(st, name, { lanes, others }) ? empty() : null", "      const e = laneMayOpen(st, name, { lanes, others }) ? empty() : null", M => assert.deepEqual(M.pileCells(M.bayStates(M.laneBays(REC, BP, w2, { lanes: ON }), w2, { kinds: M.LANE_KINDS }), { cobblestone: 64, gravel: 10, sand: 10, andesite: 10 }, { lanes: ON }).lanes, { gravel: [1], sand: [2], andesite: [3] }))
+  const w3 = world(); for (const [i, k] of ['cobblestone', 'gravel', 'sand', 'dirt'].entries()) fill(w3, lanes(w3)[i].slots, 10, k)
+  await killedBy(YP, Y, "why: noLane.length ? `no_lane:${noLane.join('+')}`.slice(0, 80) : 'idle', noLane }", "why: 'idle', noLane }", M => assert.equal(M.yardWork({ held: { andesite: 40 }, slots: 12, states: M.bayStates(M.laneBays(REC, BP, w3, { lanes: ON }), w3, { kinds: M.LANE_KINDS }), lanes: ON, keeps: {} }).why, 'no_lane:andesite'))
+  await killedBy(YP, Y, "(lanes?.on && held ? YARD_HELD_REST_MS : lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)", "(lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)", M => assert.equal(M.yardRestMs({ lanes: ON, slots: 10, held: true }), 45_000))
+  await killedBy(YP, Y, "  const more = Number.isFinite(noLaneAt) && now - noLaneAt < YARD_WANT_MS ? standing + 1 : 0", "  const more = Number.isFinite(noLaneAt) ? standing + 1 : 0", M => assert.equal(M.yardsWanted({ lanes: ON, standing: 4, noLaneAt: 1e12 - M.YARD_WANT_MS, now: 1e12 }), 4))
 })
 
 if (failed) { console.log(`\n${failed} FAILED`); process.exit(1) }
