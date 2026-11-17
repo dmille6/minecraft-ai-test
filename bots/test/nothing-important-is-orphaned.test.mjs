@@ -280,6 +280,14 @@ const REQUIRED = [
   'bots/test/bagroom.test.mjs',
   'bots/src/bagfix.mjs',  // bagfix-01show (11-16): the room bank's target, the light fallback, the bag trim, carried chests, merging deposits
   'bots/test/bagfix.test.mjs',
+  'bots/test/yardlanes.test.mjs',  // yardlanes-01 (bagfix-02show, 11-16): lanes per kind, more yards, lane leases, WELL_HOLD, over_cap
+  'bots/src/compact.mjs',  // compact-01 (bagfix-02show, 11-16): compaction and the clerk's merge pass
+  'bots/test/compact.test.mjs',
+  'bots/src/useledger.mjs',  // useledger-01 (bagfix-02show, 11-16): the town's use ledger and the week's table
+  'bots/test/useledger.test.mjs',
+  'scripts/host/useledger.py',
+  'bots/src/refill.mjs',  // refill-01 (bagfix-02show, 11-16): no gathering for stock -- a refill is a job raised on evidence of use
+  'bots/test/refill.test.mjs',
   'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
   'bots/test/handcap.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
