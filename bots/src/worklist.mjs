@@ -67,27 +67,32 @@ export const WORKLIST_FILE_RE = /^worklist-[A-Za-z0-9_-]+\.json$/
  * throws keeps the previous set whole; one unreadable file keeps that file's previous cells (none known: it is skipped, and
  * `onError(name)` is called once for it).
  */
+/** r7: EVERY cell vetoed -- the answer while the lists cannot be read and nothing was read before (fail closed). */
+export const LISTED_ALL = Object.freeze({ has: () => true, size: Infinity, all: true, [Symbol.iterator]: function * () {} })
 export function listedCache (readFiles, { home, ttlMs = 5_000, clock = Date.now, onError = () => {} } = {}) {
-  let at = -Infinity, set = new Set()
+  let at = -Infinity, set = new Set(), good = false
   const byFile = new Map(), told = new Set()
   return () => {
     const now = clock()
     if (now - at <= ttlMs) return set
     at = now
     let files
-    try { files = readFiles() ?? [] } catch { return set }
+    // r7: the directory unreadable: the last good set, and before any, EVERY cut vetoed (fail closed; named once)
+    try { files = readFiles() ?? [] } catch { if (!good) { set = LISTED_ALL; if (!told.has('*dir')) { told.add('*dir'); try { onError('*dir') } catch { /* a log */ } } } return set }
     const next = new Set(), names = new Set()
+    let blind = false
     for (const f of files) {
       names.add(f.name)
       let cells = null
       if (f.doc !== undefined && !f.err) { cells = listedCells([f.doc], { home, now }); byFile.set(f.name, cells) } else {
         cells = byFile.get(f.name) ?? null
-        if (!cells && !told.has(f.name)) { told.add(f.name); try { onError(f.name) } catch { /* a log */ } }
+        if (!cells) { blind = true; if (!told.has(f.name)) { told.add(f.name); try { onError(f.name) } catch { /* a log */ } } }   // r7: never read: every cut vetoed
       }
       for (const k of cells ?? []) next.add(k)
     }
     for (const n of [...byFile.keys()]) if (!names.has(n)) byFile.delete(n)
-    set = next
+    set = blind ? LISTED_ALL : next
+    if (!blind) good = true
     return set
   }
 }

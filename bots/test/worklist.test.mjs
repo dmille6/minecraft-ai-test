@@ -300,14 +300,32 @@ const vetoScenario = async M => {
   files = [{ name: 'worklist-A.json', err: 'parse' }, { name: 'worklist-B.json', doc: b }]
   assert.deepStrictEqual([...fresh()].sort(), [`5,${G + 1},0`, `8,${G + 1},0`], 'a torn file keeps its last cells')
   files = [{ name: 'worklist-C.json', err: 'parse' }, { name: 'worklist-B.json', doc: b }]
-  fresh(); fresh()
-  assert.deepStrictEqual(told, ['worklist-C.json'], 'a file never read is skipped and named once')
+  assert.strictEqual(fresh().has('99,99,99'), true, 'r7: a list file never read -> every cut vetoed'); fresh()
+  assert.deepStrictEqual(told, ['worklist-C.json'], 'named once')
   // review 3: the switch off -> the reader returns no files -> no veto at all
   files = []
   assert.strictEqual(fresh().size, 0)
 }
 await t('r6 veto: fails closed on a read error or a torn file; nothing vetoed while the town switch is off', () => vetoScenario(W))
-await mutant('r6 veto: a read error empties the set', '    try { files = readFiles() ?? [] } catch { return set }', '    try { files = readFiles() ?? [] } catch { files = [] }', vetoScenario)
+await mutant('r6 veto: a read error empties the set', "catch { if (!good) { set = LISTED_ALL; if (!told.has('*dir')) { told.add('*dir'); try { onError('*dir') } catch { /* a log */ } } } return set }", 'catch { files = [] }', vetoScenario)
+// r7 (Codex 2): unreadable BEFORE anything was read -> every cut vetoed (fail closed) until a read succeeds; no files at all -> nothing
+const blindScenario = async M => {
+  let mode = 'throw', clock = NOW
+  const told = []
+  const b = DOC([rm(8, G + 1, 0)], { bot: 'B' })
+  const fresh = M.listedCache(() => { if (mode === 'throw') throw new Error('EACCES'); if (mode === 'torn') return [{ name: 'worklist-B.json', err: 'parse' }]; if (mode === 'none') return []; return [{ name: 'worklist-B.json', doc: b }] }, { home: HOME, clock: () => (clock += 6_000), onError: n => told.push(n) })
+  assert.strictEqual(fresh().has(`5,${G + 1},0`), true, 'the directory unreadable from the start: every cut vetoed')
+  mode = 'torn'
+  assert.strictEqual(fresh().has(`5,${G + 1},0`), true, 'a list never read: every cut vetoed')
+  mode = 'ok'
+  assert.deepStrictEqual([...fresh()], [`8,${G + 1},0`], 'a read succeeds: only the listed cells')
+  mode = 'none'
+  assert.strictEqual(fresh().size, 0, 'no list files: nothing vetoed')
+  assert.deepStrictEqual(told, ['*dir', 'worklist-B.json'])
+}
+await t('r7 veto: unreadable before any read -> every cut vetoed until a read succeeds; no files -> no veto', () => blindScenario(W))
+await mutant('r7: an unreadable directory vetoes nothing at first', "{ if (!good) { set = LISTED_ALL;", "{ if (false) { set = LISTED_ALL;", blindScenario)
+await mutant('r7: a never-read file vetoes nothing', "        if (!cells) { blind = true;", "        if (!cells) { blind = false;", blindScenario)
 await mutant('r6 veto: a torn file loses its cells', '        cells = byFile.get(f.name) ?? null\n', '        cells = null\n', vetoScenario)
 // r6 (Codex A, bot side): the bot's own list re-read before each job -- a job the host moved off it is not taken
 const ownScenario = async M => {
@@ -323,6 +341,34 @@ const ownScenario = async M => {
 }
 await t('r6 own list: re-read before each job; a moved, gone or expired list takes no further job', () => ownScenario(W))
 await mutant('r6 own list read once', "  return () => {\n    const now = clock()\n    if (now - at <= ttlMs) return set\n    at = now\n    let doc = null", "  return () => {\n    const now = clock()\n    if (at !== -Infinity) return set\n    at = now\n    let doc = null", ownScenario)
+// r7 (Codex 1): the veto is asked again AFTER the walk -- a cell listed while the shared worker walks to it is not dug
+const BR_PATH = new URL('../src/buildrun.mjs', import.meta.url)
+async function withBR (old, neu, fn) {
+  const src = readFileSync(BR_PATH, 'utf8')
+  assert.ok(src.split(old).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-br-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+const walkScenario = async RM => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wl-'))
+  const srv = stand({ ...col(9, 0, 1) })
+  let listed = false
+  const key = PJ.projKey(HOME, 'tidy')
+  const a = visitP(dir, 'A', [rm(9, G + 1, 0)], srv, { key, extra: { tidyVeto: () => listed } })
+  const log = []
+  const e = digger(srv, 'A', [3, G + 1, 0], log, dir, {})
+  const w0 = e.walkTo
+  e.walkTo = async st => { listed = true; return w0(st) }   // the host lists the cell while the worker walks
+  await RM.runVisit(a.p, e, { maxSteps: 200 })
+  assert.strictEqual(log.length, 0, 'not dug after the walk'); assert.strictEqual(srv.read(9, G + 1, 0).name, 'dirt')
+}
+await t('r7: a cell listed during the walk is not dug (the veto is asked again at the dig)', () => walkScenario(R))
+await t('MUTANT KILLED: the veto only before the walk', async () => {
+  await walkScenario(R)
+  const killed = await withBR("? () => !vetoNow() && (!p.tidyOk || p.tidyOk(c, rd))", "? () => (!p.tidyOk || p.tidyOk(c, rd))", async M => { try { await walkScenario(M); return false } catch (err) { if (err instanceof assert.AssertionError) return true; throw err } })
+  assert.ok(killed, 'the mutant survived')
+})
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 const strip = s => s.split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
 const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))

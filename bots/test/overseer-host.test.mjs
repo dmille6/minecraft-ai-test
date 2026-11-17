@@ -113,6 +113,20 @@ const crashScenario = async H => {
 }
 await t('C-A: a crash between the book and the lists never puts one job on two published lists', () => crashScenario(H))
 await t('MUTANT KILLED: the published lists are not read', () => killed('  const onDisk = publishedIds(pubDocs, now)', '  const onDisk = {}', crashScenario))
+// r7: STAGED -- the node step publishes nothing itself; its plan (the book first, then the lists) is applied by overseer.py only
+// after the child's peak memory is checked
+const stageScenario = async H => {
+  const pool = town({ cuts: [[-20, 72, 0]] })
+  const inp = input(pool, { stage: tmp('ovg-') })
+  const { summary } = H.runCycle(inp)
+  assert.ok(!fs.readdirSync(pool).some(f => H.LIST_RE.test(f)), 'nothing published by the node step')
+  assert.deepStrictEqual(fs.readdirSync(inp.state), [], 'not even the book')
+  const plan = JSON.parse(fs.readFileSync(path.join(inp.stage, 'manifest.json'), 'utf8')).plan
+  assert.strictEqual(summary.staged, plan.length)
+  assert.ok(plan[0].dest.endsWith('book.live.json'), 'the book first'); assert.ok(plan.some(o => o.dest === path.join(pool, 'worklist-Ann.json')))
+}
+await t('r7: staged -- the node step writes only to its stage, the book first in the plan', () => stageScenario(H))
+await t('MUTANT KILLED: the stage is ignored', () => killed('  if (!stage) return { write: writeAtomic,', '  if (true) return { write: writeAtomic,', stageScenario))
 await t('AN UNREADABLE RECORD: the cycle throws and writes nothing', async () => {
   const pool = town({ cuts: [[-20, 72, 0]] })
   const k = PJ.projKey(HOME, 'cottage2')
@@ -124,7 +138,7 @@ await t('AN UNREADABLE RECORD: the cycle throws and writes nothing', async () =>
 
 await t('MUTANT KILLED: the guard is not read', () => killed('for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at)) guard.add(c.at.join(\',\'))', '', liveScenario))
 await t('MUTANT KILLED: switching off leaves the published lists', () => killed("  if (!st?.published) return null", '  return null', dryScenario))
-await t('MUTANT KILLED: the stop is not recorded (dry deletes every cycle)', () => killed('  writeAtomic(f, { ...st, published: false, stoppedAt: now, stoppedRemoved: n })', '', dryScenario))
+await t('MUTANT KILLED: the stop is not recorded (dry deletes every cycle)', () => killed('  io.write(f, { ...st, published: false, stoppedAt: now, stoppedRemoved: n })', '', dryScenario))
 const zoneScenario = async H => { const pool = town({ cuts: [[-20, 72, 0]] }); assert.throws(() => H.runCycle(input(pool, { zones: '/nonexistent/z.json' })), /zones/) }
 await t('MUTANT KILLED: a missing zones file reads as no zones', () => killed("  if (!zdoc || !Array.isArray(zdoc.zones)) throw new Error(`zones unreadable: ${inp.zones}`)", '  if (!zdoc) return { summary: {}, cycle: null }', zoneScenario))
 

@@ -34,6 +34,21 @@ function writeAtomic (file, obj) {
   fs.writeFileSync(tmp, JSON.stringify(obj))
   fs.renameSync(tmp, file)
 }
+/**
+ * r7: THE WRITES, direct or STAGED. With `stage` (a directory), nothing is published here: every write goes to the stage and the
+ * plan (writes and removals, in order) to <stage>/manifest.json, which overseer.py applies only after it has checked this
+ * process's peak memory -- an over-cap cycle publishes nothing.
+ */
+export function makeIo (stage = null) {
+  if (!stage) return { write: writeAtomic, unlink: f => { try { fs.unlinkSync(f) } catch { /* gone */ } }, finish: () => null }
+  fs.rmSync(stage, { recursive: true, force: true }); fs.mkdirSync(stage, { recursive: true })
+  const plan = []
+  return {
+    write: (dest, obj) => { const src = path.join(stage, `${plan.length}.json`); writeAtomic(src, obj); plan.push({ op: 'write', dest, src }) },
+    unlink: dest => { plan.push({ op: 'unlink', dest }) },
+    finish: () => { writeAtomic(path.join(stage, 'manifest.json'), { v: 1, plan }); return plan.length },
+  }
+}
 const readJ = (f, dflt) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { if (e?.code === 'ENOENT') return dflt; throw e } }
 
 /** The town directory's readings -> { cells, guard, keys } | throws (an unreadable record is no cycle: nothing is written). */
@@ -58,13 +73,13 @@ export function townReadings (pool, home) {
 
 /** r1 C6: LIVE -> NOT LIVE. When the live book says lists were published, the town's list files are removed once and the book
  *  records when -> the number removed, or null (nothing was published: nothing in the town is touched). */
-export function stopLive (inp, now) {
+export function stopLive (inp, now, io = makeIo()) {
   const f = path.join(inp.state, 'book.live.json')
   const st = readJ(f, null)
   if (!st?.published) return null
   let n = 0
-  for (const x of fs.readdirSync(inp.pool)) if (LIST_RE.test(x)) { try { fs.unlinkSync(path.join(inp.pool, x)); n++ } catch { /* gone */ } }
-  writeAtomic(f, { ...st, published: false, stoppedAt: now, stoppedRemoved: n })
+  for (const x of fs.readdirSync(inp.pool)) if (LIST_RE.test(x)) { io.unlink(path.join(inp.pool, x)); n++ }
+  io.write(f, { ...st, published: false, stoppedAt: now, stoppedRemoved: n })
   return n
 }
 /** ONE CYCLE over the input -> the summary (and, unless `write` is false, the files written). */
@@ -105,18 +120,20 @@ export function runCycle (inp, { write = true } = {}) {
   if (!write) return { summary, cycle: c }
   // r5: THE BOOK FIRST. A crash after it and before the lists leaves the old lists, which expire (listDoc: 30 min) -- and the
   // book's notBefore already guards every move; the other order could leave lists the book never knew it gave out.
-  writeAtomic(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, seen: rr.seen, givenAt, unstuckAt, at: now })
+  const io = makeIo(inp.stage ?? null)
+  io.write(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, seen: rr.seen, givenAt, unstuckAt, at: now })
   if (inp.live) {
-    for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.pool, listFile(b)), d)
+    for (const [b, d] of Object.entries(c.lists)) io.write(path.join(inp.pool, listFile(b)), d)
     // a list file this cycle did not write is removed: a bot with no list now
-    for (const f of fs.readdirSync(inp.pool)) if (LIST_RE.test(f) && !Object.keys(c.lists).some(b => listFile(b) === f)) { try { fs.unlinkSync(path.join(inp.pool, f)) } catch { /* gone */ } }
+    for (const f of fs.readdirSync(inp.pool)) if (LIST_RE.test(f) && !Object.keys(c.lists).some(b => listFile(b) === f)) io.unlink(path.join(inp.pool, f))
   } else {
     // r1 C6: DRY NEVER WRITES TO OR DELETES FROM THE TOWN. The one exception is the switch going off: the live book says lists
     // were published, so they are removed ONCE and the live book records it; after that dry touches only scratch.
-    summary.stopped = stopLive(inp, now)
-    for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.scratch, listFile(b)), d)
+    summary.stopped = stopLive(inp, now, io)
+    for (const [b, d] of Object.entries(c.lists)) io.write(path.join(inp.scratch, listFile(b)), d)
   }
-  writeAtomic(path.join(inp.state, 'setaside.json'), { v: 1, at: now, mode, n: c.setAside.length, jobs: c.setAside })
+  io.write(path.join(inp.state, 'setaside.json'), { v: 1, at: now, mode, n: c.setAside.length, jobs: c.setAside })
+  summary.staged = io.finish()
   return { summary, cycle: c }
 }
 

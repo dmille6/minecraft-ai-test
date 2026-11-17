@@ -35,7 +35,10 @@ INSTALL ON THE SHOWCASE VM (.40) -- the control session's conditions (r6):
   * The script itself: its own lock (--lock); exits 0 with one `op=skipped why=tripwire_read` row while
     `python ... showcase_trip.py read` runs (trip_reading: matched on the command's words, never on itself or a pgrep);
     --mem-cap-mb (300): the python step's address space is capped and its peak RSS checked; the node step runs with
-    --max-old-space-size=<cap-44> and any non-zero exit is a failed cycle (fail closed: an error row, nothing more written).
+    --max-old-space-size=<cap-44>, under a measuring parent: a non-zero exit or a measured peak RSS over the cap is a failed
+    cycle. The node step only STAGES its writes (<state>/stage/manifest.json); they are published (book first) only after that
+    check (r7: fail closed -- an error row, nothing published). The log read streams in 8 MB chunks, so the first cycle of the
+    day or a re-read from 0 stays inside the cap.
   * Lists live 60 min (overseer.mjs OVERSEER.listTtlMs): the longest gap between slots is :30 -> :10 (40 min), 50 min when the :10
     slot is skipped for an overrunning read; 60 covers one skipped slot. The stall (30 min of no progress) and unstick (10 min) clocks
     are measured from the bots' rows, not from the cycle, and the bot's own 3 h stale-save check is longer than 60: none assumed 30.
@@ -186,7 +189,7 @@ def fingerprint_ok(path, was):
         return False
 
 
-def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
+def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_bytes=8 << 20):
     """r5 (cost): THE INCREMENTAL READ -> (state, bytes_read). Only the bytes appended to each live (plain) log since the last
     cycle are read; a .gz is rotated history and is never read here (read_problems validates it once). Per file the state keeps
     {ino, off}; a file is followed by its INODE, so a live file renamed by the rotation is finished under its new name, and a new
@@ -209,27 +212,38 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
         if off and not fingerprint_ok(f, was):
             off = 0
         if off < s_.st_size:
+            # r7: STREAMED in CHUNK-byte reads, a partial last line carried over -- memory is bounded whatever the backlog (the first
+            # cycle of the day, a re-read from 0, an outage)
+            last, carry, pos, todo = None, b'', off, s_.st_size - off
             with open(f, 'rb') as fh:
                 fh.seek(off)
-                buf = fh.read(s_.st_size - off)
-            end = buf.rfind(b'\n') + 1
+                while todo > 0:
+                    chunk = fh.read(min(chunk_bytes, todo))
+                    if not chunk:
+                        break
+                    todo -= len(chunk)
+                    data = carry + chunk
+                    cut = data.rfind(b'\n') + 1
+                    carry = data[cut:]
+                    for line in data[:cut].splitlines():
+                        if b'"_worklist"' in line:
+                            try:
+                                d = json.loads(line)
+                            except ValueError:
+                                continue
+                            t = _ts_ms(d.get('@timestamp'))
+                            name = (d.get('bot') or {}).get('name')
+                            if t is not None and name and t >= now_ms - window_ms:
+                                r = {'bot': name, 't': t, 'detail': (d.get('skill') or {}).get('detail') or ''}
+                                if (name, t, r['detail']) not in have:
+                                    have.add((name, t, r['detail']))
+                                    st['wl'].append(r)
+                        if line.strip():
+                            last = line
+                    pos += cut
+                    del data
+            end = pos - off
             nbytes += end
-            last = None
-            for line in buf[:end].splitlines():
-                if b'"_worklist"' in line:
-                    try:
-                        d = json.loads(line)
-                    except ValueError:
-                        continue
-                    t = _ts_ms(d.get('@timestamp'))
-                    name = (d.get('bot') or {}).get('name')
-                    if t is not None and name:
-                        r = {'bot': name, 't': t, 'detail': (d.get('skill') or {}).get('detail') or ''}
-                        if (name, t, r['detail']) not in have:
-                            have.add((name, t, r['detail']))
-                            st['wl'].append(r)
-                if line.strip():
-                    last = line
             if last is not None:
                 try:
                     d = json.loads(last)
@@ -239,7 +253,7 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
                         st['bots'][b['name']] = {'t': t, 'pos': [p.get('x'), p.get('y'), p.get('z')] if p else st['bots'].get(b['name'], {}).get('pos')}
                 except ValueError:
                     pass
-            off += end
+            off = pos
         st['files'][f] = {'ino': s_.st_ino, 'off': off, **fingerprint(f, off)}
     lo = now_ms - window_ms
     st['wl'] = [r for r in st['wl'] if r['t'] >= lo]
@@ -305,19 +319,59 @@ def over_cap(maxrss_kb, cap_mb, linux=sys.platform.startswith('linux')):
     return mb > cap_mb
 
 
-def run_child(cmd, payload, cap_mb, timeout=110):
-    """r6: the node step under its heap cap -> (summary dict) with `error` on any failure (a non-zero exit -- an out-of-memory
-    abort included --, no summary, or a timeout). The caller writes nothing more on an error."""
+MEASURE = (
+    "import json, resource, subprocess, sys\n"
+    "p = subprocess.run(sys.argv[1:], stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)\n"
+    "sys.stderr.write('\\nOVERSEER_PEAK %d %d\\n' % (resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss, p.returncode))\n"
+    "sys.exit(p.returncode)\n")
+
+
+def run_child(cmd, payload, cap_mb, timeout=110, linux=sys.platform.startswith('linux')):
+    """r6/r7: the node step under its heap cap AND its measured peak RSS -> (summary dict) with `error` on any failure: a non-zero
+    exit (an out-of-memory abort included), no summary, a timeout, or a peak RSS over cap_mb (V8's heap cap does not bound buffers).
+    The child runs under a fresh measuring parent (its RUSAGE_CHILDREN is this child alone). The caller publishes nothing on an
+    error (the child only STAGES its writes)."""
     try:
-        p = subprocess.run(cmd, input=payload, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run([sys.executable, '-c', MEASURE] + list(cmd), input=payload, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {'error': 'node: timeout %ss' % timeout}
+    peak = None
+    for ln in p.stderr.splitlines():
+        if ln.startswith('OVERSEER_PEAK '):
+            peak = int(ln.split()[1])
+    if peak is None:
+        return {'error': 'node: no peak measured (exit %s) %s' % (p.returncode, p.stderr.strip()[-200:])}
+    peak_mb = round(peak / 1024 if linux else peak / (1024 * 1024))
     if p.returncode != 0:
-        return {'error': 'node: exit %s (cap %s MB) %s' % (p.returncode, cap_mb, p.stderr.strip()[-200:])}
+        return {'error': 'node: exit %s (cap %s MB, peak %s MB) %s' % (p.returncode, cap_mb, peak_mb, p.stderr.strip()[-200:]), 'peak_mb': peak_mb}
+    if over_cap(peak, cap_mb, linux):
+        return {'error': 'node: peak RSS %s MB over the cap %s MB' % (peak_mb, cap_mb), 'peak_mb': peak_mb}
     try:
-        return json.loads(p.stdout.strip().splitlines()[-1])
+        out = json.loads(p.stdout.strip().splitlines()[-1])
     except Exception:
-        return {'error': 'node: no summary'}
+        return {'error': 'node: no summary', 'peak_mb': peak_mb}
+    out['peak_mb'] = peak_mb
+    return out
+
+
+def apply_stage(stage):
+    """r7: publish what the node step staged, in its order (the book first) -> the number of operations. A write is copied beside
+    its destination and renamed over it (atomic; the stage may be on another filesystem than the town)."""
+    import shutil
+    with open(os.path.join(stage, 'manifest.json')) as fh:
+        plan = json.load(fh)['plan']
+    for op in plan:
+        if op['op'] == 'write':
+            os.makedirs(os.path.dirname(op['dest']) or '.', exist_ok=True)
+            tmp = op['dest'] + '.tmp-%d' % os.getpid()
+            shutil.copyfile(op['src'], tmp)
+            os.replace(tmp, op['dest'])
+        elif op['op'] == 'unlink':
+            try:
+                os.unlink(op['dest'])
+            except FileNotFoundError:
+                pass
+    return len(plan)
 
 
 def main(argv=None):
@@ -410,12 +464,23 @@ def main(argv=None):
     os.replace(tail_file + '.tmp', tail_file)
     live = switch_live(a.switch)
     inp = {'now': int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
-           'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl}
-    try:   # the child must not inherit the python step's address-space cap (V8 reserves far more than it uses)
-        resource.setrlimit(resource.RLIMIT_AS, (resource.RLIM_INFINITY, resource.getrlimit(resource.RLIMIT_AS)[1]))
-    except (ValueError, OSError):
-        pass
+           'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl,
+           'stage': os.path.join(a.state, 'stage')}
+    # the child must not inherit the python step's address-space cap (V8 reserves far more than it uses): the soft limit goes back
+    # to the HARD one (RLIM_INFINITY is refused when the hard limit is finite); node's own heap cap bounds it
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (resource.getrlimit(resource.RLIMIT_AS)[1], resource.getrlimit(resource.RLIMIT_AS)[1]))
+    except (ValueError, OSError) as e:
+        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'rlimit: cannot lift the cap for node: %s' % e, 'wrote': 'nothing'}
+        log_row(row)
+        print(json.dumps(row, sort_keys=True))
+        return 1
     out = run_child([a.node, '--max-old-space-size=%d' % max(16, a.mem_cap_mb - 44), CYCLE], json.dumps(inp), a.mem_cap_mb)
+    if 'error' not in out:   # r7: published only now, after the child's peak memory was checked
+        try:
+            out['published'] = apply_stage(inp['stage'])
+        except (OSError, ValueError, KeyError) as e:
+            out = {**out, 'error': 'publish: %s' % e}
     # the denominator beside the result: the rows and bots the cycle was given
     row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'mode': 'live' if live else 'dry', 'bytes_read': nbytes,
            'bots': len(bots), 'online': sum(1 for b in bots if b['online']), 'worklist_rows': len(wl), **out}

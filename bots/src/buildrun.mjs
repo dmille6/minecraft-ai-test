@@ -1591,6 +1591,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         }
         const g = guard(); if (g) return g
         tried++
+        // overseer-01show r7: the list veto is asked AGAIN after the walk, with the tidy's own check (a cell listed during the walk is not dug)
+        const vetoNow = c.kind === 'tidy' && typeof p.tidyVeto === 'function' ? () => !!p.tidyVeto(c) : () => false
         // Codex t11c r1/r2: the cap segment's lease is taken right before the cut -- after every skip and the step guard, so no path
         // between the take and the release in the finally below -- and another bot holding it means the cut is not dug
         if (pair?.seg) {
@@ -1600,7 +1602,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         }
         let v
         try {
-          v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
+          v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && (p.tidyOk || typeof p.tidyVeto === 'function') ? () => !vetoNow() && (!p.tidyOk || p.tidyOk(c, rd)) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
           if (v === 'confirmed' && pair) {
             const pv = await layPair(pair, held)
             if (pv === 'aborted') return 'aborted'

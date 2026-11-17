@@ -1,5 +1,6 @@
 """overseer-01show: the host wrapper's two decisions -- live or dry, and the roster/rows it hands the cycle. Run: python3 test_overseer.py"""
 import datetime as dt
+import json
 import os
 import sys
 import tempfile
@@ -212,7 +213,49 @@ def test_mem_cap(R=None):
         out = R.run_child([node, '--max-old-space-size=32', '-e', hog], '{}', 32, timeout=60)
         assert 'error' in out and 'exit' in out['error'], out
         ok = R.run_child([node, '-e', 'process.stdout.write(JSON.stringify({row: "op=cycle"}) + "\\n")'], '{}', 300)
-        assert ok == {'row': 'op=cycle'}, ok
+        assert ok.get('row') == 'op=cycle' and ok.get('peak_mb', 0) > 0, ok
+        # r7: Buffers are outside V8's heap cap -- the measured peak RSS catches them, and the cycle fails closed
+        buf = 'const b = []; for (let i = 0; i < 30; i++) b.push(Buffer.alloc(10 << 20, 1)); process.stdout.write(JSON.stringify({row: "x"}) + "\\n")'
+        big = R.run_child([node, '--max-old-space-size=64', '-e', buf], '{}', 150)
+        assert 'error' in big and 'over the cap' in big['error'] and big['peak_mb'] > 150, big
+
+
+def test_tail_streams(R=None):
+    """r7: a 50 MB backlog is read in bounded chunks: peak RSS stays under 120 MB and the offset reaches the end."""
+    import subprocess as sp
+    R = R or OV
+    root = tempfile.mkdtemp()
+    d = os.path.join(root, 'showcase-Ann')
+    os.makedirs(d)
+    f = os.path.join(d, 'skill-Ann.jsonl')
+    with open(f, 'w') as fh:
+        one = _line('Ann', 1, '_shop', 'x' * 900)
+        fh.write(one * (50 * 1024 * 1024 // len(one)))
+        fh.write(_line('Ann', 2, '_worklist', 'op=ids list=9 ids=d:r:9,9,9'))
+    code = ("import importlib.util, json, resource, sys\n"
+            "spec = importlib.util.spec_from_file_location('m', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+            "st, n = m.tail_read([sys.argv[2]], {}, int(sys.argv[3]))\n"
+            "print(json.dumps({'n': n, 'off': st['files'][sys.argv[2]]['off'], 'wl': len(st['wl']), 'rss': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}))\n")
+    out = sp.run([sys.executable, '-c', code, R.__file__, f, str(int(NOW.timestamp() * 1000))], capture_output=True, text=True, cwd=os.path.dirname(OV.__file__), env={**os.environ, 'PYTHONPATH': os.path.join(os.path.dirname(OV.__file__), '..')})
+    r = json.loads(out.stdout.strip().splitlines()[-1])
+    assert r['off'] == os.path.getsize(f) and r['wl'] == 1, r
+    assert not OV.over_cap(r['rss'], 120), 'peak %s over 120 MB' % r['rss']
+
+
+def test_apply_stage(R=None):
+    """r7: the staged plan is applied in order: writes land atomically, removals go."""
+    R = R or OV
+    st, pool = tempfile.mkdtemp(), tempfile.mkdtemp()
+    open(os.path.join(st, '0.json'), 'w').write('{"book": 1}')
+    open(os.path.join(st, '1.json'), 'w').write('{"list": 1}')
+    open(os.path.join(pool, 'worklist-Old.json'), 'w').write('{}')
+    plan = [{'op': 'write', 'dest': os.path.join(pool, 'book.live.json'), 'src': os.path.join(st, '0.json')},
+            {'op': 'write', 'dest': os.path.join(pool, 'worklist-Ann.json'), 'src': os.path.join(st, '1.json')},
+            {'op': 'unlink', 'dest': os.path.join(pool, 'worklist-Old.json')}]
+    json.dump({'v': 1, 'plan': plan}, open(os.path.join(st, 'manifest.json'), 'w'))
+    assert R.apply_stage(st) == 3
+    assert sorted(os.listdir(pool)) == ['book.live.json', 'worklist-Ann.json']
+    assert json.load(open(os.path.join(pool, 'worklist-Ann.json'))) == {'list': 1}
 
 
 def _load_mutant(old, new):
@@ -236,11 +279,13 @@ def test_mutants():
             ("    for ln in ps_lines:\n        parts = ln.strip().split(None, 1)\n        if len(parts) < 2 or not parts[0].isdigit() or int(parts[0]) in set(self_pids):", "    for ln in ps_lines:\n        parts = ln.strip().split(None, 1)\n        if len(parts) < 2 or not parts[0].isdigit():", test_trip_reading),
             ("            if os.path.basename(w) == 'showcase_trip.py' and argv[i + 1] == 'read' and any(os.path.basename(x).startswith('python') for x in argv[:i]):", "            if 'showcase_trip.py' in w and argv[i + 1] == 'read':", test_trip_reading),
             ("    if p.returncode != 0:\n", "    if False:\n", test_mem_cap),
+            ("    if over_cap(peak, cap_mb, linux):\n", "    if False:\n", test_mem_cap),
+            ("                    chunk = fh.read(min(chunk_bytes, todo))", "                    chunk = fh.read(todo)", test_tail_streams),
             ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace),
             ("        off = was['off'] if was and was['off'] <= s_.st_size else 0", '        off = 0', test_tail_incremental),
             ("        if off and not fingerprint_ok(f, was):\n            off = 0", "        if False:\n            off = 0", test_tail_fingerprint),
             ("                        if (name, t, r['detail']) not in have:", "                        if True:", test_tail_fingerprint),
-            ("            end = buf.rfind(b'\\n') + 1", '            end = len(buf)', test_tail_incremental),
+            ("                    cut = data.rfind(b'\\n') + 1", '                    cut = len(data)', test_tail_incremental),
             ("    jwrite(dirs_file, seen)\n    return problems, retired", "    if not problems:\n        jwrite(dirs_file, seen)\n    return problems, retired", test_observe_persists_on_blocked_cycles)]:
         m = _load_mutant(old, new)
         try:

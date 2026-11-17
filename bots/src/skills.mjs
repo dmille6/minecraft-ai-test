@@ -290,7 +290,7 @@ import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
-import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, listedCache, ownIdsCache, WORKLIST_FILE_RE } from './worklist.mjs'   // worklist-01: a bot's own list from the host
+import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, listedCache, ownIdsCache, WORKLIST_FILE_RE, LISTED_ALL } from './worklist.mjs'   // worklist-01: a bot's own list from the host
 import { listLease as wlListLease } from './overseer.mjs'   // overseer-01show: the list is worked under buildrun.mjs's clear-part lease `seg-clear-wl<bot>`
 import { claimedAt as wlClaimedAt } from './tidy.mjs'   // worklist-01: a sited building's claim holds a listed cell
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -30033,7 +30033,8 @@ function worklistDocsNow () {
 }
 export function worklistListedNow (now = Date.now()) {
   if (!WL_ON) return new Set()
-  try { return listedCells(worklistDocsNow().filter(f => !f.err).map(f => f.doc), { home: planHomeP(), now }) } catch { return new Set() }
+  // r7: fail closed -- an unreadable directory or list file: every cut is vetoed for this draw
+  try { const fs0 = worklistDocsNow(); return fs0.some(f => f.err) ? LISTED_ALL : listedCells(fs0.map(f => f.doc), { home: planHomeP(), now }) } catch { return LISTED_ALL }
 }
 /** r2/r6: the listed cells for one shared visit, re-read at most every 5 s (worklist.mjs listedCache) -- asked again before each cut;
  *  an unreadable list file keeps its last cells (one row the first time). */
