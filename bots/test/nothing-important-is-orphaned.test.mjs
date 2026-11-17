@@ -207,7 +207,7 @@ const REQUIRED = [
   // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
   'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',
   // tidyflow-01show (11-16, owner: clean-up "has not happened after 4-5 days"): the tidy visit's draw, refresh, heartbeat and the keeper's order -- the pure rules and their test
-  'bots/src/tidyflow.mjs', 'bots/test/tidyflow.test.mjs',
+  'bots/src/tidyflow.mjs', 'bots/test/tidyflow.test.mjs', 'bots/test/stillvisit.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',
   'sandbox/cottage2/furnish-proof.jsonl',
   'sandbox/cottage2/shear-e2e.mjs',

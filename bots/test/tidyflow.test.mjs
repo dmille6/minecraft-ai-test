@@ -57,13 +57,13 @@ await t('each switch: default on; off|0|false|no (any case, padded) is off; one 
     for (const v of ['on', '1', '', 'yes']) assert.strictEqual(fn({ [name]: v }), true, `${name}=${v}`)
     for (const [other, g] of Object.entries(sw)) if (other !== name) assert.strictEqual(g({ [name]: 'off' }), true, `${name}=off leaves ${other} on`)
   }
-  assert.deepStrictEqual({ ...F.TFLOW }, { draw: true, refresh: true, still: true, keeper: true, long: true, all: true, share: true }, 'this process: all seven on')
+  assert.deepStrictEqual({ ...F.TFLOW }, { draw: true, refresh: true, still: true, keeper: true, long: true, all: true, share: true, stillVisit: true }, 'this process: all eight on (stillvisit-01show: + stillVisit)')
   assert.ok(Object.isFrozen(F.TFLOW) && Object.isFrozen(F.TIDYFLOW))
   assert.deepStrictEqual([F.TIDYFLOW.enough, F.TIDYFLOW.stillMs, F.TIDYFLOW.lease, F.TIDYFLOW.leaseMs], [8, 20_000, 'refresh', 10 * MIN])
 })
 await t('`_tidyflow`: one row says every switch and the numbers; a rollback is visible', () => {
-  assert.strictEqual(F.flowModeDetail(), 'v=1 draw=1 refresh=1 still=1 keeper=1 long=1 all=1 enough=8 still_ms=20000 lease_ms=600000 long_ms=600000 idle_ms=120000 idle_rows=12 all_bots=12 all_country=8 all_cooldown_ms=180000 share=1 share_every=3 all_aborts=2')
-  assert.strictEqual(F.flowModeDetail({ draw: false, refresh: true, still: false, keeper: true, long: false, all: false }), 'v=1 draw=0 refresh=1 still=0 keeper=1 long=0 all=0 enough=8 still_ms=20000 lease_ms=600000 long_ms=600000 idle_ms=120000 idle_rows=12 all_bots=12 all_country=8 all_cooldown_ms=180000 share=0 share_every=3 all_aborts=2')
+  assert.strictEqual(F.flowModeDetail(), 'v=1 draw=1 refresh=1 still=1 keeper=1 long=1 all=1 enough=8 still_ms=20000 lease_ms=600000 long_ms=600000 idle_ms=120000 idle_rows=12 all_bots=12 all_country=8 all_cooldown_ms=180000 share=1 share_every=3 all_aborts=2 stillvisit=1 stillvisit_ms=20000')
+  assert.strictEqual(F.flowModeDetail({ draw: false, refresh: true, still: false, keeper: true, long: false, all: false }), 'v=1 draw=0 refresh=1 still=0 keeper=1 long=0 all=0 enough=8 still_ms=20000 lease_ms=600000 long_ms=600000 idle_ms=120000 idle_rows=12 all_bots=12 all_country=8 all_cooldown_ms=180000 share=0 share_every=3 all_aborts=2 stillvisit=0 stillvisit_ms=20000')
   const feat = strip(fs.readFileSync(SRC('features.mjs'), 'utf8'))
   assert.strictEqual(feat.split("logEvent({ kind: 'tidyflow', status: 'success', snapshot: snapshot(bot), detail: flowModeDetail() })").length, 2, 'features.mjs writes it once at spawn')
 })

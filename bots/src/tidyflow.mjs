@@ -48,8 +48,9 @@ export const flowKeeperOn = (env = process.env) => !isOff(env?.TIDYFLOW_KEEPER)
 export const flowLongOn = (env = process.env) => !isOff(env?.TIDYFLOW_LONG)
 export const flowAllOn = (env = process.env) => !isOff(env?.TIDYFLOW_ALLHANDS)
 export const flowShareOn = (env = process.env) => !isOff(env?.TIDYFLOW_ALLHANDS_SHARE)
+export const flowStillVisitOn = (env = process.env) => !isOff(env?.TIDYFLOW_STILLVISIT)
 /** The switches as this process read them at its start (skills.mjs reads these, as it reads TEMPSTAND and TOPDOWN). */
-export const TFLOW = Object.freeze({ draw: flowDrawOn(), refresh: flowRefreshOn(), still: flowStillOn(), keeper: flowKeeperOn(), long: flowLongOn(), all: flowAllOn(), share: flowShareOn() })
+export const TFLOW = Object.freeze({ draw: flowDrawOn(), refresh: flowRefreshOn(), still: flowStillOn(), keeper: flowKeeperOn(), long: flowLongOn(), all: flowAllOn(), share: flowShareOn(), stillVisit: flowStillVisitOn() })
 
 const num = v => Math.max(0, Number(typeof v === 'function' ? v() : v) || 0)
 const yes = v => !!(typeof v === 'function' ? v() : v)
@@ -275,4 +276,32 @@ export function allShare ({ on = true, open = false, n = 0, T = TIDYFLOW } = {})
 }
 
 /** `_tidyflow`: the licence row, once at spawn (each switch 0|1: a rollback is visible too). Pure. */
-export const flowModeDetail = (F = TFLOW, T = TIDYFLOW) => `v=1 draw=${F.draw ? 1 : 0} refresh=${F.refresh ? 1 : 0} still=${F.still ? 1 : 0} keeper=${F.keeper ? 1 : 0} long=${F.long ? 1 : 0} all=${F.all ? 1 : 0} enough=${T.enough} still_ms=${T.stillMs} lease_ms=${T.leaseMs} long_ms=${T.longMs} idle_ms=${T.idleMs} idle_rows=${T.idleRows} all_bots=${T.allBots} all_country=${T.allCountry} all_cooldown_ms=${T.allCooldownMs} share=${F.share ? 1 : 0} share_every=${T.allShareEvery} all_aborts=${T.allAborts}`
+export const flowModeDetail = (F = TFLOW, T = TIDYFLOW) => `v=1 draw=${F.draw ? 1 : 0} refresh=${F.refresh ? 1 : 0} still=${F.still ? 1 : 0} keeper=${F.keeper ? 1 : 0} long=${F.long ? 1 : 0} all=${F.all ? 1 : 0} enough=${T.enough} still_ms=${T.stillMs} lease_ms=${T.leaseMs} long_ms=${T.longMs} idle_ms=${T.idleMs} idle_rows=${T.idleRows} all_bots=${T.allBots} all_country=${T.allCountry} all_cooldown_ms=${T.allCooldownMs} share=${F.share ? 1 : 0} share_every=${T.allShareEvery} all_aborts=${T.allAborts} stillvisit=${F.stillVisit ? 1 : 0} stillvisit_ms=${STILLVISIT.capMs}`
+
+// ---- 8. stillvisit-01show (11-17): a build visit never stands still on cells it has just deferred ---------------------------------
+// WHY (LIVE showcase 11-17 14:21-15:21Z, 14 bots): 40 of 81 `_build_visit` rows ended aborted/interrupted, 34 of them by the stuck
+// reflex ("no movement for 35s"); the last `_build` op before the cut was stuck_on_cell 21, float_held 5, deferred 1. A deferral
+// costs no walk; the walks to the next cells that followed did not move the bot either (buildbot.mjs walkTo: up to PATH_MS each),
+// so the reflex ended the visit and the abort fed the back-offs as an interruption. TIDYFLOW_STILLVISIT (default on; off|0|false|no:
+// the visit exactly as it was): after such a row the visit goes on to the next workable cell at once, and ends ITSELF
+// `stuck_cells` when none is workable or nothing has been laid, dug or moved for STILLVISIT.capMs -- well inside the reflex's 35 s.
+// The end is the visit's own: its counts come back, so the existing back-offs read it (grounds2.mjs groundsAfter / minecrew.mjs
+// steerAfter: "fixed nothing" only with 0 placed and 0 cleared; tidyflow abortsAfter: not an abort).
+export const STILLVISIT = Object.freeze({ capMs: 20_000, tickMs: 1_000, stop: 'stuck_cells' })
+/** The `_build` rows after which a visit may be standing on a cell it cannot work. Pure. */
+export const stallRow = (op, d = {}) => op === 'deferred' || op === 'stuck_on_cell' || op === 'float_held' || (op === 'tempstand' && d?.result === 'refused')
+/**
+ * WHAT THE VISIT DOES NOW -> 'continue' | 'next' | 'end'. Pure.
+ *   lastOp          the last stall row's op since the last work row (null: none, or work since)
+ *   sinceProgressMs ms since the last block laid, dug or planted (or the visit's start)
+ *   sinceMoveMs     ms since the bot's cell last changed (or the stall row, if later)
+ *   workable        a cell this visit may still work (an open segment not deferred)
+ * No stall row: 'continue' (the visit as it was). One: 'end' when nothing is workable, or nothing moved or progressed for capMs;
+ * else 'next' (the loop goes on to the next workable cell, never waits). Off: always 'continue'.
+ */
+export function stillVisitStep ({ on = true, lastOp = null, sinceProgressMs = 0, sinceMoveMs = 0, workable = true, capMs = STILLVISIT.capMs } = {}) {
+  if (!on || !lastOp) return 'continue'
+  if (!workable) return 'end'
+  if (Math.min(Number(sinceProgressMs) || 0, Number(sinceMoveMs) || 0) >= capMs) return 'end'
+  return 'next'
+}

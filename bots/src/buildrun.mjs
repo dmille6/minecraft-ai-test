@@ -35,7 +35,8 @@ import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
 import * as TS from './tempstand.mjs'
 import { plantedAs } from './park.mjs'   // townterrace-01: a crop block is its seed
-import { stateOk, propsOf, stateTag } from './townstyle.mjs'   // townstyle-01: a cell's block STATE
+import { stateOk, propsOf, stateTag } from './townstyle.mjs'
+import { TFLOW, STILLVISIT, stallRow, stillVisitStep } from './tidyflow.mjs'   // stillvisit-01show: TIDYFLOW_STILLVISIT   // townstyle-01: a cell's block STATE
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -550,8 +551,69 @@ export const clearLeaseOf = p => (typeof p?.clearPart?.lease === 'string' && /^s
 /** ...and the segment name a click under that lease is checked against (the lease without its `seg-`): `clear` for every other project. */
 export const clearSegOf = p => clearLeaseOf(p).slice(4)
 export const clearPartHas = (p, c) => typeof p?.clearPart?.has !== 'function' || !!p.clearPart.has(c)
+/** The `_build` rows that are work (a block laid, dug, planted or felled): progress to the visit's stillness watch. */
+const STILL_GAIN = new Set(['place', 'clear', 'replant', 'fell', 'access_done'])
+/**
+ * stillvisit-01show (TIDYFLOW_STILLVISIT, tidyflow.mjs stillVisitStep): THE VISIT'S STILLNESS WATCH -> { e, ended(), stop(),
+ * check(), setWorkable(fn) }. `e` is the effects seen through it: every `_build` row is read (a work row is progress, a stall row
+ * starts the watch), the bot's cell is sampled every `tickMs` (a move restarts the clock), and once the decision is 'end' the walk
+ * in flight is let go (`e.halt()`: the pathfinder's goal cleared) and no new walk starts -- the visit's next guard ends it
+ * `stuck_cells`. Off: the effects themselves, nothing watched (the visit exactly as it was).
+ */
+export function stillWatch (e, { on = TFLOW.stillVisit, capMs = STILLVISIT.capMs, tickMs = STILLVISIT.tickMs } = {}) {
+  let ended = false, timer = null
+  if (!on) return { e, ended: () => false, stop: () => {}, check: () => false, setWorkable: () => {} }
+  const t0 = e.now()
+  let progressAt = t0, moveAt = t0, lastOp = null, stallAt = t0, cell = null, workable = () => true
+  const feetKey = () => { try { const f = e.feet(); return f ? f.map(Math.floor).join(',') : null } catch { return null } }
+  cell = feetKey()
+  // r1 (Codex blocker 2): a place or dig IN FLIGHT is never cut -- the watch waits for its answer; a landed one is progress
+  let busy = 0
+  const inFlight = (fn, ok) => async (...a) => {
+    busy++
+    try { const v = await fn(...a); if (ok(v)) { progressAt = e.now(); lastOp = null } return v } finally { busy-- }
+  }
+  const check = () => {
+    if (ended) return true
+    if (busy > 0) return false
+    // r2 (Codex): a dig the WALK makes (buildbot.mjs walkTo's jump-apex leaves) is in flight too, and its landed clear is progress
+    if ((Number(e.digsInFlight?.()) || 0) > 0) return false
+    { const wa = Number(e.walkWorkAt?.()) || 0; if (wa > progressAt) { progressAt = wa; if (wa >= stallAt) lastOp = null } }
+    const k = feetKey()
+    const t = e.now()
+    if (k !== cell) { cell = k; moveAt = t }
+    let w = true
+    if (lastOp) { try { w = !!workable() } catch { w = true } }
+    const step = stillVisitStep({ on, lastOp, sinceProgressMs: t - progressAt, sinceMoveMs: t - Math.max(moveAt, stallAt), workable: w, capMs })
+    if (step !== 'end') return false
+    ended = true
+    try { e.log('_build', { op: 'still_end', why: `${lastOp}: ${w ? `nothing laid, dug or moved for ${Math.round((t - Math.max(progressAt, moveAt, stallAt)) / 1000)} s` : 'no workable cell left'}` }) } catch { /* telemetry */ }
+    try { e.halt?.() } catch { /* nothing walking */ }
+    return true
+  }
+  const w = { ...e }   // a plain copy, as the visit's own wrappers make (avoidSet, touched): they spread it again
+  w.log = (kind, d) => {
+    if (kind === '_build' && d) {
+      if (STILL_GAIN.has(String(d.op)) && !(d.op === 'fell' && !(Number(d.n) > 0))) { progressAt = e.now(); lastOp = null } else if (stallRow(d.op, d)) { lastOp = d.op; stallAt = e.now() }
+    }
+    return e.log(kind, d)
+  }
+  w.walkTo = async (...a) => (ended ? false : e.walkTo(...a))
+  if (typeof e.dig === 'function') w.dig = inFlight(e.dig, v => v === 'confirmed')
+  if (typeof e.probe === 'function') w.probe = inFlight(e.probe, () => false)
+  if (typeof e.waitAck === 'function') w.waitAck = inFlight(e.waitAck, v => v === 'acked')
+  timer = setInterval(() => { try { check() } catch { /* the guard asks again */ } }, tickMs)
+  timer.unref?.()
+  return { e: w, ended: () => ended, check, stop: () => { if (timer) clearInterval(timer); timer = null }, setWorkable: fn => { workable = fn } }
+}
 export async function runVisit (p, e, opts = {}) {
-  const r = await visitInner(p, e, opts)
+  const watch = stillWatch(e, { on: opts.stillVisit ?? TFLOW.stillVisit, capMs: opts.stillCapMs, tickMs: opts.stillTickMs })
+  let r
+  try { r = await visitInner(p, watch.e, { ...opts, watch }) } finally { watch.stop() }
+  // stillvisit-01show: a visit the watch ended whose walk came back to another stop (a stand the halted walk never reached) is the
+  // watch's: `stuck_cells`. An abort, a completion and stuck_on_cell (its own named 6-h hold) stand.
+  if (watch.ended() && r && r.stop !== STILLVISIT.stop && r.stop !== 'aborted' && r.stop !== 'complete' && r.stop !== 'stuck_on_cell') { r.stillFrom = r.stop; r.stop = STILLVISIT.stop }
+  if (r?.stop === STILLVISIT.stop && !r.why) r.why = `no workable cell this visit could reach: ended by itself after ${r.placed ?? 0} placed, ${r.cleared ?? 0} cleared`
   // LEAVING THE SITE (monument-01, `p.leaveIf(feet)` / `p.leaveTo`): a builder whose visit ends standing on the build walks off it,
   // so it never stands in the next visit's open cells (the fake server, 10-29: an idle builder in a layer's last open cell held
   // the layer for every other builder). Not after an abort: the reflex that aborted it owns the body.
@@ -568,7 +630,7 @@ export async function runVisit (p, e, opts = {}) {
 export const BODY_WAITS = 20
 /** leaffell-01show: the visit's memory when the caller names none (`p.leafMem`): a waiting leaf's first wait, a set-aside clear's row. */
 const LEAF_MEM = new Map()
-async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, stepClass: stepClassOpt = STEPCLASS_ON, standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON } = {}) {
+async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, stepClass: stepClassOpt = STEPCLASS_ON, standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON, watch = null } = {}) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
@@ -593,6 +655,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (now() > deadline) return 'deadline'
     // tidyflow-01show (`p.giveUp()`, tidyflow.mjs headway): a long visit that has laid and dug nothing for its caller's bound ends itself
     if (typeof p.giveUp === 'function' && p.giveUp()) return 'no_headway'
+    // stillvisit-01show (runVisit's stillWatch): a visit standing on cells it has deferred or found stuck ends itself
+    if (watch?.check()) return STILLVISIT.stop
     return null
   }
   // keeperstall-01, THE BREATH (see BREATH_MS): `winded()` is the synchronous question (nothing awaited when no breath is due, and
@@ -1607,9 +1671,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     e.log('_build', { op: r.result === 'done' ? 'access_done' : 'access_end', seg, cell: e.feet(), n: r.placed, result: r.result, ...(r.why ? { why: String(r.why).slice(0, 120) } : {}) })
     return { result: r.result, segGen: held.get(seg) }
   }
+  // stillvisit-01show: a workable cell is left while an open segment is neither deferred nor waiting on a deferred one
+  // r1 (Codex blocker 1): ...or a clear (the record's or the tidy's) still stands to be dug -- `clearsLast` digs it after the
+  // segments, so a deferred fill must not read as "nothing workable" while the scaffold waits
+  const clearsPending = () => (record.clear ?? []).some(c => clearPartHas(p, c) && c?.apex !== 1 && nm(e.read(...c.at)) === c.name) || (p.tidy ?? []).some(c => nm(e.read(...c.at)) === c.name)
+  watch?.setWorkable(() => segmentsOf(record).some(s => !deferredSegs.has(s.seg) && !s.deps.some(d => deferredSegs.has(d)) && !segComplete(rd, record, palette, s.seg, alsoDone)) || clearsPending())
   try {
   for (const { seg, deps } of segmentsOf(record)) {
     if (winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
+    if (watch?.ended()) { out.stop = STILLVISIT.stop; return out }
     if (segComplete(rd, record, palette, seg, alsoDone)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
     if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) {
@@ -2064,6 +2134,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   } finally {
     // an early exit (any `return out` above): count this visit's deferrals; the early stop stands, except a map that cannot be
     // written, which fails closed. Never throws (a finally must not replace the visit's own result).
+    // r1 (Codex blocker 1): a visit the watch ended is settled as the loop's end would be -- every segment waiting on a deferred one
+    // counted deferred, the stuck map and the project back-off advanced, stuck_on_cell (its own hold) kept when reached
+    if (!settled && !reachedEnd && watch?.ended()) {
+      try {
+        for (const s of segmentsOf(record)) if (s.deps.some(d => deferredSegs.has(d))) deferredSegs.add(s.seg)
+        const r = settleStuck(true)
+        if (r && (r.unwritten || r.stop === 'stuck_on_cell')) { out.stop = r.stop; out.why = r.why; if (!r.unwritten) out.stuck = true }
+      } catch { /* the next visit counts */ }
+    }
     if (!settled && !reachedEnd) { try { const r = settleStuck(false); if (r?.unwritten) { out.stop = r.stop; out.why = r.why } else if (r?.stop === 'stuck_on_cell') out.stuck = true } catch { /* the next visit counts */ } }
   }
   // the loop's end: this visit's deferrals counted, built cells dropped (F4)

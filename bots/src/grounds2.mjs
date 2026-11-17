@@ -200,7 +200,9 @@ export const FALL_STOPS = Object.freeze(['no_site', 'site_wait', 'paths_no_site'
   'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'felling_one', 'slots_full', 'keeper_held', 'not_decorator', 'complete', 'upkeep',
   // leaffell-01show r1: the visit's two waiting stops (buildrun.mjs runVisit: every open cell left waits on leaves that decay, or is
   // closed by a protected zone) -- nothing here for this bot now
-  'leaf_decay', 'zone_closed'])
+  'leaf_decay', 'zone_closed',
+  // stillvisit-01show: a visit that ended itself standing on cells it deferred or found stuck (buildrun.mjs stillWatch)
+  'stuck_cells'])
 export const fallStops = stop => FALL_STOPS.includes(String(stop ?? ''))
 /**
  * MAY THIS BOT WORK THE GROUNDS NOW, WHATEVER BROUGHT IT? -> { ok, why }. Pure. groundsDecide's links without the turn: the fall-

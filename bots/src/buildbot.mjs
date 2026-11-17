@@ -340,6 +340,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
   const A = acks ?? installAckTracker(bot)
   const blocks = installServerBlockWitness(bot)
   const timers = new Set()
+  const halts = new Set()   // stillvisit-01show: each walk in flight's own clock end, called early by `halt()`
+  // stillvisit-01show r2 (Codex): the digs a WALK makes itself (the jump-apex leaves) -- in flight now, and the last one that landed
+  let walkDigs = 0, walkWorkAt = 0
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const items = () => bot.inventory?.items?.() ?? []
   const count = n => items().filter(i => i.name === n).reduce((s, i) => s + (i.count ?? 1), 0)
@@ -377,7 +380,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       .filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < BODY_RADIUS)
       .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 })),
     walkTo: async (s, { avoid = null } = {}) => {
-      let timer = null, late = false
+      let timer = null, late = false, giveUp = null
       try {
         // storehouse-01: the A* never routes through the segment's open cells (stepFence), so a stand behind them is reached the long
         // way -- the fence scoped round the WHOLE race (Codex r3 BLOCK): it is off again before walkTo returns, the clock's end included
@@ -410,8 +413,11 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
                   try { pers = blk.getProperties?.()?.persistent } catch { pers = null }
                   if (!(pers === false || pers === 'false')) continue   // re-read at the dig: a natural leaf only
                   blocks.watch(d.at)
-                  try { await bot.dig(blk, true) } catch (e) { if (e?.aborted || aborted()) throw e; continue }
-                  if (await blocks.wait(d.at, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)) log('_build', { op: 'clear', cell: d.at, block: d.name, kind: 'leaves' })
+                  walkDigs++
+                  try {
+                    try { await bot.dig(blk, true) } catch (e) { if (e?.aborted || aborted()) throw e; continue }
+                    if (await blocks.wait(d.at, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)) { walkWorkAt = Date.now(); log('_build', { op: 'clear', cell: d.at, block: d.name, kind: 'leaves' }) }
+                  } finally { walkDigs-- }
                 }
               }
             } catch (e) { if (e?.aborted || aborted()) throw e; legs = [s] }
@@ -420,9 +426,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
             if (crosses) return
             for (const w of legs) { if (aborted() || late) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
           })(),
-          new Promise(resolve => { timer = setTimeout(() => { late = true; timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
+          new Promise(resolve => { giveUp = () => { late = true; timers.delete(timer); halts.delete(giveUp); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }; timer = setTimeout(giveUp, pathMs); timers.add(timer); halts.add(giveUp) }),
         ])))
-      } catch (e) { if (e?.aborted || aborted()) throw e } finally { if (timer) { clearTimeout(timer); timers.delete(timer) } }
+      } catch (e) { if (e?.aborted || aborted()) throw e } finally { if (timer) { clearTimeout(timer); timers.delete(timer) } if (giveUp) halts.delete(giveUp) }
       return true
     },
     hold: async n => {
@@ -551,6 +557,11 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       try { await bot.equip(pick, 'hand') } catch (e) { if (e?.aborted) throw e }
     },
     aborted,
+    // stillvisit-01show (buildrun.mjs stillWatch): the walk in flight let go -- its goal cleared, as walkTo's own clock does at PATH_MS
+    halt: () => { for (const h of [...halts]) h() },
+    // stillvisit-01show r2: the watch never ends a visit while a walk's own dig is awaited; a landed one is progress
+    digsInFlight: () => walkDigs,
+    walkWorkAt: () => walkWorkAt,
     log,
     now: () => Date.now(),
     // standcache-01 r2: what this connection has been told has changed (installServerBlockWitness seq / moved)
