@@ -103,7 +103,7 @@ import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RA
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns, isTerrain } from './townground.mjs'
 import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCellAt, topDownRefusal, roofOverY, feetLevel, feetLevels } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
-import { noteCraftOutcome, zoneWalkTarget } from './craftmemo.mjs'   // craftmemo-01show
+import { noteCraftOutcome, zoneWalkTarget, noteGatherOutcome } from './craftmemo.mjs'   // craftmemo-01show
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -2261,6 +2261,14 @@ function keepoutCooldown (bot, skill, block, site) {
  * (gather, block) is suppressed for 10 min while this bot is within 32 of the column -- a deterministic cooldown, so the
  * next decision is a different one -- and the result names a remedy the bot can perform from here.
  */
+// THE GATHER REFUSAL MEMO (craftmemo.mjs, gathermemo-01show): the skill as the model runs it notes its outcome, on the
+// spot it ends at. Internal callers of gather() are not memoed.
+async function gatherNoted(ctx, args, signal) {
+  const res = await gather(ctx, args, signal)
+  if (args?.block) noteGatherOutcome(ctx.bot, args.block, res)
+  return res
+}
+
 async function gather(ctx, args, signal) {
   return withKeepout(ctx, 'gather', async ko => {
     const r = await gatherRun(ctx, args ?? {}, signal, ko).finally(() => tdFromBelowSay(ctx?.bot))   // topdown-01: the run's one op=from_below row
@@ -34609,7 +34617,7 @@ async function bucketSkill (ctx, args, signal) {
 
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
-  gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
+  gather:  { run: gatherNoted,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
   come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },
   home:    { run: home,    usage: 'home',                          args: [], rescue: true },
