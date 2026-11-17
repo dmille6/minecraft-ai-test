@@ -32,7 +32,7 @@ Not whole on the fleet side: row 2 carries only the ORDER's part of the fleet ru
 are not on the branch), so a fleet pool is better on `UNSITEDWAIT=off` until they are; `disposeWell`'s visit-side band
 is still missing (one subtest of `idlework2.test.mjs`).
 
-| 7 | snow on a build cell (`stuckcells.test.mjs`, two subtests) | A cell under snow is "blocked without properties" | gkunblock-01 digs snow (`snow` in `FOREIGN_CLEAR`), so the same cell ends `complete` | NOT chosen: the showcase digs; the two fleet subtests are RED | Found while building the switches | none |
+| 7 | snow on a build cell (`stuckcells.test.mjs`) | A cell under snow is "blocked without properties" | gkunblock-01 digs snow (`snow` in the visit's default foreign list) | SETTLED as a pool switch: `SNOWKEEP` (`buildrun.mjs snowKeepOn`), off in the showcase pool, on elsewhere. It moves the visit's default list only; overburden, cover and chest-litter defaults still dig snow in every pool. The wiring subtest now accepts either line's read and proves a snow layer's `layers` is seen through the trunk's (the showcase's lazy read, which carries every block's properties; the fleet's `readBlock` carried snow's only) | pattern of rows 2-6 | `SNOWKEEP=off` |
 
 ## Fleet tests the showcase line has replaced with its own piece
 
@@ -56,6 +56,11 @@ commit that names the showcase piece, or shown not to be covered after all. None
 | shop S1 idlework-01 B (one assertion) | sinkfix-03 `305057d03` (row 2 above) | yes |
 | junkout (one assertion) | bagroom-01 (row 3 above) | yes |
 
+**Also settled in the last round:** `disposeWell`'s visit-side band is back behind `IDLEWORK_WELL` (never for a hall
+clerk's throw); `stuckfleet.test.mjs` keeps its ten live subtests and the four that test the fleet's cap and light waiver
+(not in the trunk; coverdig-01 `005e29324`, gkleft `a6042d12a`) moved unchanged to `stuckfleet-cap.test.mjs`, skipped
+with that reason.
+
 ## THE LARGEST OPEN QUESTION: what the trunk newly turns ON for the showcase
 
 The merge keeps every fleet-only change that did not conflict. So the trunk, run in the showcase pool, is the showcase's
@@ -64,6 +69,10 @@ Example found by accident: escdead-01 (`ESCDEAD_ON` in `toolfor.mjs`: 8 lines on
 pinned last swing is on in the showcase pool on this branch. Nobody has listed these yet. Until each is either defaulted
 off for the showcase pool or accepted by the control session, releasing the trunk to the showcase is not one change, it
 is all of them at once, which the showcase's one-change-at-a-time rule forbids. This list is owed before any release.
+
+**The list now exists:** `SHOWCASE-NEW.md` (63 new switches, 41 on by default with a live caller, about 40 fleet pieces)
+and `showcase-pool-off.env` (48 lines that turn them off for the showcase; 47 proven by running each switch's own reader
+with and without the block). What the block does not cover is listed at the top of that file.
 
 Also noted, not contradictions:
 - `TOWNMINE_DEFAULT_POOLS` is the showcase's `'showcase'`; the fleet's `'*'` was set aside by the first pass. As it

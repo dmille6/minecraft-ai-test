@@ -42,9 +42,20 @@ await t('readBlock carries a snow layer\'s properties (layers=1 is replaceable);
   assert.deepStrictEqual(SC.readBlock({ name: 'stone', boundingBox: 'block', getProperties: () => { throw new Error('never asked') } }, true), { name: 'stone', boundingBox: 'block' })
   assert.strictEqual(SC.readBlock(null), null)
 })
-await t('wiring: the visit\'s read (buildbot.mjs) is readBlock', () => {
+await t('wiring: the visit\'s read (buildbot.mjs) carries a block\'s properties (readBlock, or townstyle-01\'s lazy read)', () => {
+  // one trunk (2026-11-16, FIXING rule 4): the fleet line's read was readBlock, which carries the properties of SNOW only; the
+  // showcase line's townstyle-01 read carries EVERY block's properties behind a lazy getter (a stair's facing, a log's axis, and
+  // a snow layer's `layers` with them). The trunk has the showcase's read: putting readBlock back would lose the stair and log
+  // properties. What this test is for -- the visit must see a snow layer's `layers` -- holds through either line, so either is
+  // accepted, and the second half proves it on the shape the trunk's read returns.
   const src = strip(readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8'))
-  assert.strictEqual(src.split('const read = (x, y, z) => readBlock(bot.blockAt(new Vec3(x, y, z)))').length, 2)
+  const fleet = src.split('const read = (x, y, z) => readBlock(bot.blockAt(new Vec3(x, y, z)))').length - 1
+  const show = src.split('return { name: b.name, boundingBox: b.boundingBox, get props () { try { return b.getProperties?.() ?? null } catch { return null } } }').length - 1
+  assert.strictEqual(fleet + show, 1, `exactly one of the two reads (readBlock ${fleet}, lazy props ${show})`)
+  const blk = { name: 'snow', boundingBox: 'empty', getProperties: () => ({ layers: 1 }) }
+  const lazy = { name: blk.name, boundingBox: blk.boundingBox, get props () { try { return blk.getProperties?.() ?? null } catch { return null } } }
+  assert.strictEqual(replaceableCell(lazy), true, 'a single snow layer read the trunk\'s way takes a placement')
+  assert.strictEqual(replaceableCell({ name: 'snow', boundingBox: 'empty' }), false, 'CONTROL: the same layer with no properties reads unplaceable')
 })
 await t('an earth cell under ONE snow layer is placed (with the layer\'s properties) and the visit stops blocked without them', async () => {
   const run = async withProps => {
