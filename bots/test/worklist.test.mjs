@@ -277,7 +277,7 @@ const raceScenario = async M => {
   const fresh = M.listedCache(() => docs, { home: HOME, clock: () => (clock += 6_000) })
   const key = PJ.projKey(HOME, 'tidy')
   const cuts = [rm(5, G + 1, 0), rm(8, G + 1, 0)]
-  const a = visitP(dir, 'A', cuts, srv, { key, extra: { tidyOk: q => !fresh().has(q.at.join(',')) } })
+  const a = visitP(dir, 'A', cuts, srv, { key, extra: { tidyVeto: q => fresh().has(q.at.join(',')) } })
   const log = []
   const e = digger(srv, 'A', [6, G + 1, 0], log, dir, {})
   const dig0 = e.dig
@@ -327,9 +327,10 @@ await t('overseer-01show wiring: the town switch file before the list, the list 
   one(CG, '    if (!order && this.#wlUnstick()) this.crewForce = true\n    if (MINECREW.on) { if (order) this.crewForce = false;', 'the unstick forces the steer, just before it')
   one(CG, 'worklistUnstickNow(this.bot, { done: id => id === this.wlUnstickDone, now })', 'one order, once')
   one(SK, '    const wlListed = worklistListedNow()', 'the shared visit reads the listed cells once')
-  one(SK, "tidyOk: (q, rd) => !wlFresh().has(q.at.join(',')) && cutSafeNow(", 'each shared cut re-reads the listed cells')
-  one(SK, "} : { tidyOk: q => !wlFresh().has(q.at.join(',')) }),", 'grounds off too')
-  one(SK, 'const cuts0 = tidyCuts(rec, read, mem).filter(q => !wlListed.has(q.at.join(\',\')) && !claimedQ(q) &&', 'and its draw skips them')
+  one(SK, "      ...(WL_ON ? { tidyVeto: q => wlFresh().has(q.at.join(',')) } : {}), ...tempStandOf(bot, c, TIDY_PLOT), ", 'each shared cut re-reads the listed cells (no lists, WORKLIST off: no veto at all)')
+  const BR = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
+  one(BR, "        if (c.kind === 'tidy' && typeof p.tidyVeto === 'function' && p.tidyVeto(c)) continue", 'runVisit asks the veto before each cut')
+  one(SK, "      if (wlListed.size) for (let i = cuts0.length - 1; i >= 0; i--) if (wlListed.has(cuts0[i].at.join(','))) cuts0.splice(i, 1)", 'and its draw skips them')
 })
 await t('unstickOf: only an accepted file of this bot, only unstick, only once', async () => {
   const ord = { kind: 'unstick', id: 'unstick:A:1', why: 'no_progress 31m' }

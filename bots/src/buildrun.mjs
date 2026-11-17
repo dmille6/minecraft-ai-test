@@ -1552,6 +1552,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         nodes ??= nodesFor()
         // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these
         // (Codex zigtidy r1: counted at the list, a deadline or the clear bound spent untouched pillars' visits)
+        // overseer-01show (`p.tidyVeto(cut)`): a cut on a bot's own list NOW (the host listed it after this visit's draw) is skipped,
+        // asked before each cut; nothing counted against it (it is that bot's)
+        if (c.kind === 'tidy' && typeof p.tidyVeto === 'function' && p.tidyVeto(c)) continue
         if (c.kind === 'tidy') (out.tidied ??= []).push(kOf(c.at))
         // townterrace-01 (`p.tidyOk(cut, read)`, the owner's 11-01 water rule): a tidy cut is dug only when the world NOW lets it out --
         // no water beside it at its height (its dams are in) -- re-read at the dig; else it waits (counted toward its give-up above)
