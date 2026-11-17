@@ -95,7 +95,7 @@ await t('THE RUNNER clears the clutter (6 digs) and bay 3 then takes a whole sta
   assert.strictEqual(r2.placed, 64, JSON.stringify({ stop: r2.stop, why: r2.why }))
 })
 await t('MUTANT KILLED: a bayClutter that skips the top layer (the aisle rule\'s +1/+2 reach) leaves bay 3 locked', async () => {
-  await withMutant(YARD_PATH, "      if (YARD_BULK.includes(n) || KEEP_IN_AISLE.test(n)) continue", "      if (YARD_BULK.includes(n) || KEEP_IN_AISLE.test(n) || s[1] > Math.min(...slots.map(q => q[1])) + 1) continue", async M => {
+  await withMutant(YARD_PATH, "      if (kinds.includes(n) || KEEP_IN_AISLE.test(n)) continue", "      if (kinds.includes(n) || KEEP_IN_AISLE.test(n) || s[1] > Math.min(...slots.map(q => q[1])) + 1) continue", async M => {
     const { srv } = await liveYard()
     assert.ok(!M.bayClutter(SLOTS, srv.read).some(c => c.name === 'spruce_leaves'))
   })
@@ -220,7 +220,7 @@ const WIRES = [
   /if \(\(need\.cobblestone \?\? 0\) > 0 && workableSeg\(visitRec, read, palette, tidySegOk, waivedK, \{ skipOpenDeps: GROUNDS\.on \}\)\) \{\n\s*const got = await yardDrawFor\(ctx, need\.cobblestone, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
   /if \(nPlaced > 0\) bot\.yardStockAt = Date\.now\(\)/,
   /if \(digBack\) \{\n\s*await yardCollect\(bot, signal, deadline, bays\)/,
-  /\(p\.plot === YARD_PLOT && !!yw\?\.first\)/,
+  /\(isYardPlot\(p\.plot\) && !!yw\?\.first\)/,   // yardlanes-01: every yard
 ]
 await t('the well reads the yard\'s reserve where it plans and where it throws; the deferral is stamped; a stock answers it; sinks and the tidy draw from the yard; a blocked bay goes first', () => {
   for (const re of WIRES) { assert.ok(re.test(SK), String(re).slice(0, 70)); assert.strictEqual(SK.split(SK.match(re)[0]).length, 2, `unique: ${String(re).slice(0, 50)}`) }

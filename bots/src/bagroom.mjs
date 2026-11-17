@@ -22,7 +22,7 @@
 // BAGROOM=off is the rollback of both; BAGROOM_WELL=off / BAGROOM_SHARE=off of each. Unset: on only in BAGROOM_POOLS (default
 // 'showcase'). Pure module: no imports of shop.mjs (well.mjs imports this; shop.mjs reaches well.mjs).
 
-import { kitKeepOf, partialKeep } from './bagfix.mjs'   // bagfix-01show C (a leaf: no cycle)
+import { kitKeepOf, partialKeep, BAGFIX, clearActive } from './bagfix.mjs'   // bagfix-01show C (a leaf: no cycle); bagclear
 
 /** shop.mjs SHOP_BAG_SLOTS_MIN, restated (a cycle otherwise): bagroom.test.mjs holds the two equal. */
 export const BUILD_ROOM_SLOTS = 8
@@ -123,7 +123,7 @@ export const roomKitAlways = name => typeof name !== 'string' || TOOLISH_RE.test
  *   keep            { name: n } the town deposit's keeps (townKeeps); ROOM_KIT_KEEP adds to them
  *   taken           slots another step of the same plan already moves (never planned twice)
  */
-export function roomBankSteps (items = [], { eligible = () => false, keep = {}, taken = new Set(), hard = () => false, stackOf = () => 64 } = {}) {
+export function roomBankSteps (items = [], { eligible = () => false, keep = {}, taken = new Set(), hard = () => false, stackOf = () => 64, clear = clearActive(BAGFIX) } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
   const by = new Map()
   for (const it of list) { if (!by.has(it.name)) by.set(it.name, []); by.get(it.name).push(it) }
@@ -136,8 +136,9 @@ export function roomBankSteps (items = [], { eligible = () => false, keep = {}, 
     const total = copies.reduce((t, it) => t + (Number(it.count) || 0), 0)
     // bagfix-01 C: the kit keeps 16 seeds / sugar cane, and a single partial slot under its keep may leave a bag at 30+ kinds
     const k0 = Math.max(Number(keep?.[name]) || 0, kitKeepOf(name, ROOM_KIT_KEEP[name] ?? 0))
+    // bagclear (BAGCLEAR_UNTIL): during the one-time clear the room bank keeps nothing of a name it may move (a hard keep aside)
     const k = partialKeep({ slots: list.length, copies: copies.length, total, keep: k0, stack: Number(stackOf(name)) || 64, hard: !!hard(name) })
-    let room = total - k
+    let room = total - (clear && !hard(name) ? 0 : k)
     for (const it of [...copies].sort((a, b) => (a.count - b.count) || a.slot - b.slot)) {
       if (taken.has(it.slot)) { room -= it.count; continue }
       if (it.count > room) continue

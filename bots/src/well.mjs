@@ -138,6 +138,22 @@ const NEVER_DISPOSE = /(^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(w
  */
 let wellKeepOf = null
 export function setWellKeep (fn) { wellKeepOf = typeof fn === 'function' ? fn : null }
+/**
+ * THE YARD'S HOLD (WELL_HOLD; yardlanes-01, OWNER 11-16 "store everything now, and evaluate what we use ... then determine what goes
+ * in the well"): a kind with a yard lane that has ROOM is never planned for the well, whatever list it is on (the junk list's
+ * andesite and diorite, the at-target dirt, gravel and tuff, cobble at the cap) -- it is banked. A kind with no lane, or FULL at its
+ * cap (`over_cap`), goes as before. Set at install (skills.mjs yardHoldInstall); unset (WELL_HOLD=off, YARDLANES=off, the fleet):
+ * disposePlan exactly as before. A hold that throws holds nothing (the well as before: a bag is never held on an error).
+ */
+let yardHoldOf = null
+export function setYardHold (fn) { yardHoldOf = typeof fn === 'function' ? fn : null }
+const yardHolds = name => { if (!yardHoldOf) return false; try { return !!yardHoldOf(name) } catch { return false } }
+/** THE YARD FULL OF A KIND (`over_cap`; owner 11-16: "Cobblestone: keep 64, the rest to the yard if it takes it, else the well without
+ *  needing the chest cap proven"): with every cobblestone lane full at its cap the cobble plan runs as it does at the proven chest
+ *  cap. Set with the hold; unset: the chest cap alone, as before. */
+let yardFullOf = null
+export function setYardFull (fn) { yardFullOf = typeof fn === 'function' ? fn : null }
+const yardFull = name => { if (!yardFullOf) return false; try { return !!yardFullOf(name) } catch { return false } }
 const wellKept = name => { if (!wellKeepOf) return false; try { return !!wellKeepOf(name) } catch { return true } }
 /** May this item go down the well? On the list, AND not a guarded kind, AND not something the composter takes, AND not kept. */
 export function isWellJunk (name) {
@@ -265,9 +281,9 @@ export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swo
   // `keep` (junkout-01's visit, Claude r1 P3-6): names the active goal wants -- never planned, whatever the list says
   const kept = new Set(Array.isArray(keep) ? keep : [])
   const all = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
-  const list = kept.size ? all.filter(it => !kept.has(it.name)) : all
+  const list = (kept.size ? all.filter(it => !kept.has(it.name)) : all).filter(it => !yardHolds(it.name))   // yardlanes-01: the yard's hold
   // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
-  const cobble = cobbleAtCap ? cobbleWellStacks(list, { reserve: cobbleReserve }) : []
+  const cobble = (cobbleAtCap || yardFull('cobblestone')) ? cobbleWellStacks(list, { reserve: cobbleReserve }) : []   // yardlanes-01: the yard's cap too
   // AT-TARGET SURPLUS of every other targeted group (stocktarget), chosen with it (none of them is reserve stone)
   for (const st of (stock ? stockWellStacks(list, stock) : [])) cobble.push(st)
   const cobbleSlots = new Set(cobble.map(c => c.slot))

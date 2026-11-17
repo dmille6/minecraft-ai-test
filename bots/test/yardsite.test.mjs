@@ -119,10 +119,11 @@ await t('the visit builds the far floor end to end with the record\'s stands dom
 console.log('THE WIRING (skills.mjs)')
 const SKP = new URL('../src/skills.mjs', import.meta.url)
 const SK = strip(readFileSync(SKP, 'utf8'))
-const W1 = /\} else if \(plot === YARD_PLOT\) \{\s*const ss = await yardSiteFor\(bot, \{ \.\.\.h\.head\.plan, gen: h\.head\.gen \}, c, stood, signal\)/
+// yardlanes-01: every yard sites through yardSiteFor, under its own plot
+const W1 = /\} else if \(isYardPlot\(plot\)\) \{\s*const ss = await yardSiteFor\(bot, \{ \.\.\.h\.head\.plan, gen: h\.head\.gen \}, c, stood, signal, plot\)/
 const W2 = /: isYardBlueprint\(rec\.blueprint\) \? yardVisitOpts\(rec, home\) : \{\}/
 const W3 = /beat: true, placedBy, \.\.\.yardVisitOpts\(rec, home\) \}/
-const W4 = /const s = await siteBlueprintAsync\(read, plan, blueprintOf\(step\.blueprint\), \{ zones, wells: c\.wells, farm: c\.farm, z0: c\.z0, stood, sectors, plot: YARD_PLOT,/
+const W4 = /const s = await siteBlueprintAsync\(read, plan, blueprintOf\(step\.blueprint\), \{ zones, wells: c\.wells, farm: c\.farm, z0: c\.z0, stood, sectors, plot,/
 const W5 = /const zones = \[\.\.\.c\.zones, \.\.\.recordZones\(others\), \.\.\.hallPadZones\(plan\), \.\.\.townMarkerZones\(\)\]/
 await t('the yard sites through yardSiteFor (cooperative, every reservation), and both of its visits stand and walk out to its band', () => {
   for (const re of [W1, W2, W3, W4, W5]) assert.ok(re.test(SK), String(re))
