@@ -11,6 +11,7 @@ import { SKILLS, SKILL_CONTRACTS, classifyOutcome, DURABLE_EVIDENCE } from './sk
 import { logSkill, log, logEvent } from './logger.mjs'
 import { snapshot, perception, biomeAt, inventorySummary } from './state.mjs'
 import { HARD_STOP_GRACE_MS, hardStopResult } from './hard-stop.mjs'
+import { skillBudgetMs } from './tidyflow.mjs'   // tidyflow-01show (TIDYFLOW_LONG): build_shop alone runs to 600 s; every other skill as before
 import { config } from './config.mjs'
 import { Arbiter, PRIORITY } from './arbiter.mjs'
 import { logRescueRow } from './rescuerow.mjs'
@@ -321,7 +322,10 @@ export class Runner {
     const foodBefore = this.bot.food
     // `owner` and `rescue` ride on `current` (homefix-02 C3b): the air reflex interrupts a watchdog-owned run during a
     // drowning in progress, and names the attempt in its row.
-    const mine = { skill: skillName, args, controller, startedAt, owner, rescue }
+    // tidyflow-01show: THIS run's timeout (tidyflow.mjs skillBudgetMs: build_shop 600 s where the base is a production clock, every
+    // other skill the base); it rides on `current` so the path watchdog's busy exemption ends where this run's own clock does
+    const timeoutMs = skillBudgetMs(skillName, { base: config.skills.defaultTimeoutMs })
+    const mine = { skill: skillName, args, controller, startedAt, owner, rescue, timeoutMs }
     this.current = mine
     this.interruptedReason = null
     // The owner's run has started: the reservation is consumed. `started` is the RUNNER's row (H2 item 8), so the
@@ -337,10 +341,10 @@ export class Runner {
     try {
 
     const watchdog = setTimeout(() => {
-      log('warn', 'watchdog fired', { skill: skillName, ms: config.skills.defaultTimeoutMs })
+      log('warn', 'watchdog fired', { skill: skillName, ms: timeoutMs })
       this.interruptedReason = 'timeout'
       controller.abort()
-    }, config.skills.defaultTimeoutMs)
+    }, timeoutMs)
 
     // THE RUNNER STOPS WAITING IF THE SKILL WILL NOT. See hard-stop.mjs: a
     // `gather` on board-d-Alpha ran 83 minutes past a 3-minute timeout, holding
@@ -362,7 +366,7 @@ export class Runner {
             const elapsed = Date.now() - startedAt
             log('error', 'skill ignored its abort; releasing the bot', {
               skill: skillName, elapsedSec: Math.round(elapsed / 1000),
-              timeoutMs: config.skills.defaultTimeoutMs,
+              timeoutMs,
             })
             logEvent({ kind: 'skill_abort_ignored', status: 'failed',
                        detail: `${skillName} still running ${Math.round(elapsed / 1000)}s after ` +
@@ -372,7 +376,7 @@ export class Runner {
             try { this.bot.clearControlStates() } catch { /* not connected */ }
             this.bodyClaim = null
             resolve(hardStopResult(skillName, elapsed))
-          }, config.skills.defaultTimeoutMs + HARD_STOP_GRACE_MS)
+          }, timeoutMs + HARD_STOP_GRACE_MS)
         }),
       ])
     } catch (e) {

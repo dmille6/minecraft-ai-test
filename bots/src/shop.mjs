@@ -759,8 +759,13 @@ export function orderCooldown (plot) {
   if (plot === SHAFT_PLOT) return SHAFT_COOLDOWN_MS
   if (isSinkPlot(plot)) return SINK.cooldownMs   // picker-01: a sink visit is bounded and its work is ready (the stair's rule)
   if (plot === TIDY_PLOT) { let k = false; try { k = !!keeperOf() } catch { k = false } if (k) return GK.cooldownMs }
-  return SHOP_COOLDOWN_MS
+  // tidyflow-01show (TIDYFLOW_ALLHANDS, skills.mjs setAllCooldown): a worker whose last build visit was the grounds' comes back sooner
+  let a = null
+  try { a = allCoolOf() } catch { a = null }
+  return Number.isFinite(a) && a > 0 ? Math.min(SHOP_COOLDOWN_MS, a) : SHOP_COOLDOWN_MS
 }
+let allCoolOf = () => null
+export function setAllCooldown (fn) { allCoolOf = typeof fn === 'function' ? fn : () => null }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -1188,6 +1193,6 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)
 // fellfirst-01: `first` (a tree felled before its sapling: none of its kind anywhere -- the tripwire's G5 reads it)
 // stepclass-01: `class` (why a deferred cell or a refused temporary stand has no step: buildsite.mjs stepRefusal)
-export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'st', 'kind', 'class', 'saplings', 'first', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
+export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'st', 'ms', 'by', 'kind', 'class', 'saplings', 'first', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)   // tidyflow-01show: ms, by (the `refreshed` row: how long, keeper or worker)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'fromYard', 'meals', 'blooms', 'pots', 'lane', 'held', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor; yarduse-01: fromYard; decorator-01: meals blooms pots
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'fromYard', 'meals', 'blooms', 'pots', 'lane', 'held', 'draw', 'pre', 'work', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor; yarduse-01: fromYard; decorator-01: meals blooms pots; tidyflow-01show: draw pre work

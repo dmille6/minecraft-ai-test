@@ -16,6 +16,7 @@ import { installTakeback } from './takeback.mjs'   // takeback-01: a walk takes 
 import { litterSink } from './litter.mjs'   // litter-01: what a walk could not take back is handed to the cleanup crew
 import { litterWrite, litterReadOwn } from './buildproj.mjs'   // litter-01: the hand-off file (one a bot, in the town's directory)
 import { grounds2On, groundsModeDetail } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
+import { flowModeDetail } from './tidyflow.mjs'   // tidyflow-01show's licence row
 import { GROUNDS } from './shop.mjs'   // grounds-01's licence row: on only where the groundskeeper is
 import { climbEnqueue, prunePool, poolPruneMode } from './buildproj.mjs'   // access-02: queued, written off the placement's continuation; showdrop-01: the prune
 import { configuredHome } from './townground.mjs'   // placeaudit-01
@@ -254,6 +255,8 @@ export function installFeatures (bot) {
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
   try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
+  // tidyflow-01show: the tidy visit's switches (tidyflow.mjs; each 0 under its own TIDYFLOW_*=off, so a rollback is visible too)
+  try { logEvent({ kind: 'tidyflow', status: 'success', snapshot: snapshot(bot), detail: flowModeDetail() }) } catch { /* telemetry */ }
   // lavatarget-01: the licence row, once per spawn (LAVATARGET=0 -> on=0)
   try { logEvent({ kind: 'lavatarget_mode', status: 'success', snapshot: snapshot(bot), detail: lavatargetModeDetail() }) } catch {}
   // lidplace-01: the licence row, once per spawn -- `_lidplace_mode`, a kind the base cannot write (lidplace.mjs lidPlaceModeDetail;

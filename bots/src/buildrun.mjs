@@ -540,7 +540,7 @@ const byColumn = keys => {
  *       probe, aborted, log, now, sleep, spawnedAt; optional `pause()` (keeperstall-01: one real event-loop turn; default setImmediate)
  *   opts { maxSteps, deadline, barrierWaitMs, breathe (default: the BREATHE switch), breathMs (default BREATH_MS),
  *          standCache (default: the STANDCACHE switch), standMs (default STAND_MS), tempStand (default: the TEMPSTAND switch) }
- * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
+ * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | no_headway | blocked |
  *        attempts_spent | unknown.
  */
 /**
@@ -593,6 +593,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (e.aborted()) return 'aborted'
     if (++steps > maxSteps) return 'max_steps'
     if (now() > deadline) return 'deadline'
+    // tidyflow-01show (`p.giveUp()`, tidyflow.mjs headway): a long visit that has laid and dug nothing for its caller's bound ends itself
+    if (typeof p.giveUp === 'function' && p.giveUp()) return 'no_headway'
     return null
   }
   // keeperstall-01, THE BREATH (see BREATH_MS): `winded()` is the synchronous question (nothing awaited when no breath is due, and
