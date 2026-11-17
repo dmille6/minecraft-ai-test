@@ -21,7 +21,7 @@ import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
-import { craftMemoFor, craftMemoDetail } from './craftmemo.mjs'
+import { craftMemoFor, craftMemoDetail, gatherMemoFor, gatherMemoDetail } from './craftmemo.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -338,6 +338,9 @@ export class AdmissionControl {
       if (!Number.isFinite(n) || n <= 0 || n > 128) {
         return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..128` }
       }
+      // THE GATHER REFUSAL MEMO (craftmemo.mjs): failed for a reason of this place, in this 16-block cell -- not again here.
+      const gmemo = gatherMemoFor(bot, args.block)
+      if (gmemo) return { ok: false, reason: 'gather_memo', detail: gatherMemoDetail(gmemo), memo: gmemo }
     }
 
     // KEEPOUT-01: A REFUSED (gather, block) OR mine IS SUPPRESSED NEAR THE COLUMN (keepout.mjs cooldownHit; design 4.6 rows 2-3).

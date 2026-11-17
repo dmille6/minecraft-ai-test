@@ -47,6 +47,7 @@ const REQUIRED = [
   // craftmemo-01show (11-17): a refused craft is not re-proposed with the same bag from the same spot
   'bots/src/craftmemo.mjs',
   'bots/test/craftmemo.test.mjs',
+  'bots/test/gatherprobe.test.mjs',
   // cleanzone-01 (11-13): no route places a block in the town or its margin; the valve lets a trapped bot out and writes where
   'bots/src/cleanzone.mjs',
   'bots/test/cleanzone.test.mjs',

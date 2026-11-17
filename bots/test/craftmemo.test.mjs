@@ -135,6 +135,49 @@ t('COUNT: a refusal for 2 short does not hold back a craft of 1; admission admit
   assert.equal(A.check({ skill: 'craft', args: { item: 'iron_pickaxe', count: 2 }, reason: 'x' }, bot, new Set()).reason, 'craft_memo')
 })
 
+// ---- THE GATHER REFUSAL MEMO (gathermemo-01show): failure texts as the showcase logged them 11-17 ----
+const G_UNREACH = { status: 'failed', failClass: 'no_path', detail: 'dirt found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect threw nothing -- it returned without gathering]' }
+const G_WATER = { status: 'failed', detail: 'iron_ore found but all 1 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:1]' }
+const G_SKY = { status: 'failed', detail: 'no dirt open to the sky within 32 blocks (358 under the ground you stand on left: taking them hollows it).' }
+const G_STUCK = { status: 'aborted', detail: 'stuck (threw GoalChanged: The goal was changed before it could be completed!)' }
+const G_STAG = { status: 'failed', detail: 'stagnation' }
+const G_BUDGET = { status: 'unknown', failClass: 'collect_budget', detail: 'ran out of time reaching dirt (3/3 attempts timed out at 20s)' }
+const gHere = { x: 40.5, y: 64, z: -30.5 }
+const gatherProbe = mod => {
+  const memo = new Map(), now = 5_000_000
+  for (const r of [G_UNREACH, G_WATER, G_SKY]) assert.equal(mod.gatherRefusalKind(r), 'place', r.detail.slice(0, 30))
+  const G_STUCK_PLACE = { status: 'failed', detail: 'stuck after dirt found but unreachable after 2 attempts' }   // a transient cut that also names the place
+  const G_ROOM = { status: 'failed', failClass: 'unreachable', detail: 'iron_ore found but every candidate is buried — use mine to dig down [mine said: no room for what a tunnel yields — deposit first]' }
+  const G_RANGE = { status: 'failed', failClass: 'unreachable', detail: 'oak_log: all 1 candidate(s) in range refused — could not stand within reach of any of them' }
+  for (const r of [G_STUCK, G_STAG, G_BUDGET, G_STUCK_PLACE, G_ROOM, G_RANGE, { status: 'success' }]) assert.equal(mod.gatherRefusalKind(r), null, String(r.detail))
+  mod.noteGatherResult(memo, { block: 'dirt', result: G_UNREACH, pos: gHere, now })
+  assert.ok(mod.gatherMemoHolds(memo, { block: 'dirt', pos: { x: 44, y: 64, z: -20 }, now }), 'same 16-cell holds')
+  assert.equal(mod.gatherMemoHolds(memo, { block: 'dirt', pos: { x: 60, y: 64, z: -30 }, now }), null, 'a move out of the cell lifts')
+  assert.equal(mod.gatherMemoHolds(memo, { block: 'sand', pos: gHere, now }), null, 'another kind is free')
+  assert.equal(mod.gatherMemoHolds(memo, { block: 'dirt', pos: gHere, now: now + mod.GATHER_TTL_MS }), null, 'expires')
+  mod.noteGatherResult(memo, { block: 'dirt', result: G_STUCK, pos: gHere, now })
+  assert.ok(mod.gatherMemoHolds(memo, { block: 'dirt', pos: gHere, now }), 'a transient failure neither adds nor clears')
+  mod.noteGatherResult(memo, { block: 'dirt', result: { status: 'success' }, pos: gHere, now })
+  assert.equal(memo.size, 0, 'a success clears')
+  const m2 = new Map(); mod.noteGatherResult(m2, { block: 'dirt', result: G_STAG, pos: gHere, now }); assert.equal(m2.size, 0, 'transient not noted')
+}
+t('GATHER: place refusals are remembered per kind and 16-block cell; transient failures are not; move/kind/success/expiry lift it', () => gatherProbe(M))
+t('GATHER CHAIN: the real admission refuses the repeat with gather_memo, admits another kind, and admits it again after a 16-block walk', () => {
+  const bot = botAt([], gHere)
+  M.noteGatherOutcome(bot, 'dirt', G_UNREACH)
+  const A = gate()
+  const r = A.check({ skill: 'gather', args: { block: 'dirt', count: 4 }, reason: 'x' }, bot, new Set())
+  assert.equal(r.reason, 'gather_memo'); assert.match(r.detail, /walk 16\+ blocks away/)
+  assert.notEqual(A.check({ skill: 'gather', args: { block: 'sand', count: 4 }, reason: 'x' }, bot, new Set()).reason, 'gather_memo')
+  assert.notEqual(A.check({ skill: 'goto', args: { x: 70, y: 64, z: -30 }, reason: 'x' }, bot, new Set()).reason, 'gather_memo')
+  bot.entity.position = { x: 70.5, y: 64, z: -30.5 }
+  assert.notEqual(A.check({ skill: 'gather', args: { block: 'dirt', count: 4 }, reason: 'x' }, bot, new Set()).reason, 'gather_memo')
+})
+t('GATHER WIRED: the model-run gather skill notes its outcome; internal gather() calls do not', () => {
+  assert.match(SK, /gather:\s+\{ run: gatherNoted,/)
+  assert.match(SK, /const res = await gather\(ctx, args, signal\)\s*if \(args\?\.block\) noteGatherOutcome\(ctx\.bot, args\.block, res\)/)
+})
+
 // ---- mutants: each anchor present and unique (CLAUDE.md), each must turn a test above red -----------------------------------
 import { writeFileSync, unlinkSync } from 'node:fs'
 async function withMutant (rel, old, neu, fn) {
@@ -178,5 +221,15 @@ await killed('the prompt lists a memoed craft', '../src/prompt.mjs', "      if (
 })
 
 await killed('a smaller request is held', '../src/craftmemo.mjs', "  if (e.kind === 'short' && reqCount(count) < (e.count ?? 1)) return null\n", '', countProbe)
+await killed('gather: the cell check dropped', '../src/craftmemo.mjs', "  if (e.cell !== gatherCell(pos)) return null\n  return e\n}\n\nexport function gatherMemoDetail", "  return e\n}\n\nexport function gatherMemoDetail", gatherProbe)
+await killed('gather: transient failures remembered', '../src/craftmemo.mjs', "  if (!d || GATHER_TRANSIENT.test(d)) return null\n", '', gatherProbe)
+await killed('gather: no expiry', '../src/craftmemo.mjs', "  if (!(now - e.at < GATHER_TTL_MS)) return null\n", '', gatherProbe)
+await killed('gather: a success does not clear', '../src/craftmemo.mjs', "  if (result?.status === 'success') { memo.delete(key); return null }\n", '', gatherProbe)
+await killed('admission ignores the gather memo', '../src/admission.mjs', "      if (gmemo) return { ok: false, reason: 'gather_memo', detail: gatherMemoDetail(gmemo), memo: gmemo }\n", '', mod => {
+  const bot = botAt([], gHere); M.noteGatherOutcome(bot, 'dirt', G_UNREACH)
+  const L = new Lessons(`/tmp/mcai-craftmemo-${process.pid}-g${seq++}.json`); L.data.avoid = {}; L.data.worked = {}
+  assert.equal(new mod.AdmissionControl(L).check({ skill: 'gather', args: { block: 'dirt', count: 4 }, reason: 'x' }, bot, new Set()).reason, 'gather_memo')
+})
+await killed('gather: a full bag or a timed-out lone candidate remembered as the place', '../src/craftmemo.mjs', "  if (r.failClass === 'inventory_full' || GATHER_NOT_PLACE.test(d)) return null\n", '', gatherProbe)
 console.log(`\ncraftmemo: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

@@ -103,7 +103,7 @@ import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RA
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns, isTerrain } from './townground.mjs'
 import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCellAt, topDownRefusal, roofOverY, feetLevel, feetLevels } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
-import { noteCraftOutcome, zoneWalkTarget } from './craftmemo.mjs'   // craftmemo-01show
+import { noteCraftOutcome, zoneWalkTarget, noteGatherOutcome } from './craftmemo.mjs'   // craftmemo-01show
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -2002,6 +2002,49 @@ export function wellSwordsNow (bot) {
  * The budget is unchanged. What changes is which drop the budget is spent on:
  * a drop that refuses is SKIPPED, not surrendered to.
  */
+// GATHERPROBE-01 (TELEMETRY ONLY; nothing reads it). "[collect threw nothing -- it returned without gathering]" ended 125
+// gathers in 4 h on the showcase 11-17 and the existing rows could not say why (a confirmed dig and a skipped drop are as
+// common in successful gathers). One row per barren round, at most GATHER_PROBE_MAX per run: the target block AFTER
+// collect (still there = never broken; air = broken and the drop not banked), the drops within 6 blocks of it with their
+// height over the bot and distance, the bot's position, the collect's elapsed ms and error, and whether it was taken from
+// below. Never throws; changes no control flow.
+export const GATHER_PROBE_MAX = 4
+const PROBE_SCAN = 2048
+/** The probe row's detail -> string (<= 300 chars). Pure. */
+export function gatherProbeDetail ({ block, at, after, botPos, drops = [], ms, err = null, fromBelow = false, round = 0 } = {}) {
+  const p = v => (v && [v.x, v.y, v.z].every(Number.isFinite) ? `${Math.floor(v.x)},${Math.floor(v.y)},${Math.floor(v.z)}` : '?')
+  const ds = drops.slice(0, 3).map(d => `${d.name}@dy${d.dy.toFixed(1)}/d${d.dist.toFixed(1)}`).join(';') || '-'
+  const state = after == null ? 'unloaded' : after === block ? 'still_there' : after === 'air' || after === 'cave_air' ? 'broken' : `now_${after}`
+  const s = `block=${String(block).slice(0, 40)} round=${round} target=${p(at)} after=${state} drops=${drops.total ?? drops.length}:${ds} bot=${p(botPos)} ms=${Math.round(ms ?? -1)}` +
+            ` below=${fromBelow ? 1 : 0}${err ? ` err=${String(err).replace(/\s+/g, '_').slice(0, 40)}` : ''}`
+  return s.slice(0, 300)
+}
+export function gatherBarrenProbe (bot, args) {
+  try {
+    const { target, blockName, ms, err, fromBelow, round } = args ?? {}
+    const at = target?.position, me = bot?.entity?.position
+    // Bounded: at most PROBE_SCAN entities looked at, only the 3 nearest kept (drops.length in the row is the count seen).
+    const near = []; let seen = 0, scanned = 0
+    const ents = bot?.entities ?? {}
+    for (const k in ents) {
+      if (++scanned > PROBE_SCAN) break
+      const e = ents[k]
+      if (e?.name !== 'item' || !e.position || !at) continue
+      const dist = e.position.distanceTo?.(at) ?? Infinity
+      if (!(dist <= 6)) continue
+      seen++
+      const d = { name: e.getDroppedItem?.()?.name ?? '?', dy: me ? e.position.y - me.y : NaN, dist: me ? (e.position.distanceTo?.(me) ?? NaN) : NaN }
+      near.push(d); near.sort((a, b) => a.dist - b.dist); if (near.length > 3) near.length = 3
+    }
+    const drops = Object.assign(near, { total: seen })
+    const after = at ? (bot.blockAt?.(at)?.name ?? null) : null
+    const detail = gatherProbeDetail({ block: blockName, at, after, botPos: me, drops, ms, err, fromBelow, round })
+    logEvent({ kind: 'gather_probe', status: 'no_effect', detail })
+    return detail   // for the test only; the one call site discards it
+  } catch { /* telemetry only */ }
+  return null
+}
+
 export async function pickupNearbyItems(bot, signal, radius = 8) {
   // Ids that refused us this sweep. Per-sweep, deliberately: a drop unreachable
   // from here may be fine after the next dig moves the bot, and a persistent
@@ -2261,6 +2304,14 @@ function keepoutCooldown (bot, skill, block, site) {
  * (gather, block) is suppressed for 10 min while this bot is within 32 of the column -- a deterministic cooldown, so the
  * next decision is a different one -- and the result names a remedy the bot can perform from here.
  */
+// THE GATHER REFUSAL MEMO (craftmemo.mjs, gathermemo-01show): the skill as the model runs it notes its outcome, on the
+// spot it ends at. Internal callers of gather() are not memoed.
+async function gatherNoted(ctx, args, signal) {
+  const res = await gather(ctx, args, signal)
+  if (args?.block) noteGatherOutcome(ctx.bot, args.block, res)
+  return res
+}
+
 async function gather(ctx, args, signal) {
   return withKeepout(ctx, 'gather', async ko => {
     const r = await gatherRun(ctx, args ?? {}, signal, ko).finally(() => tdFromBelowSay(ctx?.bot))   // topdown-01: the run's one op=from_below row
@@ -2407,6 +2458,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
   let zoneClimb = 0     // cleanzone-02: walks repeated from a pit by a bot that holds what a climb needs
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
+  let probeT0 = 0, probeErr = null, probeBelow = false, probeRows = 0   // gatherprobe-01: telemetry only, read by nothing
   // Rounds this RUN whose candidates came only from the cover fallback. Run-scoped
   // on purpose: `viaCover` resets every round, and the question this answers is
   // about the whole run's failure class. See `barrenFailClass`.
@@ -3019,8 +3071,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // rescued rather than sitting out its whole budget.
       // topdown-01: a covered terrain cell about to be taken because the bot stands below its cover (counted once taken: op=from_below,
       // the measure of what undermining is left from inside pits, hollows and caves)
+      probeT0 = Date.now(); probeErr = null; probeBelow = false
       const tdFeet = feetYOf(bot), tdOver = topDownOn() && isTerrain(target.name) && !/_ore$/.test(target.name) ? roofOverY(roofAt(bot), target.position) : null
       const tdGap = tdOver != null && Number.isFinite(tdFeet) && !topDownHit(bot, target.position, target.name, { trapLets: false }) ? tdOver - tdFeet : null
+      probeBelow = tdGap != null
       if (mustCollectManually(target.name)) {
         await collectManually(bot, target, signal)
         if (tdGap != null) { const c = _tdBelow.get(bot); if (c) { c.n++; c.gap = c.gap == null ? tdGap : Math.min(c.gap, tdGap) } }
@@ -3092,6 +3146,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // class from prose, which is how a collect budget and a real no-path
       // became the same lesson.
       if (collectErrors.length < 8) collectErrors.push(String(e.message ?? e).slice(0, 120))
+      try { probeErr = String(e?.message ?? e).slice(0, 40) } catch { probeErr = '?' }
       // THE SET IS ONLY WORTH HAVING IF SOMETHING PUTS THINGS IN IT.
       //
       // Every failure excludes its target for the rest of this run, not just
@@ -3154,6 +3209,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     }
     if (gained === collected) {
       barren++
+      if (++probeRows <= GATHER_PROBE_MAX) gatherBarrenProbe(bot, { target, blockName, ms: Date.now() - probeT0, err: probeErr, fromBelow: probeBelow, round: barren })
       // A barren round means this target gave nothing even though nothing threw.
       // Same reasoning as the catch above: do not come back to it this run.
       excluded.add(key(target.position))
@@ -34609,7 +34665,7 @@ async function bucketSkill (ctx, args, signal) {
 
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
-  gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
+  gather:  { run: gatherNoted,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
   come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },
   home:    { run: home,    usage: 'home',                          args: [], rescue: true },
