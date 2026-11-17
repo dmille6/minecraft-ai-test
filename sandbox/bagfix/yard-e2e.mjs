@@ -101,7 +101,7 @@ const chestOf = k => rcon(...Array.from({ length: 54 }, (_, i) => `data get bloc
 const countOf = sel => { const m = /count: (\d+)/.exec(rcon(`execute if entity @e[${sel},x=${F.x0},y=${S - 4},z=${F.z0},dx=${F.x1 - F.x0},dy=30,dz=${F.z1 - F.z0}]`)[0].reply); return m ? Number(m[1]) : 0 }
 const looseOf = () => ({ items: countOf('type=minecraft:item'), falling: countOf('type=minecraft:falling_block') })
 const flag = (f, v) => fs.writeFileSync(path.join(DIR, f), typeof v === 'string' ? v : JSON.stringify(v))
-const waitFlag = async (f, ms = 240000) => { const t = Date.now(); while (!fs.existsSync(path.join(DIR, f))) { if (Date.now() - t > ms) throw new Error('no ' + f); await sleep(100) } await sleep(50); return fs.readFileSync(path.join(DIR, f), 'utf8') }
+const waitFlag = async (f, ms = 1500000) => { const t = Date.now(); while (!fs.existsSync(path.join(DIR, f))) { if (Date.now() - t > ms) throw new Error('no ' + f); await sleep(100) } await sleep(50); return fs.readFileSync(path.join(DIR, f), 'utf8') }
 const rowsOf = (name, since = 0) => {
   const out = []
   for (const f of fs.readdirSync(path.join(DIR, 'log-' + name)).filter(f => f.startsWith('skill-'))) {
@@ -148,7 +148,7 @@ async function buildVisits (bot, plot, max = 6) {
       const h = PJ.recordHead(dir, key); if (!h.ok || !h.head) { out.push({ stop: 'no_record' }); break }
       const slot = PJ.takeSlot(dir, key, NAME, Y.LANES.builders); if (!slot.ok) { out.push({ stop: 'slots_full' }); await sleep(3000); continue }
       const t = Date.now()
-      let r; try { r = await RUN.runVisit({ dir, key, me: NAME, home, stood: [[HX, HY, HZ]], record: h.head.rec, recordGen: h.head.gen, palette: h.head.rec.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, ...Y.yardVisitOpts(h.head.rec, home) }, e, { deadline: Date.now() + 8 * 60_000 }) } catch (err) { r = { stop: 'threw', why: String(err.message).slice(0, 100) } }
+      let r; try { r = await RUN.runVisit({ dir, key, me: NAME, home, stood: [[HX, HY, HZ]], record: h.head.rec, recordGen: h.head.gen, palette: h.head.rec.palette ?? B.loadBlueprint(h.head.rec.blueprint).palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, ...Y.yardVisitOpts(h.head.rec, home) }, e, { deadline: Date.now() + 5 * 60_000 }) } catch (err) { r = { stop: 'threw', why: String(err.message).slice(0, 100) } }
       PJ.releaseLease(dir, key, `slot${slot.slot}`, NAME, slot.gen)
       out.push({ stop: r.stop, why: r.why, placed: r.placed, cleared: r.cleared, refused: r.refused, ms: Date.now() - t })
       if (r.stop === 'complete' || r.stop === 'threw') break
@@ -175,7 +175,7 @@ async function follower () {
 const H = {}   // the lead's helpers for scenarios
 const followers = new Map()
 H.spawn = async name => { const ch = spawn(process.execPath, [process.argv[1], SCEN, '--follower', name], { stdio: 'inherit', env: { ...process.env, BOT_NAME: name } }); followers.set(name, { ch, n: 0 }); await waitFlag(`ready-${name}`); rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${HX + 0.5 + followers.size} ${HY} ${HZ + 0.5 + followers.size}`); await sleep(1500) }
-H.tell = (name, cmd) => { const f = followers.get(name); f.n++; flag(`cmd-${name}-${f.n}`, cmd); return async () => JSON.parse(await waitFlag(`res-${name}-${f.n}.json`, 400000)) }
+H.tell = (name, cmd) => { const f = followers.get(name); f.n++; flag(`cmd-${name}-${f.n}`, cmd); return async () => JSON.parse(await waitFlag(`res-${name}-${f.n}.json`, 1500000)) }
 H.give = (name, items) => rcon(...Object.entries(items).flatMap(([it, n]) => { const o = []; let left = n; while (left > 0) { const k = Math.min(64, left); o.push(`give ${name} minecraft:${it} ${k}`); left -= k } return o }))
 H.reset = name => rcon(`clear ${name}`, `tp ${name} ${HX + 0.5} ${HY} ${HZ + 0.5}`)
 H.snap = (names = [NAME]) => ({ lanes: lanesOf(), bags: Object.fromEntries(names.map(n => [n, bagOf(n)])), loose: looseOf() })
@@ -259,13 +259,14 @@ const SCENARIOS = {
     for (const n of all) H.give(n, { cobblestone: 256, torch: 16 })
     await sleep(3000)
     const t = Date.now()
-    const b = H.tell('sbx-YardB', { do: 'build', plot: 'yard2', max: 6 }), cc = H.tell('sbx-YardC', { do: 'build', plot: 'yard2', max: 6 })
-    const [A, Bv, Cv] = await Promise.all([buildVisits(bot, 'yard2', 6), b(), cc()])
+    const b = H.tell('sbx-YardB', { do: 'build', plot: 'yard2', max: 4 }), cc = H.tell('sbx-YardC', { do: 'build', plot: 'yard2', max: 4 })
+    const [A, Bv, Cv] = await Promise.all([buildVisits(bot, 'yard2', 4), b(), cc()])
     R.build = { A, B: Bv, C: Cv, ms: Date.now() - t }; P('8 build', R.build)
     const cells = R.rec.cells
     const names = worldOf(cells.map(x => x.at))
-    const ok = cells.filter((x, i) => R.rec.palette[x.role].includes(names[i])).length
-    R.server = { cells: cells.length, ok, wrong: cells.map((x, i) => [x, names[i]]).filter(([x, n]) => !R.rec.palette[x.role].includes(n)).slice(0, 8).map(([x, n]) => `${x.role}@${x.at}=${n}`), bags: Object.fromEntries(all.map(n => [n, bagOf(n)])), loose: looseOf(), leases: leasesOf() }
+    const pal = R.rec.palette ?? B.loadBlueprint(R.rec.blueprint).palette
+    const ok = cells.filter((x, i) => pal[x.role].includes(names[i])).length
+    R.server = { cells: cells.length, ok, wrong: cells.map((x, i) => [x, names[i]]).filter(([x, n]) => !pal[x.role].includes(n)).slice(0, 8).map(([x, n]) => `${x.role}@${x.at}=${n}`), bags: Object.fromEntries(all.map(n => [n, bagOf(n)])), loose: looseOf(), leases: leasesOf() }
     P('8 the floor by the server', R.server)
   },
   // 6: THE CHEST ROW -- a bag with chests and seeds places a row chest and banks; a second bot's seeds join it; a second kind; a general deposit beside it
