@@ -27,7 +27,7 @@ Object.assign(process.env, {
   HOME_X: String(HX), HOME_Y: String(HY), HOME_Z: String(HZ), BOT_NAME: NAME, LOG_LEVEL: 'error', BOT_ROLE: 'gatherer', ...ENVX,
 })
 const WANT = ['yardVisit', 'yardWorkNow', 'yardRecNow', 'yardsNow', 'yardKindNow', 'yardLaneOpts', 'townDir', 'projKeyOf', 'planHomeP', 'blueprintOf', 'planReader', 'heldMap', 'projectsOn',
-  'yardRowPlanNow', 'yardRowsNow', 'yardRowStep', 'clerkPassNow', 'yardClerkPass', 'refillJobsNow', 'refillRaiseNow', 'refillCheck', 'withOverCap', 'yardHoldNow', 'townDeposit', 'matsTownStock', 'townIndexObserve', 'useNote', 'activeMem']
+  'yardRowPlanNow', 'yardRowsNow', 'yardRowStep', 'clerkPassNow', 'yardClerkPass', 'refillJobsNow', 'refillRaiseNow', 'refillCheck', 'withOverCap', 'yardHoldNow', 'townDeposit', 'matsTownStock', 'townIndexObserve', 'useNote', 'activeMem', 'yardSiteFor', 'shopCtx', 'refillCreditNow', 'projectHeads']
 registerHooks({ load (url, context, nextLoad) {
   const r = nextLoad(url, context)
   if (url.endsWith('/bots/src/skills.mjs')) r.source = String(r.source) + `\nexport const __e2e = { ${WANT.map(n => `get ${n} () { return typeof ${n} === 'undefined' ? undefined : ${n} }`).join(', ')} }\n`
@@ -38,7 +38,8 @@ const req = createRequire(path.join(BOTS, 'package.json'))
 const mineflayer = req('mineflayer')
 const { pathfinder, Movements } = req('mineflayer-pathfinder')
 const imp = f => import(path.join(BOTS, 'src', f))
-const [SK, B, PJ, Y] = await Promise.all(['skills.mjs', 'buildsite.mjs', 'buildproj.mjs', 'yard.mjs'].map(imp))
+const [SK, B, PJ, Y, RUN, BB, WELL] = await Promise.all(['skills.mjs', 'buildsite.mjs', 'buildproj.mjs', 'yard.mjs', 'buildrun.mjs', 'buildbot.mjs', 'well.mjs'].map(imp))
+const HEAD = (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim() + (execFileSync('git', ['status', '--short', 'bots'], { encoding: 'utf8' }).trim() ? '+DIRTY bots/' : '') } catch { return '?' } })()
 const E = SK.__e2e
 const SERVER = 'sandbox2', PORT = 25600
 const rcon = (...cmds) => {
@@ -54,7 +55,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const T0 = Date.now()
 const P = (...a) => console.log(`[${NAME} ${((Date.now() - T0) / 1000).toFixed(1)}]`, ...a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))))
 const fillAll = (x0, y0, z0, x1, y1, z1, block) => { const out = []; const per = Math.max(1, Math.floor(32000 / ((y1 - y0 + 1) * (z1 - z0 + 1)))); for (let x = x0; x <= x1; x += per) out.push(`fill ${x} ${y0} ${z0} ${Math.min(x1, x + per - 1)} ${y1} ${z1} minecraft:${block}`); return out }
-const F = { x0: HX - 8, x1: HX + 50, z0: HZ - 24, z1: HZ + 24 }
+const BIG = process.env.YARD_E2E_FIELD === 'big'
+const F = BIG ? { x0: HX - 8, x1: HX + 64, z0: HZ - 62, z1: HZ + 62 } : { x0: HX - 8, x1: HX + 50, z0: HZ - 24, z1: HZ + 24 }
 const bp = B.loadBlueprint('yard@2')
 const REC = { anchor: [AX, AZ], s: S, orient: 'E' }
 const BAYS = Y.pileSlots(REC, bp)                       // the WHOLE bays (164 slots each), fill order
@@ -137,6 +139,24 @@ async function visit (bot, { draw = 0, abortMs = 0, plot = 'yard' } = {}) {
   return { ...r, ...(draw ? { got: result.got ?? null } : {}), ms: Date.now() - t0, rows: rowsOf(NAME, t0).filter(x => / _yard /.test(x) || /_yard_/.test(x)).map(x => x.slice(13, 330)), leasesAfter: leasesOf() }
 }
 
+// THE BUILD VISIT's own runner on an OPEN record (buildrun.mjs runVisit with buildbot.mjs's effects, as the build visit calls it), up to `max` visits
+async function buildVisits (bot, plot, max = 6) {
+  const dir = E.townDir(), key = E.projKeyOf(plot), home = { x: HX, y: HY, z: HZ }, out = []
+  const e = BB.botBuildEffects(bot, { log: () => {} })
+  try {
+    for (let v = 0; v < max; v++) {
+      const h = PJ.recordHead(dir, key); if (!h.ok || !h.head) { out.push({ stop: 'no_record' }); break }
+      const slot = PJ.takeSlot(dir, key, NAME, Y.LANES.builders); if (!slot.ok) { out.push({ stop: 'slots_full' }); await sleep(3000); continue }
+      const t = Date.now()
+      let r; try { r = await RUN.runVisit({ dir, key, me: NAME, home, stood: [[HX, HY, HZ]], record: h.head.rec, recordGen: h.head.gen, palette: h.head.rec.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, ...Y.yardVisitOpts(h.head.rec, home) }, e, { deadline: Date.now() + 8 * 60_000 }) } catch (err) { r = { stop: 'threw', why: String(err.message).slice(0, 100) } }
+      PJ.releaseLease(dir, key, `slot${slot.slot}`, NAME, slot.gen)
+      out.push({ stop: r.stop, why: r.why, placed: r.placed, cleared: r.cleared, refused: r.refused, ms: Date.now() - t })
+      if (r.stop === 'complete' || r.stop === 'threw') break
+      await sleep(1000)
+    }
+  } finally { try { e.close() } catch { /* gone */ } }
+  return { visits: out }
+}
 // ---- a follower: joins, says ready, then does each `cmd-<n>` file in turn ({ do: 'visit', opts, at }) and writes `res-<name>-<n>.json`
 async function follower () {
   const bot = await join()
@@ -146,7 +166,7 @@ async function follower () {
     if (cmd.do === 'quit') break
     await sleep(Math.max(0, (cmd.at ?? 0) - Date.now()))
     bot.yardRestUntil = 0; bot.yardsMemo = null
-    const r = cmd.do === 'visit' ? await visit(bot, cmd.opts ?? {}) : { status: 'unknown' }
+    const r = cmd.do === 'visit' ? await visit(bot, cmd.opts ?? {}) : cmd.do === 'job' ? { job: SK.refillJobFor(bot) ?? null } : cmd.do === 'build' ? await buildVisits(bot, cmd.plot, cmd.max ?? 6) : { status: 'unknown' }
     flag(`res-${NAME}-${n}.json`, r)
   }
   bot.quit(); await sleep(300); process.exit(0)
@@ -185,7 +205,69 @@ const UNIT = { coal_block: ['coal', 9], copper_block: ['copper_ingot', 9], lapis
 const townOf = names => { const per = TC.map(k => chestOf(k)); const bags = Object.fromEntries(names.map(n => [n, bagOf(n)])); const tot = {}; const add = (id, n) => { const [u, m] = UNIT[id] ?? [id, 1]; tot[u] = (tot[u] ?? 0) + n * m }
   for (const c of per) for (const e of c) add(e.id, e.count); for (const b of Object.values(bags)) for (const [id, n] of Object.entries(b)) add(id, n)
   return { chests: per.map(c => { const by = {}; for (const e of c) { (by[e.id] ??= [0, 0]); by[e.id][0] += e.count; by[e.id][1]++ } return `${c.length} slots used: ` + Object.entries(by).map(([id, [n, sl]]) => `${id} ${n} in ${sl}`).join(', ') }), bags, loose: looseOf(), totals: tot } }
+const jobsNow = () => { try { return E.refillJobsNow(Date.now(), { fresh: true }).map(j => ({ id: j.id, kind: j.kind, n: j.n, got: j.got, by: j.by, takers: j.takers, open: (j.got ?? 0) < j.n && Date.now() < j.until })) } catch (e) { return 'threw ' + e.message } }
+const ledgerNow = () => { try { const f = fs.readdirSync(path.join(DIR, 'pool')).find(x => /ledger/.test(x)); return f ? fs.readFileSync(path.join(DIR, 'pool', f), 'utf8').trim().split('\n') : [] } catch { return [] } }
 const SCENARIOS = {
+  // 9: THE REFILL JOB -- no draws: nothing is raised; three real draws and a low stock: one job, two takers, closed when its size is banked
+  async refill (bot, R) {
+    await H.spawn('sbx-YardB'); await H.spawn('sbx-YardC')
+    H.give(NAME, { cobblestone: 128, iron_pickaxe: 1 }); await sleep(2500)
+    await H.step(R, '9 stock: cobblestone 64 onto the yard', bot, async () => ({ A: await visit(bot) }))
+    E.refillCheck(bot, { cobblestone: 0 }); R.control = { jobs: jobsNow(), A: SK.refillJobFor(bot) ?? null, ledger: ledgerNow().length }; P('9 CONTROL no draws, stock 0 ->', R.control)
+    for (let i = 1; i <= 3; i++) { bot.yardDrawRestUntil = 0; await H.step(R, `9 draw ${i}: 16 cobblestone for a consumer`, bot, async () => ({ A: await visit(bot, { draw: 16 }) })) }
+    P('9 ledger', ledgerNow().slice(-6))
+    E.refillCheck(bot, { cobblestone: 16 }); R.raised = jobsNow(); P('9 after the low mark check (stock 16) ->', R.raised, rowsOf(NAME, Date.now() - 3000).filter(x => /_refill/.test(x)).map(x => x.slice(13, 240)))
+    const a = SK.refillJobFor(bot) ?? null, b = (await H.tell('sbx-YardB', { do: 'job' })()).job, c = (await H.tell('sbx-YardC', { do: 'job' })()).job
+    R.takers = { A: a && a.id, B: b && b.id, C: c && c.id, record: jobsNow() }; P('9 who carries it', R.takers)
+    await H.step(R, '9 A banks its cobblestone above the keep', bot, async () => ({ A: await visit(bot) }))
+    R.end = jobsNow(); P('9 the job after the banking', R.end, 'A still carries', (SK.refillJobFor(bot) ?? null)?.id ?? null)
+  },
+  // 10: BAGCLEAR_UNTIL -- a bag at its keeps banks every lane kind and row kind (run with and without the setting)
+  async clear (bot, R) {
+    P('10 clear active', process.env.BAGCLEAR_UNTIL ?? '(unset)', 'well junk list size', WELL.WELL_JUNK.size, 'holds cobblestone/sand/dirt/wheat_seeds:', ['cobblestone', 'sand', 'dirt', 'wheat_seeds'].map(k => WELL.WELL_JUNK.has(k)))
+    R.well = { size: WELL.WELL_JUNK.size, list: [...WELL.WELL_JUNK].sort().join(',') }
+    H.give(NAME, { cobblestone: 64, sand: 8, dirt: 16, wheat_seeds: 16, stick: 8, chest: 2 }); await sleep(2500)
+    const rows = () => ({ row: rowOf(), record: rowFile() })
+    await H.step(R, '10 visit 1: cobblestone 64, sand 8, dirt 16, wheat_seeds 16, stick 8, chest 2', bot, async () => ({ A: await visit(bot) }))
+    P('10 row', rows())
+    await H.step(R, '10 visit 2', bot, async () => ({ A: await visit(bot) }))
+    P('10 row', rows())
+    await H.step(R, '10 visit 3', bot, async () => ({ A: await visit(bot) }))
+    R.row = rows(); P('10 row', R.row)
+  },
+  // 8: yard2 -- sited by the yard's own siting (ranked nearest the first yard), then its floor built by three bots with the build runner
+  async yard2 (bot, R) {
+    for (let i = 0; i < 3; i++) { try { const t = SK.townPlanTick(bot); P('8 townPlanTick', t) } catch (e) { P('townPlanTick threw', e.message) } await sleep(500) }
+    const th = (() => { try { return SK.townPlanHead(bot) } catch (e) { return { ok: false, why: e.message } } })()
+    P('8 town plan head', { ok: th?.ok, gen: th?.head?.gen, home: th?.head?.plan?.home, why: th?.why })
+    const c = (() => { try { return E.shopCtx(bot) } catch (e) { return { err: e.message } } })()
+    P('8 shop ctx', { zonesKnown: c.zonesKnown, zones: c.zones?.length, err: c.err })
+    if (!th?.head?.plan) { R.site = { ok: false, why: 'no town plan in this arena' }; return }
+    const ac = new AbortController()
+    for (let n = 1; n <= 2; n++) {
+      const t = Date.now()
+      const s = await E.yardSiteFor(bot, th.head.plan, c, [[HX, HY, HZ]], ac.signal, 'yard2')
+      R[`site${n}`] = { ok: s.ok, why: s.why, detail: s.detail, tried: s.tried, ms: Date.now() - t, anchor: s.record?.anchor, orient: s.record?.orient, blueprint: s.record?.blueprint, band: s.record?.band, cells: s.record?.cells?.length }
+      P(`8 yardSiteFor(yard2) call ${n}`, R[`site${n}`])
+      if (s.ok) { R.rec = s.record; break }
+    }
+    if (!R.rec) return
+    const key = E.projKeyOf('yard2'), dir = E.townDir()
+    const pub = PJ.publishRecord(dir, key, cur => (cur ? null : { ...R.rec, plan: { gen: th.head.gen }, state: 'open' }), { by: NAME }); P('8 yard2 record', pub.result)
+    await H.spawn('sbx-YardB'); await H.spawn('sbx-YardC')
+    const all = [NAME, 'sbx-YardB', 'sbx-YardC']
+    for (const n of all) H.give(n, { cobblestone: 256, torch: 16 })
+    await sleep(3000)
+    const t = Date.now()
+    const b = H.tell('sbx-YardB', { do: 'build', plot: 'yard2', max: 6 }), cc = H.tell('sbx-YardC', { do: 'build', plot: 'yard2', max: 6 })
+    const [A, Bv, Cv] = await Promise.all([buildVisits(bot, 'yard2', 6), b(), cc()])
+    R.build = { A, B: Bv, C: Cv, ms: Date.now() - t }; P('8 build', R.build)
+    const cells = R.rec.cells
+    const names = worldOf(cells.map(x => x.at))
+    const ok = cells.filter((x, i) => R.rec.palette[x.role].includes(names[i])).length
+    R.server = { cells: cells.length, ok, wrong: cells.map((x, i) => [x, names[i]]).filter(([x, n]) => !R.rec.palette[x.role].includes(n)).slice(0, 8).map(([x, n]) => `${x.role}@${x.at}=${n}`), bags: Object.fromEntries(all.map(n => [n, bagOf(n)])), loose: looseOf(), leases: leasesOf() }
+    P('8 the floor by the server', R.server)
+  },
   // 6: THE CHEST ROW -- a bag with chests and seeds places a row chest and banks; a second bot's seeds join it; a second kind; a general deposit beside it
   async row (bot, R) {
     await H.spawn('sbx-YardB')
@@ -228,6 +310,12 @@ const SCENARIOS = {
       R.steps.push({ label: `pass ${i}`, plan: cp, res: r, after: now, conserved })
     }
     R.cargoFiles = fs.readdirSync(path.join(DIR, 'pool')).filter(f => /clerk-cargo/.test(f)); P('7 cargo files left', R.cargoFiles)
+  },
+  // 128 cobblestone in ONE visit: one lane that grows, or three lanes?
+  async big (bot, R) {
+    H.give(NAME, { cobblestone: 192 }); await sleep(2500)
+    await H.step(R, '1 cobblestone 192 (keep 64): 128 in one visit', bot, async () => ({ A: await visit(bot) }))
+    R.kinds = { cobblestone: kindNow(bot, 'cobblestone') }; P('kinds', R.kinds)
   },
   // 1, 2, 4 in order: one lane a kind (16 of each first), gravel to 52 and past it, sand on sand, a fourth kind, a fifth with no lane left
   async lanes2 (bot, R) {
@@ -308,7 +396,8 @@ async function main () {
   rcon(`gamemode survival ${NAME}`); H.reset(NAME); await sleep(3000)
   await bot.waitForChunksToLoad()
   P('record', pub.result, 'projectsOn has yard:', (() => { try { return E.projectsOn().some(p => p.plot === 'yard') } catch (e) { return 'threw ' + e.message } })(), 'yardsNow', (() => { try { return E.yardsNow(bot).map(y => `${y.plot}:${y.states.map(s => `${s.id}/${s.name}/${s.filled}/${s.free}`).join(',')}`) } catch (e) { return 'threw ' + e.message } })())
-  const R = { scenario: SCEN, lanes: Y.lanesModeDetail(Y.LANES), env: ENVX, steps: [] }
+  P('code under test: HEAD', HEAD)
+  const R = { scenario: SCEN, head: HEAD, lanes: Y.lanesModeDetail(Y.LANES), env: ENVX, steps: [] }
   let err = null
   try { await SCENARIOS[SCEN](bot, R) } catch (e) { err = e; P('SCENARIO FAILED', e.stack) }
   fs.writeFileSync(path.join(DIR, 'result.json'), JSON.stringify(R, null, 1))
