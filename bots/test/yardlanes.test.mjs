@@ -208,7 +208,7 @@ await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap i
   await killedBy(YP, Y, '  if (o.room > 0) return false\n', '', M => assert.equal(M.laneMayOpen(st(), 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 40 } } }), false))
   await killedBy(YP, Y, '  const mine = s => !(skip?.has?.(s.id))', '  const mine = () => true', M => assert.deepEqual(M.pileCells(st(), { cobblestone: 10 }, { lanes: ON, skip: new Set([0]) }).lanes, { cobblestone: [1] }))
   await killedBy(YP, Y, '  return { hold: !!on && Number(room) > 0 }', '  return { hold: !!on }', M => assert.equal(M.wellHold({ room: 0 }).hold, false))
-  await killedBy(YP, Y, 'export const yardRestMs = ({ lanes = LANES, slots = 0 } = {}) => (lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)', 'export const yardRestMs = () => YARD_REST_MS', M => assert.equal(M.yardRestMs({ lanes: ON, slots: 34 }), 2 * 60_000))
+  await killedBy(YP, Y, ': lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)', ': YARD_REST_MS)', M => assert.equal(M.yardRestMs({ lanes: ON, slots: 34 }), 2 * 60_000))
   await killedBy(YP, Y, "return { kind: 'stock', urgent: pressed || !!lanes?.on, place,", "return { kind: 'stock', urgent: pressed, place,", M => assert.equal(M.yardWork({ held: { gravel: 16 }, slots: 20, states: st(), lanes: ON, keeps: {} }).urgent, true))
   await killedBy(YP, Y, '  const stockMin = lanes?.on ? (clear ? 1 : Math.min(YARD_STOCK_MIN, lanes.min)) : YARD_STOCK_MIN', '  const stockMin = YARD_STOCK_MIN', M => assert.equal(M.yardWork({ held: { gravel: 16 }, slots: 20, states: st(), lanes: ON, keeps: {} }).kind, 'stock'))
   const bag = [{ name: 'andesite', count: 40, slot: 9 }, { name: 'egg', count: 12, slot: 11 }, { name: 'cobblestone', count: 64, slot: 12 }, { name: 'cobblestone', count: 64, slot: 13 }]
@@ -238,7 +238,7 @@ await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' le
   const hold = sk.slice(sk.indexOf('function yardHoldNow ('), sk.indexOf('export function yardLanesInstall'))
   assert.ok(hold.length > 100 && !/yardRestUntil|yardHoldAt|stockAt/.test(hold), 'yardHoldNow reads the room alone')
   one(sk, 'return wellHold\\(\\{ room: k\\.room \\}\\)\\.hold', 'the hold is the room')
-  assert.equal((sk.match(/yardRestUntil = Date\.now\(\) \+ yardRestMs\(\{ slots: slotsNow\(\) \}\)/g) ?? []).length, 3, 'a visit that banked nothing rests by the bag\'s pressure')
+  assert.equal((sk.match(/yardRestUntil = Date\.now\(\) \+ yardRestMs\(\{ slots: slotsNow\(\)/g) ?? []).length, 3, 'a visit that banked nothing rests by the bag\'s pressure (and by a held lane)')
   one(sk, 'if \\(LANES\\.on && wellHoldOn\\(\\)\\) \\{ setYardHold\\(yardHoldNow\\); setYardFull\\(', 'WELL_HOLD installed')
   one(sk, "dispose_well: \\{ run: \\(ctx, a, signal\\) => withOverCap\\(ctx, \\(\\) => disposeWell\\(ctx, a, signal\\)\\)", 'the over_cap row wraps the well')
   one(sk, "if \\(k\\.over\\) logEvent\\(\\{ kind: 'yard_over_cap'", 'only a kind FULL at its cap is logged over_cap')
