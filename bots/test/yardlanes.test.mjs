@@ -512,7 +512,7 @@ await t('A ROW CHEST\'S FULLNESS IS THE INDEX\'S WORD (Codex r2 BLOCKER 3): reme
   const NOW = 1e12
   const rows = [{ at: [1, 71, 1], kind: 'clay_ball' }, { at: [3, 71, 1], kind: 'clay_ball' }]
   const remembered = new Map([['1,71,1', NOW + 25 * 60_000], ['3,71,1', NOW + 25 * 60_000]])   // this bot found both full five minutes ago
-  const fullObs = { names: { clay_ball: [27 * 64, 27] }, used: 27, size: 27 }, drawnObs = { names: { clay_ball: [26 * 64, 26] }, used: 26, size: 27 }
+  const fullObs = { names: { clay_ball: [27 * 64, 27] }, used: 27, size: 27, at: NOW - 6 * 60_000 }, drawnObs = { names: { clay_ball: [26 * 64, 26] }, used: 26, size: 27, at: NOW - 60_000 }   // the draw was seen a minute ago, AFTER this bot's failure five minutes ago
   const sc = M => {
     // the index still shows both full: no room -- the kind is over, the well may take it
     assert.equal(M.rowHasRoom(rows, 'clay_ball', M.rowFullKeys(rows, { obsOf: () => fullObs, remembered, now: NOW }), { lanes: ON }), false)
@@ -522,11 +522,24 @@ await t('A ROW CHEST\'S FULLNESS IS THE INDEX\'S WORD (Codex r2 BLOCKER 3): reme
     // the index has never seen a chest: the memory is the only word (and it lapses)
     assert.equal(M.rowFullKeys(rows, { obsOf: () => null, remembered, now: NOW }).size, 2)
     assert.equal(M.rowFullKeys(rows, { obsOf: () => null, remembered, now: NOW + 26 * 60_000 }).size, 0)
+    // Codex r3: one sapling chest holds oak only, one stack partial, no empty slot. To the kind rule that is "room", but a bot
+    // carrying spruce failed there five minutes ago and NOTHING has been observed since its own attempt: its failure stands, so
+    // the second (empty) sapling chest is the one it goes to; an observation after the failure hands the word back to the index
+    const srows = [{ at: [5, 71, 1], kind: 'sapling' }, { at: [7, 71, 1], kind: 'sapling' }]
+    const failed = new Map([['5,71,1', NOW + 25 * 60_000]])   // failed five minutes ago
+    const oakObs = at => ({ names: { oak_sapling: [27 * 64 - 10, 27] }, used: 27, size: 27, at })
+    const emptyObs = { names: {}, used: 0, size: 27, at: NOW - 3600_000 }
+    const obsAt = at => k => (k === '5,71,1' ? oakObs(at) : emptyObs)
+    assert.deepEqual([...M.rowFullKeys(srows, { obsOf: obsAt(NOW - 5 * 60_000), remembered: failed, now: NOW })], ['5,71,1'], 'its own attempt is the newest look: the failure stands')
+    assert.deepEqual([...M.rowFullKeys(srows, { obsOf: obsAt(NOW - 60_000), remembered: failed, now: NOW })], [], 'seen again since: the index decides')
+    assert.deepEqual([...M.rowFullKeys(srows, { obsOf: obsAt(NOW - 5 * 60_000), remembered: new Map(), now: NOW })], [], 'no failure of its own: the index decides')
   }
   assert.equal(Y.rowChestRoom({ names: { clay_ball: [27 * 64 - 5, 27] }, used: 27, size: 27 }, 'clay_ball'), true, 'no empty slot but a stack not full: room')
   assert.equal(Y.rowChestRoom({ names: { oak_sapling: [64, 1], spruce_sapling: [26 * 64, 26] }, used: 27, size: 27 }, 'sapling'), false); assert.equal(Y.rowChestRoom(null, 'clay_ball'), null)
   assert.equal(Y.rowHasRoom([rows[0]], 'clay_ball', new Set(['1,71,1']), { lanes: ON }), true, 'one chest of two: another may still be placed')
-  await killedBy(P('yard'), Y, "    if (room === false || (room === null && (remembered.get(k) ?? 0) > now)) out.add(k)", "    if (room === false || (remembered.get(k) ?? 0) > now) out.add(k)", sc)
+  await killedBy(P('yard'), Y, "    if (room === false || (room === null && until > now) || (room === true && mineIsNewer)) out.add(k)", "    if (room === false || until > now) out.add(k)", sc)
+  await killedBy(P('yard'), Y, "    if (room === false || (room === null && until > now) || (room === true && mineIsNewer)) out.add(k)", "    if (room === false || (room === null && until > now)) out.add(k)", sc)   // Codex r3: its own newer failure ignored
+  await killedBy(P('yard'), Y, "    const mineIsNewer = until > now && !(Number.isFinite(obs?.at) && obs.at > failedAt)", "    const mineIsNewer = until > now", sc)   // an observation after the failure must win
   const sk = strip(readFileSync(P('skills'), 'utf8'))
   one(sk, 'return rowHasRoom\\(yardRowsNow\\(bot, now\\), kind, yardRowFullNow\\(bot, now\\)\\) \\? 1 : 0', 'WELL_HOLD reads the index\'s word')
   one(sk, 'const full = yardRowFullNow\\(bot, now\\)', 'and so does the row\'s plan (a chest with room again is banked into at once)')

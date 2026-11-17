@@ -312,12 +312,20 @@ export function rowChestRoom (obs, kind, stackOf = () => 64) {
  * never proof: the INDEX's latest observation decides wherever it has one (`obsOf(key)`), and `remembered` (key -> until) only
  * where it has none.
  */
+export const ROW_FULL_MS = 30 * 60_000   // how long a bot's own "it took nothing" stands (skills.mjs yardRowBank)
 export function rowFullKeys (rows = [], { obsOf = () => null, remembered = new Map(), now = Date.now(), stackOf = () => 64 } = {}) {
   const out = new Set()
   for (const r of rows) {
     const k = r.at.join(',')
-    const room = rowChestRoom(obsOf(k), r.kind, stackOf)
-    if (room === false || (room === null && (remembered.get(k) ?? 0) > now)) out.add(k)
+    const obs = obsOf(k)
+    const room = rowChestRoom(obs, r.kind, stackOf)
+    const until = remembered.get(k) ?? 0
+    // Codex r3: this bot's own failure is the NEWER word when no observation has been made since it (a chest of one sapling species
+    // with a partial stack reads as "room" to a bot carrying another species: it failed there, and nothing changed since). An
+    // observation made AFTER the failure (another bot drew from the chest) still wins, which is round 2's rule.
+    const failedAt = until - ROW_FULL_MS
+    const mineIsNewer = until > now && !(Number.isFinite(obs?.at) && obs.at > failedAt)
+    if (room === false || (room === null && until > now) || (room === true && mineIsNewer)) out.add(k)
   }
   return out
 }
