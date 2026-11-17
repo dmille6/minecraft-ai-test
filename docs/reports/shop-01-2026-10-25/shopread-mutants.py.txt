@@ -6,8 +6,21 @@ M = [
  ("        for k in designed.get(q['id'], []) if q['id'] else []:\n            out[k] = min(out.get(k, q['t']), q['t'])\n", ""),
  ("                if m['id'] not in designed:\n                    designed[m['id']]", "                if True:\n                    designed[m['id']]"),
  # gkcrew4-01: the tidy's slots are the keeper and its crew
- ("    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax", "    return bmax"),
- ("    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax", "    return max(bmax, 1 + CREW_HELPERS_MAX)"),
+ # gkcrew4-01 + tidyflow-01show (shopread-allhands-01): the tidy's slots are all hands' twelve, the country's eight, the keeper's inside
+ # each; nothing above, and no other plot's
+ ("        return max(bmax, 1 + CREW_HELPERS_MAX, ALLHANDS_TIDY_SLOTS)\n", "        return max(bmax, 1 + CREW_HELPERS_MAX)\n"),   # the change reverted (the tidy at 5)
+ ("        return max(bmax, 1 + CREW_HELPERS_MAX, ALLHANDS_TIDY_SLOTS)\n", "        return bmax\n"),                              # the tidy at its record's 3
+ ("        return max(bmax, 1 + CREW_HELPERS_MAX, ALLHANDS_TIDY_SLOTS)\n", "        return 10**9\n"),                             # the tidy's bound deleted
+ ("        return max(bmax, ALLHANDS_COUNTRY_SLOTS)\n", "        return bmax\n"),                                                 # the country at its record's 3
+ ("        return max(bmax, ALLHANDS_COUNTRY_SLOTS)\n", "        return 10**9\n"),                                                # the country's bound deleted
+ ("        return max(bmax, ALLHANDS_COUNTRY_SLOTS)\n", "        return max(bmax, ALLHANDS_TIDY_SLOTS)\n"),                       # the country given the tidy's twelve
+ ("ALLHANDS_TIDY_SLOTS = 12\n", "ALLHANDS_TIDY_SLOTS = 13\n"),                                                                      # the keeper counted outside the twelve
+ ("ALLHANDS_TIDY_SLOTS = 12\n", "ALLHANDS_TIDY_SLOTS = 11\n"),
+ ("ALLHANDS_COUNTRY_SLOTS = 8\n", "ALLHANDS_COUNTRY_SLOTS = 9\n"),
+ ("ALLHANDS_COUNTRY_SLOTS = 8\n", "ALLHANDS_COUNTRY_SLOTS = 7\n"),
+ ("    if plot == COUNTRY:\n        return max(bmax, ALLHANDS_COUNTRY_SLOTS)\n    return bmax\n", "    return max(bmax, ALLHANDS_COUNTRY_SLOTS)\n"),   # every other plot given eight
+ ("            bmax = tidy_slots_max(plot, bmax)\n", ""),                                                                              # the judge never asks
+ ("            bmax = tidy_slots_max(plot, bmax)\n", "            bmax = tidy_slots_max(TIDY, bmax)\n"),                              # the judge gives every plot the tidy's
  # fences-01: the wood sink's placements are judged by the generations in force (a placement before its siting is off the record)
  ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor', 'wood')", "SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')"),
  # coverread-01: the tidy / stepwell / sink helpers judge a cover as a foreign dig
