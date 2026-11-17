@@ -736,7 +736,7 @@ export function yardClutter (rec, read = () => null, { max = YARD_CLEAR_MAX } = 
 /** `_yard` row detail (the read's lines: kind, placed / dug, the yard's holdings after). Pure. */
 export function yardRowDetail ({ kind = '-', why = '-', placed = {}, dug = {}, drew = {}, banked = {}, crafted = 0, held = {}, stop = '-', cleared = 0 } = {}) {
   const f = m => Object.entries(m ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `kind=${kind} why=${why} placed=${f(placed)} drew=${f(drew)} dug=${f(dug)} banked=${f(banked)} bamboo_blocks=${crafted} cleared=${cleared} yard=${f(held)} stop=${String(stop).replace(/\s+/g, '_').slice(0, 40)}`.slice(0, 300)
+  return `kind=${kind} why=${why} placed=${f(placed)} drew=${f(drew)} dug=${f(dug)} banked=${f(banked)} crafted=${crafted} cleared=${cleared} yard=${f(held)} stop=${String(stop).replace(/\s+/g, '_').slice(0, 40)}`.slice(0, 300)
 }
 
 // ---- YARDUSE-01 (11-04): THE YARD BEFORE THE WELL, AND THE CONSUMERS DRAW FROM IT ------------------------------------------------

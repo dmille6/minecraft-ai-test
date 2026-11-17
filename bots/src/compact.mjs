@@ -131,7 +131,7 @@ export function compactAllow (name, want, { others = {}, here = {} } = {}, keep 
 /** `_compact` row detail. Pure. */
 export function compactDetail ({ op = '-', from = '-', to = '-', took = 0, made = 0, banked = {}, slots = '-', why = '-' } = {}) {
   const m = Object.entries(banked ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `op=${op} from=${from} to=${to} took=${took} made=${made} banked=${m} slots=${slots} why=${String(why).replace(/\s+/g, '_').slice(0, 60)}`.slice(0, 300)
+  return `op=${op} from=${from} to=${to} took=${took} made=${made} banked=${m} bag_slots=${slots} why=${String(why).replace(/\s+/g, '_').slice(0, 60)}`.slice(0, 300)
 }
 /** `_compact_mode` licence row detail. Pure. */
 export const compactModeDetail = (s = COMPACT) => `on=${s.on ? 1 : 0} min_crafts=${s.minCrafts} max_stacks=${s.maxStacks} merge_min=${s.mergeMin} keep=${Object.entries(s.keep).map(([k, v]) => `${k}:${v}`).join(',')}`.slice(0, 300)

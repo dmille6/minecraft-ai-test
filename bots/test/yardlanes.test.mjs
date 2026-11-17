@@ -218,7 +218,7 @@ await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap i
 
 await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' leases; the hold and the full word installed; the over_cap row; the licence row', () => {
   const sk = strip(readFileSync(P('skills'), 'utf8')), sh = strip(readFileSync(P('shop'), 'utf8')), ft = strip(readFileSync(P('features'), 'utf8'))
-  one(sh, 'isYardPlot\\(p\\.plot\\) \\? yard && yardPlots\\(\\)\\.includes\\(p\\.plot\\)', 'projectsOn')
+  one(sh, 'isYardPlot\\(p\\.plot\\) \\? yard && yardOffered\\(p\\.plot\\)', 'projectsOn')
   one(sh, 'if \\(!isYardPlot\\(plot\\) && freeSlots < need\\) \\{', 'a full bag is a yard visit\'s reason, never its refusal')
   one(sk, 'const yw = complete && b && isYardPlot\\(p\\.plot\\) \\? yardWorkNow\\(b, rec, now, p\\.plot\\) : null', 'the order reads every yard\'s work')
   one(sk, 'const ss = await yardSiteFor\\(bot, \\{ \\.\\.\\.h\\.head\\.plan, gen: h\\.head\\.gen \\}, c, stood, signal, plot\\)', 'a later yard is sited by the yard\'s siting')
@@ -368,7 +368,7 @@ await t('BAGCLEAR_UNTIL: unset is off; while it lasts a visit banks ANY surplus,
   assert.equal(Y.CLEAR_VISIT_MAX, 640)
   // the chests: LIVE 11-16 cobbled_deepslate 945, spruce_log 414, stone 319, cobblestone 52 -> the clear's clerk draws the stone kinds;
   // the logs stay under the build reserve's 512, cobblestone under its 256
-  const town = { cobbled_deepslate: 945, spruce_log: 414, stone: 319, cobblestone: 52, coal: 325 }
+  const town = { cobbled_deepslate: 200, spruce_log: 414, stone: 319, cobblestone: 52, coal: 325 }   // (LIVE: 945 deepslate -- it alone fills a 640 visit)
   const w = Y.yardWork({ held: {}, slots: 5, freeSlots: 31, town, states: st, lanes: ON, keeps: {}, clear: true })
   assert.equal(w.kind, 'clerk'); assert.equal(w.clear, true)
   assert.deepEqual(Object.keys(w.draw).sort(), ['cobbled_deepslate', 'stone'], 'never coal (no lane), never the reserve\'s logs or cobblestone')

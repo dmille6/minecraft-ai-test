@@ -75,7 +75,7 @@ await t('the take: never below the loose keep, judged on the town elsewhere + th
   assert.equal(C.compactAllow('coal', 100, { others: { coal: 100 }, here: { coal: 60 } }, 128), 32)
   assert.equal(C.compactAllow('coal', 100, { others: { coal: 20 }, here: { coal: 60 } }, 128), 0)
   assert.equal(C.compactAllow('moss_block', 410, { others: { moss_block: 400 }, here: { moss_block: 10 } }, 0), 10)
-  assert.match(C.compactDetail({ op: 'compact', from: 'coal', to: 'coal_block', took: 189, made: 21, banked: { coal_block: 21 }, slots: '20->20', why: 'done' }), /^op=compact from=coal to=coal_block took=189 made=21 banked=coal_block:21 slots=20->20 why=done$/)
+  assert.match(C.compactDetail({ op: 'compact', from: 'coal', to: 'coal_block', took: 189, made: 21, banked: { coal_block: 21 }, slots: '20->20', why: 'done' }), /^op=compact from=coal to=coal_block took=189 made=21 banked=coal_block:21 bag_slots=20->20 why=done$/)
 })
 await t('MUTANTS KILLED: the loose keep ignored; a part craft taken; no slot kept for the product; a small waste merged; a skipped kind merged; the take past the keep', async () => {
   const CP = P('compact')
