@@ -223,8 +223,9 @@ import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeper
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots, stuckSegs, stuckLast } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
 import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf, lateUntil, groundsMayKeep } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
+import { TIDYFLOW, TFLOW, drawPlan, billTrim, drawTag, cutsFirst, cutsDryAfter, stoneSkip, refreshMay, refreshLeaseFree, keeperLane, stillKeeper, keeperUnquiet, visitBudgetMs, headway, allTurn, allCap, allCooldown, workRow, leftDone, abortsAfter, allShare } from './tidyflow.mjs'   // tidyflow-01show: the tidy visit's clock, refresh, heartbeat and the keeper's order
 import { groundsWork as crewGroundsWork } from './grounds2.mjs'   // minecrew-01: the idle steer's ask (groundsIdleAsk)
-import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
+import { setGroundsFall, setAllCooldown, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
@@ -18605,6 +18606,7 @@ function hallSiteFor (bot, plan, c, stood) {
  *  the felling, never above STEPWELL_CREW), every other project's as listed (shop.mjs buildersOf). Unreadable: the listed count. */
 function buildersFor (p, { worker = false } = {}) {
   // grounds-01: at most GROUNDS2.maxBots bots on the grounds at once, the last slot the keeper's (grounds2.mjs groundsSlots)
+  if (p?.plot === TIDY_PLOT && G2.on && TFLOW.all) return workerSlots(allCap(groundsSlots(buildersOf(p)), TIDYFLOW.allBots), worker)   // tidyflow-01show (ALLHANDS): 12 on the grounds, the last slot the keeper's
   if (p?.plot === TIDY_PLOT && G2.on) return groundsSlots(buildersOf(p), { worker })
   if (p?.plot !== STEPWELL_PLOT) return buildersOf(p)
   try { const h = recordHead(townDir(), projKeyOf(STEPWELL_PLOT)); return h.ok && h.head?.rec ? stepwellBuildersNow(h.head.rec) : buildersOf(p) } catch { return buildersOf(p) }
@@ -28546,11 +28548,17 @@ export const _projturn = Object.freeze({ turnBegin, turnNote, turnMarksNow, turn
 if (PROJTURN.on) setTurnNow({ stuckPlot: () => { const l = activeMem?.bot?.shopTurnLast ?? null; return l?.stop === 'stuck_on_cell' ? l.plot ?? null : null }, backedOff: (plot, now) => turnBackedOff(activeMem?.bot ?? null, plot, Number.isFinite(now) ? now : Date.now()) })
 // mineorder-01 r2: how much stands over the bot? (the order refuses a build visit only below the line AND with the town's ground over it)
 setOverHead(feet => { const b = activeMem?.bot; return b?.blockAt ? overHead((x, y, z) => b.blockAt(new Vec3(x, y, z)), feet, config.world.homeY + 24) : null })
+// tidyflow-01show (TIDYFLOW_ALLHANDS): a worker's next build order 3 minutes after a grounds visit, not 10 (shop.mjs orderCooldown)
+setAllCooldown(() => { const b = activeMem?.bot ?? null; return allCooldown({ on: TFLOW.all && G2.on, lastGrounds: b?.shopVisitPlot === TIDY_PLOT, spent: Date.now() < (b?.g2EmptyUntil ?? 0) }) })
 // sinkfix-04: the tidy's quiet order; the siteprep-02 fold (Codex fold BLOCKER): never for the keeper with site-request work (shop.mjs tidyQuiet)
 setIdleNow(plot => {
   const b = activeMem?.bot ?? null
   const idle = (b?.shopIdle?.get?.(plot) ?? -Infinity) > Date.now()
   if (!idle || plot !== TIDY_PLOT) return idle
+  // tidyflow-01show (tidyflow.mjs keeperUnquiet; LIVE 11-16: 5 keeper terms in 100 min, each ended `no_work_visit` or `underground`):
+  // the mark a keeper's water walk or country-lane visit left does not quiet its order while the inside record is open
+  // (gkwTownRead: the open stage's signature, cached 60 s). TIDYFLOW_KEEPER=off: the quiet as before.
+  if (TFLOW.keeper && keeperUnquiet({ keeper: keeperLeaseNow(b), last: b?.tidyflowLast ?? null, open: !!gkwTownRead(b).sig })) return false
   return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && (gkwClosing(b?.gkwPending ?? null) || gkwTownClosing(b)) })   // gkwork-01 rule 2; gkclear-01: the town's strikes
 })
 /** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
@@ -28836,7 +28844,19 @@ function groundsBegin (bot, now = Date.now(), args = null) {
     const R = g2Record(dir, now), keeper = keeperLeaseNow(bot, now)
     const open = R.state === 'open' ? g2OpenNow(dir, R.rec, now) : null
     const L = { on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now }
-    const d = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })
+    const d0 = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })
+    // tidyflow-01show (TIDYFLOW_ALLHANDS, tidyflow.mjs allTurn): off its share's turn, the visit is the grounds' all the same while the
+    // record is open -- unless a finished building stands damaged or a service is offered to this bot (the share as before); the
+    // other links are groundsOnly's (the keeper, the spent turns, a bot underground, a slot): broken, the decision as it was
+    let d = d0
+    if (TFLOW.all && !only && d0.took !== 'tidy' && ['off_turn', 'low', 'open_unknown'].includes(d0.why) && allTurn({ record: R.state, repair: (shopActiveStates() ?? []).some(s => s && s.exists && s.complete && s.damaged && s.plot !== TIDY_PLOT), service: !!bot.serviceOffer })) {
+      const da = groundsOnly({ ...L, why: 'all' })
+      // r2: the storehouse's share (tidyflow.mjs allShare; owner 11-17) -- while its ground is an open project every third visit
+      // all hands would take stays the bot's own order's. TIDYFLOW_ALLHANDS_SHARE=off: every one the grounds', as before.
+      const sh = da.took === 'tidy' ? allShare({ on: TFLOW.share, open: (shopActiveStates() ?? []).some(s => s && s.plot === WHS_PLOT && !s.complete && !s.waiting), n: bot.tidyflowShareN }) : null
+      if (sh) bot.tidyflowShareN = sh.n
+      if (da.took === 'tidy' && !sh?.own) d = { ...da, share: 1 }
+    }
     if (d.took === 'tidy') { bot.groundsPick = { at: now }; if (bot.projReserve) bot.projReserve.at = -Infinity }
     bot.g2Visit = { ...d, turn, open, keeper }
     return bot.g2Visit
@@ -28858,6 +28878,8 @@ function groundsEnd (bot, g, r) {
     const last = took === 'tidy' && !aborted ? bot.tidyLast ?? null : null
     const a = groundsAfter({ took, keeper: !!v.keeper, aborted: aborted || !last, placed: last?.placed, cleared: last?.cleared, emptyUntil: bot.g2EmptyUntil ?? 0 })
     bot.g2EmptyUntil = a.emptyUntil
+    // tidyflow-01show r2 (tidyflow.mjs abortsAfter): under all hands two aborted grounds visits in a row spend the worker's turns too
+    if (TFLOW.all) { const ab = abortsAfter({ took, keeper: !!v.keeper, aborted, n: bot.tidyflowAborts, emptyUntil: bot.g2EmptyUntil }); bot.tidyflowAborts = ab.n; bot.g2EmptyUntil = ab.emptyUntil }
     logEvent({ kind: 'grounds_quota', status: took === 'tidy' && !aborted && !a.empty ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: groundsQuotaDetail({ on: true, turn: v.turn, open: v.open, share: v.share, took, why: v.why, placed: last?.placed ?? null, cleared: last?.cleared ?? null, empty: a.empty, late: took === 'tidy' ? bot.g2Late ?? null : null, fall: v.fall ?? null, out: aborted ? 'aborted' : took === 'tidy' ? last?.outcome ?? '-' : r?.stop ?? '-' }) })
   } catch { /* telemetry */ }
   bot.g2Visit = null
@@ -29710,7 +29732,7 @@ function fcKeepInputs (bot, h, dir = townDir()) {
 }
 export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport, plainInputs: (bot, h, dir = townDir()) => { const c = shopCtx(bot); return { c, I: tidyInputs(bot, c, h, dir) } } })
 async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
-  const r0 = rh.head.rec
+  const r0 = rh.head.rec, tR = Date.now()   // tidyflow-01show: the `refreshed` row says how long the survey and its publish took, and who ran it (bot.tidyflowBy)
   let s, read, cap = 0, guard, fcKeepOff = null, fcReport = null, cR = c
   try {
     // fillcolumn-01 r5 (Codex round 4): THE SURVEY'S INPUTS WITH THEIR REPORT (fcKeepInputs). The refresh builds its own context and
@@ -29756,7 +29778,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
-  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen, ms: Date.now() - tR, by: bot.tidyflowBy ?? 'keeper' }) }) } catch { /* telemetry */ }
   // (a cell the repair left out is a waiver like any other: one `waived` row each, its reason on it)
   for (const d of fx?.dropped ?? []) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
   const h2 = recordHead(dir, key)
@@ -30013,12 +30035,20 @@ async function buildTidyVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
   // grounds-03: a fall-through's grounds visit starts late in the skill -- its budget is what the skill's clock has left (`used`)
-  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Number(bot.groundsPick?.used) || 0)
+  // tidyflow-01show (TIDYFLOW_LONG, tidyflow.mjs visitBudgetMs; owner 11-16 "extend the visit time to like 10 min"): the runner's
+  // abort for build_shop is SHOP_SKILL_MS where the base clock is a production one (runner.mjs reads skillBudgetMs), and this visit
+  // works to it -- never a fall-through's late leg (its clock is what the first project left of the base). Off: the base, as before.
+  const budgetBase = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const budgetLong = visitBudgetMs({ base: Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS, cap: SHOP_SKILL_MS, late: !!bot.groundsPick?.late })
+  const budget = budgetLong - (Number(bot.groundsPick?.used) || 0)
   // country-01: the visit's LANE picks the record chain (the inside's tidy, or the country's); every row names it
   let plot = TIDY_PLOT
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    // tidyflow-01show: `work` of a visit interrupted inside runVisit, and this visit's facts for the order's idle hook (keeperUnquiet)
+    if (f.runAt != null) { f.work = Date.now() - f.runAt; f.runAt = null }
+    bot.tidyflowLast = { at: Date.now(), crew: f.crew ?? null, lane: f.lane ?? null, outcome }
     bot.tidyLast = { placed: Number(extra.placed) || 0, cleared: Number(extra.cleared) || 0, outcome }   // grounds-01: the quota row's counts (groundsEnd)
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
@@ -30073,13 +30103,26 @@ async function buildTidyVisit (ctx, args, signal) {
   // COUNTRY-01 (country.mjs groundsLane): the crew's visit works the INSIDE (the tidy chain) or the COUNTRY (the bands outside the
   // wall, their own chain) -- a helper its side (borrowing the other lane's open work), the keeper the inside and the country when it
   // wants siting or has not had the keeper for COUNTRY.keeperEveryMs
+  // TIDYFLOW-01 (tidyflow.mjs refreshMay; LIVE 11-16: the hourly refresh ran at 00:45Z and 14:19Z -- only a keeper's SECOND visit in
+  // its own hour, on the inside lane and past its water walk, reached it): is the inside record's due refresh THIS visit's first
+  // act? The keeper's, or any worker's that is not a fall-through's late leg, while the town's `refresh` lease is free (held, by
+  // anyone, a survey is running or failed inside TIDYFLOW.leaseMs: asked again when it lapses). TIDYFLOW_REFRESH=off: never.
+  const flowLate = bot.groundsPick?.late === true
+  let flowRef = { run: false, by: null, why: 'off' }
+  if (TFLOW.refresh && GROUNDS.on && LANDP.on) {
+    try {
+      const due0 = !!rh.head && refreshDue(rh.head.rec)
+      flowRef = refreshMay({ due: due0, site: caps.site, late: flowLate, free: due0 && refreshLeaseFree(projLeaseState(dir, key, TIDYFLOW.lease), Date.now()) })
+    } catch { flowRef = { run: false, by: null, why: 'error' } }
+  }
   let lane = 'inside'
   if (COUNTRY_ON && GROUNDS.on && LANDP.on) {
     const crec = countryHeadNow(dir)
     if (crec !== undefined) {
       const irec = rh.head?.rec ?? null
       const cap = role === 'helper' ? helpersCap(gkOpenNow(bot, dir, projKeyOf(TIDY_PLOT))) : 0
-      const gl = groundsLane({ on: true, role, helper: helper?.name ?? null, cap, inside: { open: !!irec && !irec.structure_complete, due: !irec || tidyDue(irec) || gkStageDue(irec) }, country: { demand: countryDemand(crec) }, lastCountryAt: procMem(bot).gkCountryAt ?? -Infinity })
+      // tidyflow-01show (keeperLane): a keeper with the refresh to run works the INSIDE this visit, whatever the country's turn
+      const gl = keeperLane(groundsLane({ on: true, role, helper: helper?.name ?? null, cap, inside: { open: !!irec && !irec.structure_complete, due: !irec || tidyDue(irec) || gkStageDue(irec) }, country: { demand: countryDemand(crec) }, lastCountryAt: procMem(bot).gkCountryAt ?? -Infinity }), { on: TFLOW.refresh, role, run: flowRef.run })
       lane = gl.lane
       try { logEvent({ kind: 'grounds_lane', status: 'success', snapshot: snapshot(bot), detail: laneDetail({ lane, why: gl.why, role, helper: helper?.name ?? null, demand: countryDemand(crec) }) }) } catch { /* telemetry */ }
       if (lane === 'country') {
@@ -30092,6 +30135,20 @@ async function buildTidyVisit (ctx, args, signal) {
     f.lane = lane
   }
   bot.shopVisitKey = key
+  // TIDYFLOW-01: THE DUE REFRESH FIRST -- before the keeper's water walk and the stage's siting, under the town's `refresh` lease
+  // (the publish's own check inside tidyRefresh stays the guard against a second writer). The bot is declared still for the survey
+  // (buildsite.mjs siteStillBegin: it runs standing). Published: the lease is given back (the record's own stamp is the clock);
+  // not published (the survey failed, another bot's publish won): the lease stands and nobody surveys again until it lapses.
+  if (flowRef.run && lane === 'inside') {
+    const lz = projTakeLease(dir, key, TIDYFLOW.lease, me, { now: Date.now(), ttl: TIDYFLOW.leaseMs })
+    if (lz.ok) {
+      const stl = siteStillBegin(bot, TIDYFLOW.surveyStillMs)
+      let r2 = null
+      bot.tidyflowBy = flowRef.by
+      try { r2 = await tidyRefresh(bot, c, h, dir, key, rh, me, signal) } finally { siteStillEnd(stl); bot.tidyflowBy = null }
+      if (r2) { rh = r2; releaseLease(dir, key, TIDYFLOW.lease, me, lz.gen) }
+    }
+  }
   // gkclear-02: a keeper's tidy visit is stamped at its start with the town's count (an interrupted visit still spends its turn)
   if (GKW_ON && role === 'keeper') { try { bot.gkwTown = null; const t = gkwTownRead(bot); if (t.sig) bot.gkwTried = { sig: t.sig, total: t.total, at: Date.now() } } catch { /* the stamp is advisory */ } }
   // BOARDWALK-03: the town's water, every BW3.everyMs, before the stage (the keeper's; a visit with no water work goes on to the grounds)
@@ -30184,9 +30241,12 @@ async function buildTidyVisit (ctx, args, signal) {
   // TIDYREFRESH-01 (a)+(c): an OPEN inside-the-wall record is surveyed again by its keeper every hour (tidyrefresh.mjs refreshDue);
   // what the new survey finds off the columns the record still works is ADDED (refreshMerge: whole columns, never a cell another
   // project names, never one the record names or waived) -- the work already planned passed as `busy`, so the rough cap pages
-  if (GROUNDS.on && LANDP.on && caps.site && rh.head && refreshDue(rh.head.rec)) {
-    const r2 = await tidyRefresh(bot, c, h, dir, key, rh, me, signal)
-    if (r2) rh = r2
+  // tidyflow-01show: with TIDYFLOW_REFRESH on the refresh ran above, as the visit's first act; off, here as before
+  if (!TFLOW.refresh) {
+    if (GROUNDS.on && LANDP.on && caps.site && rh.head && refreshDue(rh.head.rec)) {
+      const r2 = await tidyRefresh(bot, c, h, dir, key, rh, me, signal)
+      if (r2) rh = r2
+    }
   }
   let rec = rh.head.rec
   // gkhelpers-01: the KEEPER's plan additions -- the storehouse's floor holes first (groundskeeper.mjs storeFloorHoles: the chests'
@@ -30269,10 +30329,16 @@ async function buildTidyVisit (ctx, args, signal) {
   // fillcolumn-01 (`floatHeld`, filled once the visit's reader stands, below): a fill no order of work can lay now is passed too
   let floatHeld = new Set()
   const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
-  const slot = takeSlot(dir, key, me, lane === 'country' ? workerSlots(COUNTRY.builders, G2.on && worker) : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
+  let slot = takeSlot(dir, key, me, lane === 'country' ? workerSlots(COUNTRY.builders, G2.on && worker) : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
+  // tidyflow-01show (ALLHANDS): the country's slots are 8 (a worker's 7) -- asked again over the larger number when the base ones are taken
+  if (!slot.ok && lane === 'country' && TFLOW.all && G2.on) slot = takeSlot(dir, key, me, workerSlots(allCap(COUNTRY.builders, TIDYFLOW.allCountry), worker))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
   let effects = null
+  // tidyflow-01show (tidyflow.mjs stillKeeper): the visit's heartbeat, given back in the finally below however the visit ends
+  const flowStill = stillKeeper(bot, { on: TFLOW.still, deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+  // tidyflow-01show (tidyflow.mjs headway): a LONG visit that lays and digs nothing for TIDYFLOW.idleMs (or idleRows rows) ends itself
+  let flowHead = null
   let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
   const persist = () => {
     if (!drawn0 || completed) return
@@ -30352,6 +30418,22 @@ async function buildTidyVisit (ctx, args, signal) {
     if (parkish) { try { Object.assign(extra, parkBill(rec, read, { held: held0, stock: matsTownStock(bot)?.stock ?? {}, done: q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role) })) } catch { /* the park waits for its bill */ } }
     if (wantSoil > 0) extra.dirt = (extra.dirt ?? 0) + wantSoil
     const need = want > 0 || Object.keys(extra).length ? needFromTown({ ...(want > 0 ? { cobblestone: want } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
+    // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
+    // clear lease, never a record cell) -- tidyflow-01show: read by a function, so the draw's plan can ask before anything is drawn
+    const cutsRead = () => {
+      const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
+      return cuts0
+    }
+    // TIDYFLOW-01 (tidyflow.mjs drawPlan; LIVE 11-16: 14 of 47 tidy visits spent 48-51 s at the yard for about 4 cobblestone, then
+    // the chests, and reached their segment with 0-15 s left; a bill of 25 means the bag already held 7 spare blocks): NO DRAW while
+    // the bag holds one visit's work, and none while a cut waits for this bot -- the cuts go first (cutsFirst, below) and are the
+    // material. Short with no cut, or after a cuts-first visit that dug nothing (cutsDryAfter): the draw, as before. A WORKER's
+    // whole bill is dropped with it, the KEEPER's cobblestone alone (billTrim). TIDYFLOW_DRAW=off: nothing asked, the bill as it was.
+    const flowMayCut = !floorOnly && (caps.digs || (caps.cuts && !isTerrace && !prepNow))
+    let flowCuts0 = null
+    const flowDp = drawPlan({ on: TFLOW.draw && GROUNDS.on && !floorOnly && !prepNow, open, openAccess, earth: earthDirt(spare('dirt'), openSoil, TIDY_VISIT_FILLS) + spare('cobblestone'), stone: TIDY_PALETTE.access.reduce((n, b) => n + spare(b), 0),
+      cuts: () => (flowMayCut ? (flowCuts0 = cutsRead()).length : 0), clearFree: () => { const st = projLeaseState(dir, key, 'seg-clear'); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }, cutsDry: bot.tidyflowCutsDry === true })
+    billTrim(need, { skip: flowDp.skip, keeper: !!caps.site })
     let took = {}
     bag0 = held0
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
@@ -30371,19 +30453,21 @@ async function buildTidyVisit (ctx, args, signal) {
     if (Object.keys(need).length && workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: GROUNDS.on })) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
+    { const dt = drawTag(flowDp, { yard: f.fromYard, chest: Object.values(took).reduce((n, v) => n + (Number(v) || 0), 0) }); if (dt) f.draw = dt }   // tidyflow-01show: the row's `draw=`
     check(signal)
     effects = botBuildEffects(bot, {
       acks,
       keep,
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
       aborted: () => !!signal?.aborted,
-      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: plot, ...d }) : buildRowDetail({ project: plot, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
+      // tidyflow-01show (stillKeeper): every `_build` / `_build_seg` row is the visit's heartbeat -- a bot deferring cell after cell
+      // stands still (a deferral costs no walk) and the stuck reflex ended it at 35 s; no row for TIDYFLOW.stillMs and it is watched again
+      log: (kind, d) => { if (kind === '_build' || kind === '_build_seg') flowStill.beat(); if (kind === '_build') flowHead?.row(d?.op, undefined, d?.n); if (kind === '_build' && (TFLOW.long || TFLOW.still) && workRow(d?.op, d?.n)) bot.tidyflowGainAt = Date.now(); try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: plot, ...d }) : buildRowDetail({ project: plot, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()
-    // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
-    // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
+    // (tidyflow-01show: the list the draw's plan read moments ago when it skipped the draw; read here, after the draws, in every other visit)
+    const cuts0 = flowDp.skip && flowCuts0 ? flowCuts0 : cutsRead()
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
@@ -30402,6 +30486,9 @@ async function buildTidyVisit (ctx, args, signal) {
     // roughground-2/3 (Codex r1 BLOCKER): a topsoil cell (DIRT only) with no dirt in the bag reads done now -- its cobble is never dug
     // out to leave a hole; the next visit with dirt (or the next survey) lays it
     const noSoil = q => soilSkip(q, n => !!effects?.has?.(n))   // roughfill-01: the placer's availability, never the raw count
+    // tidyflow-01show (stoneSkip): a visit that SKIPPED its draw passes a staircase cell its bag has no stone for (read done now, as
+    // the topsoil above) -- else the first one in the order ends the visit `no_material` (buildrun.mjs) before a single fill or cut
+    const noStone = q => flowDp.skip && stoneSkip(q, n => !!effects?.has?.(n), TIDY_PALETTE.access)
     // townterrace-01: the park's cells and the cave seals a visit passes over now (park.mjs terraceSkip: no material, no tool, the
     // ground under a planting not laid yet, a seal's cut still standing) read done -- an element the town cannot make never blocks
     const tools = { get hoe () { return (bot.inventory?.items?.() ?? []).some(i => HOE_RE.test(i.name)) }, get boneMeal () { return countItem(bot, 'bone_meal') > 0 } }
@@ -30450,9 +30537,14 @@ async function buildTidyVisit (ctx, args, signal) {
     // draws: a visit ends `no_material` at the first cell it holds no block for (buildrun.mjs), so a staircase at the head of a bag
     // of dirt would end the visit before a single fill -- without the stone the survey's order stands. Never while the storehouse
     // floor or a site prep is the visit's only work.
+    // tidyflow-01show (cutsFirst): a visit that skipped its draw FOR the cuts digs them before the fills (a worker's cuts go last
+    // while a fill is ready: with a block or two in the bag it would lay them, end `no_material` and never dig)
+    share = cutsFirst(share, flowDp)
     if (stairsHead) { try { share = stairsShare(share, stairSeg(visitRec, workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: true }), stairOpenQ)) } catch { /* the share as it was */ } }
+    f.pre = Date.now() - t0; f.runAt = Date.now()   // tidyflow-01show: the visit row's `pre=` (ms before the work) and `work=` (ms inside it; out() closes it on a throw)
+    flowHead = headway({ on: budgetLong > budgetBase, start: f.runAt })   // only a visit on the long budget: the base visit as it was
     const r = await runVisit({ dir, key, me, home, stood, record: GKW_ON ? dropWaivedClears(recV) : recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q) || noStone(q), stuckStalledOnly: true, giveUp: () => !!flowHead?.over(),
       ...tempStandOf(bot, c, TIDY_PLOT), ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree; tempstand-01
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
@@ -30461,6 +30553,9 @@ async function buildTidyVisit (ctx, args, signal) {
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
       ...(GROUNDS.on ? { segOk: crew.segOk, segYield: crew.segYield, skipOpenDeps: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    f.work = Date.now() - f.runAt; f.runAt = null
+    // tidyflow-01show (cutsDryAfter): a cuts-first visit that dug nothing does not skip its next draw for the cuts again
+    bot.tidyflowCutsDry = cutsDryAfter(bot.tidyflowCutsDry === true, flowDp, r.cleared)
     // siteprep-01 r5: a prep visit that moved nothing counts toward the attempt's stall backstop (siteprep.mjs prepHoldOf); one that
     // placed or cleared resets it
     // (the open work read AFTER the visit, fresh: helpers filling during it are progress -- Codex r6 BLOCKER)
@@ -30571,7 +30666,11 @@ async function buildTidyVisit (ctx, args, signal) {
     if (GKW_ON && GROUNDS.on && (r.stop === 'complete' || caps.waive)) {
       try {
         const left = tidyLeftKeys(rw, read2, progOpts)
-        const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
+        // tidyflow-01show r2 (tidyflow.mjs leftDone): a staircase cell this visit passed for want of stone is open work (`left`, the
+        // open count and the keeper's waive read it) but no strike against the cell -- one empty bag is not "nobody can lay it"
+        // (the count's own line is as it was -- gkleft.test pins it -- inside `strikes`, whose `left` is the list it is handed)
+        const strikes = left => { const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' }); return town }
+        const town = strikes(flowDp.skip ? tidyLeftKeys(rw, read2, { ...progOpts, fillDone: leftDone(progOpts.fillDone, noStone) }) : left)
         openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
         const due = caps.waive ? leftWaiveDue(rw, town, left) : []
         // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)
@@ -30662,6 +30761,7 @@ async function buildTidyVisit (ctx, args, signal) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
   } finally {
+    flowStill.end()   // tidyflow-01show: the declared window never outlives the visit (a result, a throw, an abort)
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
     try { effects?.close() } catch { /* gone */ }
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }

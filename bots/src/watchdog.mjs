@@ -26,6 +26,7 @@ import { airAdmission, airDeclineNext } from './airstate.mjs'
 import { pickRelocationTargetAsync, landingCheck, reasonsLabel } from './relocate.mjs'
 import { relocationForbidden } from './keepout.mjs'   // keepout-01 x homefix-02: no relocation into a fire column
 import { skyEscapeBlocked } from './respawnfall.mjs'   // respawnfall-01
+import { sinceGain } from './tidyflow.mjs'   // tidyflow-01show r2: a block laid or dug by a build visit is progress
 import { Vec3 } from 'vec3'
 
 // ---------------------------------------------------------------------------
@@ -449,6 +450,11 @@ export class StagnationWatchdog {
     // A RESCUE IS PENDING (homefix-01 H2 items 1, 5): this tick samples both histories and issues NO verdict and NO cancel.
     // Before this guard the 15 s setInterval re-entered check() mid-rescue and cut the rescue on the OLD window.
     if (this.pending) { this.#pendingTick(); return }
+    // tidyflow-01show r2 (tidyflow.mjs sinceGain): A BLOCK LAID OR DUG IS PROGRESS. A long fill visit stands in one segment and its
+    // bag's count falls, so it met all three tests below while working. The visit marks its last work row (bot.tidyflowGainAt,
+    // skills.mjs buildTidyVisit; never set with TIDYFLOW_LONG and _STILL off): the window starts again there. A visit that stops
+    // gaining is judged a full window after its last block, and the runner's own abort stands.
+    this.samples = sinceGain(this.samples, this.bot.tidyflowGainAt)
 
     // Need a full window before judging anything.
     const span = this.samples.length

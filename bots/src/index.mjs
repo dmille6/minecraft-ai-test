@@ -1125,7 +1125,7 @@ function connect() {
           // watchdog looking away from the only bot that needed it. Past the
           // timeout the exemption's justification is already disproven.
           skillElapsedMs: runner?.current ? now - runner.current.startedAt : 0,
-          skillTimeoutMs: config.skills.defaultTimeoutMs,
+          skillTimeoutMs: runner?.current?.timeoutMs ?? config.skills.defaultTimeoutMs,   // tidyflow-01show: this run's own timeout (build_shop's is longer)
           stillFor: stillnessMs(posSamples, now),
         })
         if (!wedged) return

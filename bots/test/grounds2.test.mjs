@@ -26,6 +26,9 @@ for (const k of ['GROUNDS2', 'GROUNDSFALL', 'GROUNDSKEEPER', 'TIDY', 'GKLEASE', 
 // the turns, not the grounds. They run on the selection they were written for; the grounds as the stand-in for the turns' own skip
 // (`no_progress`, in NO_ORDER_SKIPS below) is projturn.test.mjs's chain.
 process.env.PROJTURN = 'off'
+// TIDYFLOW_ALLHANDS (deliberate, tidyflow-01show): this file's cases are grounds-01's own shares and caps (every 2nd / 4th visit, four
+// slots); all hands replaces them while the record is open and has its own tests (tidyflow.test.mjs). Off: these numbers exactly.
+process.env.TIDYFLOW_ALLHANDS = 'off'
 const { withMutant } = await import('./helpers/mutant.mjs')
 const { EventEmitter } = await import('node:events')
 const { Vec3 } = await import('vec3')
@@ -833,9 +836,9 @@ const WIRES = [
   'if (!g3Only(args)) ctx.bot.g3Hold = null',
   'ctx.bot.g3Hold = groundsHoldOf(r?.stop)',
   'try { await groundsFallLeg(ctx, args, signal, g2, r, t0) } catch (e) { r = undefined; throw e }',
-  'const d = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })',
+  'const d0 = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })',
   'if (g3Only(args)) { bot.tidyLast = { placed: 0, cleared: 0, outcome: String(gr.stop) }; return groundsResult(gr) }',
-  'const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Number(bot.groundsPick?.used) || 0)',
+  'const budget = budgetLong - (Number(bot.groundsPick?.used) || 0)',   // tidyflow-01show: the visit's budget (the base for a late leg: visitBudgetMs), less what the skill has used
   // review r1 (Codex): the sweep after a late visit ends with the SKILL too
   'const used0 = Number(ctx.bot.groundsPick?.used) || 0',
   'try { sw = await gkSweep(ctx.bot, signal, { until: lateUntil(t0, budget, used0) }) }',
