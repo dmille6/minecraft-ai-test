@@ -469,7 +469,7 @@ export function bayStates (bays = [], read = () => null, { kinds = yardKinds() }
  * and its lane is as long as what stands in it needs (laneLen): 8 rows, then 16, then the bay. An unread bay keeps its whole length
  * (never a guess that hides blocks). Lanes off: the whole bays, as before.
  */
-export function laneBays (rec, bp, read = () => null, { lanes = LANES, h = YARD_H } = {}) {   // eslint-disable-line no-unused-vars
+export function laneBays (rec, bp, read = () => null, { lanes = LANES, h = YARD_H } = {}) {
   const whole = pileSlots(rec, bp, { h })
   if (!lanes?.on) return whole
   // PAPER PROOF 11-17 (defect B): a lane's length was fixed for the whole visit, so 64 sand became 52 + 12 in TWO lanes and three kinds
