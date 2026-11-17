@@ -7,6 +7,12 @@ reason, 3 are red (lavastep, plinth-skill, well) and all three are red on the sh
 kind of host (`suite/showcase-baseline-ci4.log`: 528 of 534, six red). Suites in order: 526, 574, 586, 586, 590.
 Read next: `DECISIONS.md` (what the two lines disagreed on and how each was settled), `SHOWCASE-NEW.md` and
 `showcase-pool-off.env` (what the trunk would newly switch on for the showcase, and the block that switches it off).
+**State at 9571abad8 (2026-11-17 01:20Z), with origin/main and the showcase's bagfix-01show `0e33aa99` merged in:** sixth
+suite on ci3: 591 of 605 pass, 11 skipped with a written reason, 3 red: plinth-skill and well (red on the showcase build
+alone) and protected-paths, which fails the same way in the showcase baseline log, passed in suites 2 to 5 and passes
+when run alone (its Python wrapper under load). The items "merging in what both lines have landed since" below are done
+for those two; the showcase's bag and chest release 2 is not out yet.
+
 **Still owed before this is a trunk:** the hand read of the 33 protected declarations where the fleet's version stands
 (`ledgers/review-worklist.json`, key `fleet`); the two-engine tier-3 review; merging in what both lines have landed since
 (main's tooling commits; the showcase's bagfix-01show `0e33aa99`, live 11-16 23:03Z, which reads `CHESTCARRY`, a name the
