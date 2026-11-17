@@ -30053,7 +30053,7 @@ async function worklistVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_
   const c = shopCtx(bot)
   if (!c.zonesKnown) return no('zones_unknown')
   let guard = worklistGuardStrict()
-  if (!guard) return no('record_unreadable')
+  if (guard == null) return no('record_unreadable')
   let claims = []
   try { claims = claimOn() ? buildingClaims(plotRecordsNow() ?? []) : [] } catch { return no('record_unreadable') }
   const zone = at => cellInZones(at[0], at[1], at[2], c.zones ?? []), claim = at => !!wlClaimedAt(claims, at)

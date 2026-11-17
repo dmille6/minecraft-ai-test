@@ -266,7 +266,7 @@ await t('the visit: its own key and one slot, the file refused before anything i
   one("  if (!WL_ON || !SHOP.on || !planOn()) return no('off')", 'off: nothing is read')
   one('  const chk = listCheck(doc, { bot: me, home })', 'the file is checked for this bot and this home')
   one("  if (!c.zonesKnown) return no('zones_unknown')", 'no visit while the zones are unread')
-  one("  if (!guard) return no('record_unreadable')", 'no visit while a record is unread')
+  one("  if (guard == null) return no('record_unreadable')", 'no visit while a record is unread')
   one('  const plot = worklistPlot(me), key = projKey(home, plot)', 'the bot\'s own record key')
   one('  const slot = takeSlot(dir, key, me, 1)', 'one slot: the list is one bot\'s')
   one("    const why = !g || g.has(k) ? 'record' : zone(q.at) ? 'zone' : claim(q.at) ? 'claim' : !cutSafeNow(rd, q.at, tidyWater()) ? 'water' : otherBodyOnCell(bot, q.at) ? 'body' : roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) ? 'footing' : null", 'every check at the dig')
