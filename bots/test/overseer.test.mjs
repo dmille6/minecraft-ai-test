@@ -44,7 +44,7 @@ const splitScenario = async M => {
   assert.strictEqual(ids.length, new Set(ids).size); assert.strictEqual(ids.length, 7)
 }
 await t('split: nearest bot, whole columns, no cell in two lists', () => splitScenario(O))
-mutant('split ignores the column rule', 'const k = colKey(j.at); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(j) }\n  const todo',
+await mutant('split ignores the column rule', 'const k = colKey(j.at); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(j) }\n  const todo',
   'const k = cellKey(j.at); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(j) }\n  const todo', async M => {
     // capacity forces a choice: 2 bots, 4 jobs, cap 2 each; the pillar of 2 must stay whole
     // a pillar of 3 and one block beside it; shares are 2 each: the pillar still goes WHOLE (to an idle bot), never 2 + 1
@@ -60,7 +60,7 @@ const capScenario = async M => {
   assert.strictEqual(o.filter(x => x === 'A').length, 3); assert.strictEqual(o.filter(x => x === 'B').length, 3)
 }
 await t('split: shares by rate, a far bot still gets work', () => capScenario(O))
-mutant('split without the share cap', 'load.get(b.name) < cap.get(b.name))', 'true)', capScenario)
+await mutant('split without the share cap', 'load.get(b.name) < cap.get(b.name))', 'true)', capScenario)
 
 const avoidScenario = async M => {
   const book = [job(M, 0, 65, 0, { avoid: ['A'] })]
@@ -69,8 +69,8 @@ const avoidScenario = async M => {
   assert.strictEqual(M.splitOpen(later, [bot('A', 0, 0)], { now: NOW })[0].owner, null, 'notBefore waits')
 }
 await t('split: an avoided bot is passed over; notBefore waits', () => avoidScenario(O))
-mutant('split ignores avoid', '!avoid.has(b.name) && ', '', avoidScenario)
-mutant('split ignores notBefore', "if (js.some(j => j.notBefore > now)) continue", '', avoidScenario)
+await mutant('split ignores avoid', '!avoid.has(b.name) && ', '', avoidScenario)
+await mutant('split ignores notBefore', "if (js.some(j => j.notBefore > now)) continue", '', avoidScenario)
 
 // ---------------------------------------------------------------- rebalance
 const rateScenario = async M => {
@@ -86,8 +86,8 @@ const rateScenario = async M => {
   assert.strictEqual(M.rebalance(even, [bot('A', 0, 0), bot('B', 0, 9)], { now: NOW }).moved, 0)
 }
 await t('rebalance: by measured rate, nearest columns, after the lease', () => rateScenario(O))
-mutant('rebalance by count not rate', 'const ws = weight(slow, T), wf = weight(fast, T)', 'const ws = 1, wf = 1', rateScenario)
-mutant('rebalance without the lease wait', 'j.owner = fast.name; j.notBefore = until', 'j.owner = fast.name', rateScenario)
+await mutant('rebalance by count not rate', 'const ws = weight(slow, T), wf = weight(fast, T)', 'const ws = 1, wf = 1', rateScenario)
+await mutant('rebalance without the lease wait', 'j.owner = fast.name; j.notBefore = until', 'j.owner = fast.name', rateScenario)
 
 // ---------------------------------------------------------------- quarantine
 const quarScenario = async M => {
@@ -106,8 +106,8 @@ const quarScenario = async M => {
   assert.strictEqual(M.recordAttempt(job(M, 1, 65, 0), { bot: 'A', why: 'done', now: NOW }).state, 'done')
 }
 await t('quarantine: N fails by M bots, with its commonest reason', () => quarScenario(O))
-mutant('quarantine without the bots rule', '&& bots.size >= T.quarantineBots', '', quarScenario)
-mutant('no avoid after repeated own failure', 'if (byBot >= T.avoidAfter && !j.avoid.includes(bot))', 'if (false)', quarScenario)
+await mutant('quarantine without the bots rule', '&& bots.size >= T.quarantineBots', '', quarScenario)
+await mutant('no avoid after repeated own failure', 'if (byBot >= T.avoidAfter && !j.avoid.includes(bot))', 'if (false)', quarScenario)
 
 const ingestScenario = async M => {
   const book = [job(M, 0, 65, 0, { owner: 'A' }), job(M, 1, 65, 0, { owner: 'A' }), job(M, 2, 65, 0, { owner: 'A' })]
@@ -135,8 +135,8 @@ const stallScenario = async M => {
   assert.ok(c.book.filter(j => j.state === 'open').every(j => j.owner === 'K')); assert.ok(!('S' in c.lists))
 }
 await t('stall: no progress for T -> list reassigned + unstick order', () => stallScenario(O))
-mutant('no grace after unstick', '&& !(now - Number(x.unstuckAt ?? -Infinity) < T.unstickMs)', '', stallScenario)
-mutant('stall clock off', 'if (now - since >= T.stallMs)', 'if (false)', stallScenario)
+await mutant('no grace after unstick', '&& !(now - Number(x.unstuckAt ?? -Infinity) < T.unstickMs)', '', stallScenario)
+await mutant('stall clock off', 'if (now - since >= T.stallMs)', 'if (false)', stallScenario)
 
 // ---------------------------------------------------------------- scar intake
 const intakeScenario = async M => {
@@ -151,11 +151,11 @@ const intakeScenario = async M => {
     { at: [1.5, 65, 0], block: 'dirt' },
   ], book, { zones, guard: k => k === '3,65,3', now: NOW })
   assert.deepStrictEqual(added.map(j => j.id), ['r:5,65,5']); assert.strictEqual(added[0].src.ref, 'host:pillar')
-  assert.deepStrictEqual(skipped, { dup: 2, zone: 1, record: 1, malformed: 1, cap: 0 })
+  assert.deepStrictEqual(skipped, { dup: 2, zone: 1, record: 1, malformed: 1, cap: 0, far: 0 })
 }
 await t('scar intake: dedupe (any state), zone skip, record skip', () => intakeScenario(O))
-mutant('intake without the zone skip', 'if (inZone(at, zones)) { skipped.zone++; continue }', '', intakeScenario)
-mutant('intake without dedupe', 'if (have.has(id)) { skipped.dup++; continue }', '', intakeScenario)
+await mutant('intake without the zone skip', 'if (inZone(at, zones)) { skipped.zone++; continue }', '', intakeScenario)
+await mutant('intake without dedupe', 'if (have.has(id)) { skipped.dup++; continue }', '', intakeScenario)
 
 // ---------------------------------------------------------------- the list file
 await t('listDoc: worklist-01show v1 shape, top-first pillar with after', async () => {
@@ -165,6 +165,66 @@ await t('listDoc: worklist-01show v1 shape, top-first pillar with after', async 
   assert.deepStrictEqual(d.jobs.map(j => j.id), ['r:2,66,2', 'r:2,65,2']); assert.deepStrictEqual(d.jobs[1].after, ['r:2,66,2'])
   assert.ok(d.expires > NOW); assert.strictEqual(O.listLease('Comet'), 'seg-clear-wlComet')
 })
+
+// ---------------------------------------------------------------- overseer-01show phase 1
+// the stalled bot's own file carries the order (and no jobs): the bot reads it from where it is
+await t('a stalled bot gets a list with its unstick order and no jobs; a grace bot gets no list', async () => {
+  const book = [job(O, 0, 65, 0, { owner: 'S' }), job(O, 9, 65, 0, { owner: 'K' })]
+  const c = O.overseerCycle({ book, bots: [bot('S', 0, 0, { lastProgressAt: NOW - O.OVERSEER.stallMs }), bot('K', 9, 0)], now: NOW, home: { x: 0, y: 64, z: 0 } })
+  assert.strictEqual(c.lists.S.order.kind, 'unstick'); assert.strictEqual(c.lists.S.jobs.length, 0); assert.ok(c.lists.S.order.id.startsWith('unstick:S:'))
+  assert.ok(!c.lists.K.order); assert.ok(c.lists.K.jobs.length >= 1)
+})
+// phase 1's source: the clean-up record's removals, the town's 128 blocks only
+const radiusScenario = async M => {
+  const cells = [{ at: [10, 65, 0], block: 'dirt' }, { at: [128, 65, -5], block: 'cobblestone' }, { at: [129, 65, 0], block: 'dirt' }, { at: [0, 65, -200], block: 'dirt' }]
+  const c = M.overseerCycle({ cells, bots: [bot('A', 0, 0)], now: NOW, home: { x: 0.5, y: 64, z: 0.5 }, radius: 128 })
+  assert.deepStrictEqual(c.book.map(j => j.id).sort(), ['r:10,65,0', 'r:128,65,-5'])
+  assert.ok(c.book.every(j => j.src.from === 'tidy'))
+  assert.match(c.row, / far=2 /); assert.match(c.row, / added=2 /)
+}
+await t('intake: the record\'s cells within the radius only, the row counts the far ones', () => radiusScenario(O))
+await mutant('intake ignores the radius', 'if (home && dist(home, at) > radius) { skipped.far++; continue }', '', radiusScenario)
+
+// the wire format: every id comes back with its outcome and its reason, no row over 300, the non-attempts left out
+const wireScenario = async M => {
+  const ids = n => Array.from({ length: n }, (_, i) => `r:${100 + i},${-60 + i},${-1000 - i}`)
+  const rep = { ids: { done: ids(20), gone: ['r:1,2,3'], refused: ['r:5,6,7', 'r:8,9,10', 'r:4,4,4'], unreachable: ['r:0,70,0'] }, why: { 'r:5,6,7': 'water', 'r:8,9,10': 'blocked', 'r:4,4,4': 'not spoil' } }
+  const rows = M.idRows(rep, { issued: 1234 })
+  assert.ok(rows.length >= 2, 'it takes more than one row'); assert.ok(rows.every(r => r.length <= 300), 'no row over the logger\'s 300')
+  const back = rows.map(M.parseIdRow)
+  assert.ok(back.every(b => b && b.list === 1234))
+  const all = k => back.flatMap(b => b.ids[k])
+  assert.deepStrictEqual(all('done'), rep.ids.done); assert.deepStrictEqual(all('gone'), ['r:1,2,3']); assert.deepStrictEqual(all('unreachable'), ['r:0,70,0'])
+  assert.deepStrictEqual(all('refused'), ['r:5,6,7', 'r:4,4,4'], 'blocked is no attempt')
+  assert.strictEqual(Object.assign({}, ...back.map(b => b.why))['r:5,6,7'], 'water'); assert.strictEqual(Object.assign({}, ...back.map(b => b.why))['r:4,4,4'], 'not_spoil')
+  assert.strictEqual(M.parseIdRow('op=visit list=1 n=2'), null)
+}
+await t('id rows: one codec both ways, reasons kept, <= 300 a row, blocked/unread never an attempt', () => wireScenario(O))
+await mutant('rows past 300', "if (cur.length && head.length + cur.join(';').length + 1 + e.length > rowMax) { out.push(head + cur.join(';')); cur = [] }", '', wireScenario)
+await mutant('blocked counted as an attempt', 'if (why && NOT_AN_ATTEMPT.has(why)) continue', '', wireScenario)
+
+// reports are ingested once (the cursor); rate and progress are measured from every row in the window
+const rowsScenario = async M => {
+  const r = (bot, t, d) => ({ bot, t, detail: d })
+  const rows = [r('A', NOW - 90 * 60_000, 'op=ids list=1 ids=d:r:1,2,3;d:r:1,3,3'), r('A', NOW - 10 * 60_000, 'op=ids list=2 ids=g:r:4,4,4;r:r:5,5,5=water'),
+    r('B', NOW - 5 * 60_000, 'op=ids list=2 ids=r:r:6,6,6=footing'), r('B', NOW - 4 * 60_000, 'op=visit list=2 n=1 done=0')]
+  const a = M.readRows(rows, { cursor: NOW - 60 * 60_000, now: NOW })
+  assert.deepStrictEqual(a.reports.map(x => x.bot), ['A', 'B'], 'the row before the cursor is not ingested again')
+  assert.strictEqual(a.cursor, NOW - 5 * 60_000)
+  assert.strictEqual(a.stats.A.rate, 1.5); assert.strictEqual(a.stats.A.lastProgressAt, NOW - 10 * 60_000)
+  assert.strictEqual(a.stats.B.lastProgressAt, null); assert.strictEqual(a.stats.B.rate, 0)
+  const b = M.readRows(rows, { cursor: a.cursor, now: NOW })
+  assert.strictEqual(b.reports.length, 0)
+  // through the cycle: a refusal's reason reaches the set-aside list
+  let book = [job(M, 5, 5, 5)]
+  const rep = why => ({ ids: { done: [], gone: [], refused: ['r:5,5,5'], unreachable: [] }, why: { 'r:5,5,5': why } })
+  for (const [who, why] of [['A', 'water'], ['B', 'water'], ['A', 'footing']]) book = M.overseerCycle({ book, reports: [{ bot: who, rep: rep(why) }], bots: [], now: NOW }).book
+  const c = M.overseerCycle({ book, bots: [], now: NOW })
+  assert.deepStrictEqual(c.setAside.map(j => [j.id, j.why]), [['r:5,5,5', 'water x3 by 2 bots']])
+}
+await t('rows: ingested once, rate per hour over 2 h, last progress; a refusal\'s reason reaches the set-aside list', () => rowsScenario(O))
+await mutant('rows ingested again', 'if (r.t > cursor) { reports.push', 'if (true) { reports.push', rowsScenario)
+await mutant('the report\'s reason is dropped', "say.set(id, whyOf(id) ?? rep?.why?.[id] ?? 'refused')", "say.set(id, whyOf(id) ?? 'refused')", rowsScenario)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

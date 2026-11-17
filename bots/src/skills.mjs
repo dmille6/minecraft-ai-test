@@ -290,6 +290,9 @@ import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
+import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf } from './worklist.mjs'   // worklist-01: a bot's own list from the host
+import { listLease as wlListLease } from './overseer.mjs'   // overseer-01show: the list is worked under buildrun.mjs's clear-part lease `seg-clear-wl<bot>`
+import { claimedAt as wlClaimedAt } from './tidy.mjs'   // worklist-01: a sited building's claim holds a listed cell
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
@@ -29794,6 +29797,12 @@ async function buildTidy (ctx, args, signal) {
   // mark is the visit's (the sweep's end below is the SKILL's end less 5 s, as an ordinary visit's is; never 5 s past the runner's)
   const used0 = Number(ctx.bot.groundsPick?.used) || 0
   ctx.bot.gkSweepRole = null
+  // WORKLIST-01, THE ONE CALL SITE: a build order for the grounds (tidyflow's all-hands sends every worker here first) asks "do I
+  // have a list with a block to dig?" before the shared record. No list, a refused one, nothing to dig now: the visit as before.
+  if (WL_ON && !(Number(ctx.bot.groundsPick?.used) > 0)) {
+    const wl = await worklistVisit(ctx, signal, { deadline: t0 + Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - ZIG_VISIT_TAIL_MS })
+    if (wl.tried) { ctx.bot.tidyLast = { placed: 0, cleared: Number(wl.cleared) || 0, outcome: 'worklist' }; return { status: wl.status, ...(wl.failClass ? { failClass: wl.failClass } : {}), detail: wl.why, stop: 'worklist' } }
+  }
   const res = await buildTidyVisit(ctx, args, signal)
   if (!GROUNDS.on || !gkSweepOn() || !sweepAfter(ctx.bot.gkSweepRole, res)) return res
   // Codex r1 BLOCKER: still the town's crew NOW (a stuck visit lets its lease go: the role it left is stale)
@@ -29987,6 +29996,129 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     if (e?.aborted || signal?.aborted) throw e
     row('failed', { stop: 'error', why: String(e?.message ?? e) })
     return { tried: true, status: 'failed', failClass: 'other', why: String(e?.message ?? e).slice(0, 100), placed: 0, cleared: 0, stop: 'error' }
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
+// ================================================================================================================================
+// WORKLIST-01 (worklist.mjs; owner 11-16): THE BOT'S OWN LIST. The host writes `worklist-<bot>.json` into the town's directory; the
+// bot named there works it in a record of ITS OWN (key `worklist-<bot>`: its own slot, its own cut lease), so bots with lists dig at
+// the same time -- the shared tidy record has one cut lease. The list is advice: every block is read again (listWork), the guard is
+// read strictly and again before each dig, and the dig is the tidy's own (runVisit `p.tidy`, by name). The water walk's shape
+// (waterWalkVisit above). WORKLIST=off: nothing is read. Removals only in this piece.
+// ================================================================================================================================
+const WL_ON = worklistOn()
+/** worklist-01: the dig guard -> Set("x,y,z") | null (unreadable: no visit, no dig): every guarded project's cells, the tidy's and
+ *  the country's, the bridges (bw3GuardStrict: read strictly), and the markers. */
+function worklistGuardStrict () {
+  const g = bw3GuardStrict()
+  if (!g) return null
+  try { for (const k of markerCellKeys(exMarkers())) g.add(k) } catch { return null }
+  return g
+}
+/** overseer-01show: THE OVERSEER'S UNSTICK ORDER for this bot, read from its own list file -> { id, why } | null (WORKLIST off, the
+ *  town's switch file, no file, a file listCheck refuses, no order, one already acted on: `done(id)`). Never throws. The order chain
+ *  (cognitive.mjs) acts on it with the existing way up / home / grounds steer (minecrew.mjs crewSteer, forced). */
+export function worklistUnstickNow (bot, { done = () => false, now = Date.now() } = {}) {
+  if (!WL_ON) return null
+  try {
+    const dir = townDir()
+    if (fs.existsSync(path.join(dir, WORKLIST_OFF_FILE))) return null
+    const me = bot?.username ?? 'bot'
+    const doc = JSON.parse(fs.readFileSync(path.join(dir, worklistFile(me)), 'utf8'))
+    return unstickOf(doc, { bot: me, home: planHomeP(), now, done })
+  } catch { return null }
+}
+/** One visit to this bot's list -> { tried, status, why, cleared, stop }. `tried` false: nothing was walked to or dug (no file, a
+ *  refused file, nothing to dig now): the caller's order goes on to the shared record. */
+async function worklistVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_MS } = {}) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const no = why => ({ tried: false, why })
+  if (!WL_ON || !SHOP.on || !planOn()) return no('off')
+  const me = bot.username ?? 'bot', dir = townDir(), home = planHomeP(), pm = procMem(bot)
+  if (fs.existsSync(path.join(dir, WORKLIST_OFF_FILE))) return no('off_file')   // overseer-01show: the town's switch
+  let doc = null
+  try { doc = JSON.parse(fs.readFileSync(path.join(dir, worklistFile(me)), 'utf8')) } catch (e) { if (e?.code === 'ENOENT') return no('no_file'); doc = { v: 0 } }
+  const row = (status, detail) => { try { logEvent({ kind: 'worklist', status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } }
+  // overseer-01show: every id's outcome and reason, the rows the host's overseer reads (overseer.mjs parseIdRow)
+  const idRowsOut = (rep, issued) => { for (const d of worklistIdRows(rep, issued)) row('success', d) }
+  const chk = listCheck(doc, { bot: me, home })
+  if (!chk.ok) {
+    const sig = `${doc?.issued ?? 0}:${chk.why}`
+    if (pm.wlRefused !== sig) { pm.wlRefused = sig; row('no_effect', worklistDetail({ op: 'refused', issued: doc?.issued ?? 0, why: chk.why })) }   // once a file
+    return no(chk.why)
+  }
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return no('zones_unknown')
+  let guard = worklistGuardStrict()
+  if (!guard) return no('record_unreadable')
+  let claims = []
+  try { claims = claimOn() ? buildingClaims(plotRecordsNow() ?? []) : [] } catch { return no('record_unreadable') }
+  const zone = at => cellInZones(at[0], at[1], at[2], c.zones ?? []), claim = at => !!wlClaimedAt(claims, at)
+  const read = planReader(bot)
+  if (pm.wlList !== chk.issued) { pm.wlList = chk.issued; pm.wlGiven = new Map() }   // a new file: the host has acted; this bot's give-ups start again
+  const mem = (pm.wlGiven ??= new Map())
+  const idOf = new Map(chk.jobs.map(j => [j.at.join(','), j.id]))
+  const w = listWork(chk.jobs, read, { guard: k => guard.has(k), zone, claim, given: id => tidyGivenUp(mem, id, WORKLIST.tries), rule: WORKLIST_PROJECTS[chk.project] })
+  const report = (r, waited) => visitReport({ jobs: chk.jobs, status: w.status, cuts: w.cuts, standing: q => cutStanding(tidyRead(bot), q), tidied: r?.tidied ?? [], waited })
+  if (!w.cuts.length || deadline - t0 < WORKLIST.minVisitMs) {
+    // nothing to dig (or no time): one row a state of the list (the host learns what is gone and what this bot refuses), no visit
+    const rep = report(null, new Map()), sig = reportSig(chk.issued, rep)
+    if (pm.wlRow !== sig) { pm.wlRow = sig; row('no_effect', worklistDetail({ issued: chk.issued, rep, stop: w.cuts.length ? 'late' : 'nothing' })); idRowsOut(rep, chk.issued) }
+    return no(w.cuts.length ? 'late' : 'nothing')
+  }
+  const plot = worklistPlot(me), key = projKey(home, plot)
+  const body = listRecordBody(chk, { home, bot: me })
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return no('record_unreadable')
+  if (!rh.head || rh.head.rec?.sig !== body.sig) {
+    const pub = publishRecord(dir, key, cur => (cur?.sig === body.sig ? null : body), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return no('lost_record')
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return no('record_unreadable')
+  }
+  const slot = takeSlot(dir, key, me, 1)
+  if (!slot.ok) return no('slots_full')
+  const slotRef = { gen: slot.gen }
+  const waited = new Map()   // "x,y,z" -> why: the dig's own refusals this visit
+  // AT THE DIG (runVisit asks before the walk and again after it): the guard FRESH, the zones, the claims, water beside the cell, a
+  // body on it, this bot's own footing -- the tidy's checks (buildTidyVisit `tidyOk`) and the water walk's guard
+  const tidyOk = (q, rd) => {
+    const k = q.at.join(','), g = worklistGuardStrict()
+    const why = !g || g.has(k) ? 'record' : zone(q.at) ? 'zone' : claim(q.at) ? 'claim' : !cutSafeNow(rd, q.at, tidyWater()) ? 'water' : otherBodyOnCell(bot, q.at) ? 'body' : roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) ? 'footing' : null
+    if (why) waited.set(k, why); else waited.delete(k)
+    return !why
+  }
+  let effects = null, r = null
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    effects = botBuildEffects(bot, {
+      acks,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: plot, ...d }) : buildRowDetail({ project: plot, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: rh.head.rec, tidy: w.cuts, tidyKeepOrder: true, recordGen: rh.head.gen, palette: {}, res: null, resFailed: false,
+      slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wlStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
+      domain: () => true, walkR: WORKLIST.walkR, blockLayer: false, clearMax: WORKLIST.cutsPerVisit, stuckStalledOnly: true, tidyOk, clearPart: { lease: wlListLease(me) } },
+    effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
+    const rep = report(r, waited)
+    // a job evaluated with its block still standing counts toward this bot passing it over (never for an interrupted visit)
+    if (!visitGone(bot, signal)) for (const id of [...rep.ids.unreachable, ...rep.ids.refused.filter(id => w.status.get(id) === 'cut')]) mem.set(id, (mem.get(id) ?? 0) + 1)
+    const status = r.cleared > 0 ? 'success' : 'no_effect'
+    pm.wlRow = reportSig(chk.issued, rep)
+    row(status, worklistDetail({ issued: chk.issued, rep, cleared: r.cleared, stop: r.stop }))
+    idRowsOut(rep, chk.issued)
+    return { tried: true, status, why: `worklist: ${r.cleared} dug of ${w.cuts.length} listed (${r.stop})`, cleared: r.cleared, stop: r.stop }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('failed', worklistDetail({ op: 'error', issued: chk.issued, why: String(e?.message ?? e) }))
+    return { tried: true, status: 'failed', failClass: 'other', why: String(e?.message ?? e).slice(0, 100), cleared: 0, stop: 'error' }
   } finally {
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
     try { effects?.close() } catch { /* gone */ }

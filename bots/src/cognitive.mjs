@@ -43,6 +43,7 @@ import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
 import { MINECREW, CREW, MATERIALS as CREW_MATERIALS, crewLineOf, crewUpLineOf, mineNeed, censusLacking, crewKind, crewGate, crewRefusal, deepTripGate, crewSteer, steerAfter, crewIdleVisit, crewView, upJitterMs, crewRow, tallyLine, prereqBlocked } from './minecrew.mjs'
 import { crewLeasesNow, crewMeta, crewTakeMining, crewTakeRun, crewRenew, crewRelease, crewStockNow, censusWrite, censusRead, censusOwn, crewBuildBusy } from './minecrewio.mjs'
 import { groundsIdleAsk } from './skills.mjs'
+import { worklistUnstickNow } from './skills.mjs'   // overseer-01show: the host overseer's unstick order
 import { overHead as crewOverHead } from './shop.mjs'
 import { ironPickNeed } from './toolkit.mjs'
 import { tripTarget as crewTripTarget, obsKit as crewObsKit, obsidianWant as crewObsWant } from './deepmine.mjs'
@@ -1405,6 +1406,19 @@ export class CognitiveLoop {
     return m === 'learned_avoid' ? null : m
   }
 
+  /** overseer-01show: is there an unstick order this bot has not acted on? Read at most once a minute; one `_worklist op=unstick` row
+   *  an order. True only when the steer can act on it (MINECREW on); otherwise the row says `act=none`. */
+  #wlUnstick (now = Date.now()) {
+    if (now - (this.wlUnstickAt ?? -Infinity) < 60_000) return false
+    this.wlUnstickAt = now
+    let u = null
+    try { u = worklistUnstickNow(this.bot, { done: id => id === this.wlUnstickDone, now }) } catch { u = null }
+    if (!u) return false
+    this.wlUnstickDone = u.id
+    try { logEvent({ kind: 'worklist', status: 'success', snapshot: snapshot(this.bot), detail: `op=unstick id=${u.id} act=${MINECREW.on ? 'crew_steer' : 'none'} why=${u.why.replace(/\s+/g, '_').slice(0, 80)}` }) } catch { /* telemetry */ }
+    return MINECREW.on
+  }
+
   /** This bot's share of the first way-up order's wait (minecrew.mjs upJitterMs; a field of `crewIo`, so a test sets it). */
   #crewJitter () { try { return Number(this.crewIo.jitter(this.bot.username ?? config.bot.name)) || 0 } catch { return 0 } }
 
@@ -2093,6 +2107,9 @@ export class CognitiveLoop {
     // MINECREW-01: THE STEER, at the end of the order chain and AHEAD of the continuation and the model (minecrew.mjs crewSteer):
     // a bot with no turn on the mine crew that nothing above has work for is sent up from under rock, home from far away, or to
     // the town's grounds -- so it is rarely asked, and mining is rarely proposed at all. An order above keeps its turn.
+    // OVERSEER-01SHOW: the host overseer's UNSTICK order (a bot that held its list 30 min with nothing done): with no order above, the
+    // steer below is FORCED once -- the existing way up from under rock, home from far away, else the grounds -- never advice
+    if (!order && this.#wlUnstick()) this.crewForce = true
     if (MINECREW.on) { if (order) this.crewForce = false; else { const so = this.#crewSteerOrder(); if (so) order = so } }
     if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, trigger, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
     // minecrew-01: a STEER order the two safety orders below displace never ran (see after them: #crewSteerDisplaced)

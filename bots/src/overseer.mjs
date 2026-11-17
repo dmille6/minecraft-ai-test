@@ -58,17 +58,18 @@ export function inZone (at, zones = []) {
  * (scarjobs.py: { at, block, t, shape }); every job already in the book (ANY state: a quarantined or just-closed cell is not
  * re-added) is a dup; `guard(key)` a record names the cell; zones: protected-zones.json's.
  */
-export function intakeScar (entries = [], book = [], { zones = [], guard = () => false, now = Date.now(), T = OVERSEER } = {}) {
-  const have = new Set(book.map(j => j.id)), added = [], skipped = { dup: 0, zone: 0, record: 0, malformed: 0, cap: 0 }
+export function intakeScar (entries = [], book = [], { zones = [], guard = () => false, now = Date.now(), from = 'scar', home = null, radius = Infinity, T = OVERSEER } = {}) {
+  const have = new Set(book.map(j => j.id)), added = [], skipped = { dup: 0, zone: 0, record: 0, malformed: 0, cap: 0, far: 0 }
   for (const e of entries) {
     const at = e?.at
     if (!Array.isArray(at) || at.length !== 3 || !at.every(Number.isInteger) || typeof e.block !== 'string' || !e.block) { skipped.malformed++; continue }
     const id = jobId('remove', at)
     if (have.has(id)) { skipped.dup++; continue }
+    if (home && dist(home, at) > radius) { skipped.far++; continue }   // overseer-01show phase 1: the town's 128 blocks
     if (inZone(at, zones)) { skipped.zone++; continue }
     if (guard(cellKey(at))) { skipped.record++; continue }
     if (added.length >= T.intakeMax) { skipped.cap++; continue }
-    have.add(id); added.push(newJob({ kind: 'remove', at, block: e.block, from: 'scar', ref: e.shape ?? null }, now))
+    have.add(id); added.push(newJob({ kind: 'remove', at, block: e.block, from, ref: e.shape ?? null }, now))
   }
   return { added, skipped }
 }
@@ -101,7 +102,7 @@ export function ingestReport (book, bot, rep, { now = Date.now(), whyOf = () => 
   const say = new Map()
   for (const id of rep?.ids?.done ?? []) say.set(id, 'done')
   for (const id of rep?.ids?.gone ?? []) say.set(id, 'gone')
-  for (const id of rep?.ids?.refused ?? []) say.set(id, whyOf(id) ?? 'refused')
+  for (const id of rep?.ids?.refused ?? []) say.set(id, whyOf(id) ?? rep?.why?.[id] ?? 'refused')
   for (const id of rep?.ids?.unreachable ?? []) say.set(id, 'unreachable')
   return book.map(j => (say.has(j.id) && j.state === 'open' ? recordAttempt(j, { bot, why: say.get(j.id), now }, T) : j))
 }
@@ -210,25 +211,32 @@ export function stalls (book, bots = [], { now = Date.now(), leased = () => 0, T
 export const prune = (book, now, T = OVERSEER) => book.filter(j => j.state === 'open' || j.state === 'quarantined' || now - (j.closedAt ?? now) < T.keepClosedMs)
 
 /** A bot's list file (worklist-01show's v1 format; its listCheck refuses anything else). Pure. Only jobs it may start now. */
-export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs = 2 * OVERSEER.cycleMs, project = 'tidy', T = OVERSEER } = {}) {
-  const jobs = book.filter(j => j.state === 'open' && j.owner === bot && j.notBefore <= now).slice(0, T.maxList)
+export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs = 2 * OVERSEER.cycleMs, project = 'tidy', order = null, T = OVERSEER } = {}) {
+  const jobs = (order ? [] : book.filter(j => j.state === 'open' && j.owner === bot && j.notBefore <= now)).slice(0, T.maxList)
     .sort((a, b) => a.at[0] - b.at[0] || a.at[2] - b.at[2] || b.at[1] - a.at[1])     // a column top first
     .map(j => ({ id: j.id, kind: j.kind, at: j.at, ...(j.block ? { block: j.block } : {}) }))
   // a pillar's lower block comes after the one above it (the same column, the next y up, also on the list)
   const ids = new Set(jobs.map(j => j.id))
   for (const j of jobs) { const up = jobId(j.kind, [j.at[0], j.at[1] + 1, j.at[2]]); if (ids.has(up)) j.after = [up] }
-  return { v: 1, kind: 'worklist', project, bot, home: [Math.floor(home.x), Math.floor(home.y), Math.floor(home.z)], issued: now, saved, expires: now + ttlMs, jobs }
+  return { v: 1, kind: 'worklist', project, bot, home: [Math.floor(home.x), Math.floor(home.y), Math.floor(home.z)], issued: now, saved, expires: now + ttlMs, jobs,
+    ...(order ? { order: { kind: order.order, id: `${order.order}:${bot}:${now}`, why: String(order.why ?? '').slice(0, 120) } } : {}) }
 }
 
 /**
- * THE CYCLE -> { book, lists, orders, row }. Pure. In order: reports in, scar intake, stalls, split, rebalance, prune.
- *   reports [{ bot, rep }]   scar: entries   bots [{ name, online, pos, home, rate, lastProgressAt, givenAt, unstuckAt }]
+ * THE CYCLE -> { book, lists, orders, row, setAside }. Pure. In order: reports in, intake (the clean-up record's removals `cells`,
+ * then scar entries), stalls, split, rebalance, prune.
+ *   reports [{ bot, rep }]   cells / scar: entries ({ at, block })   bots [{ name, online, pos, home, rate, lastProgressAt, givenAt, unstuckAt }]
+ *   radius: phase 1 takes cells within this many blocks of `home` (the larger axis) only.
+ * A stalled bot's list carries its `unstick` order and no jobs (overseer-01show: the bot reads the order from its own file).
  * The host stores each order's time as that bot's `unstuckAt`.
  */
-export function overseerCycle ({ book = [], reports = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, now = Date.now(), whyOf, T = OVERSEER } = {}) {
+export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, T = OVERSEER } = {}) {
   let b = book
   for (const r of reports) b = ingestReport(b, r.bot, r.rep, { now, whyOf, T })
-  const intake = intakeScar(scar, b, { zones, guard, now, T })
+  const h3 = home ? [Math.floor(home.x), Math.floor(home.y), Math.floor(home.z)] : null
+  const fromRec = intakeScar(cells, b, { zones, guard, now, from: 'tidy', home: h3, radius, T })
+  b = [...b, ...fromRec.added]
+  const intake = intakeScar(scar, b, { zones, guard, now, from: 'scar', home: h3, radius, T: { ...T, intakeMax: Math.max(0, T.intakeMax - fromRec.added.length) } })
   b = [...b, ...intake.added]
   const st = stalls(b, bots, { now, leased, T }); b = st.book
   const stalled = new Set(st.orders.map(o => o.bot))
@@ -236,8 +244,77 @@ export function overseerCycle ({ book = [], reports = [], scar = [], bots = [], 
   b = splitOpen(b, workers, { now, T })
   const rb = rebalance(b, workers, { now, leased, T }); b = splitOpen(rb.book, workers, { now, T })
   b = prune(b, now, T)
-  const lists = home ? Object.fromEntries(workers.filter(x => x.online !== false).map(x => [x.name, listDoc(b, x.name, { home, now, T })])) : {}
+  const lists = {}
+  if (home) {
+    for (const x of workers) if (x.online !== false) lists[x.name] = listDoc(b, x.name, { home, now, T })
+    for (const o of st.orders) lists[o.bot] = listDoc(b, o.bot, { home, now, order: o, T })
+  }
   const count = s => b.filter(j => j.state === s).length
-  const row = `op=cycle open=${count('open')} unowned=${b.filter(j => j.state === 'open' && !j.owner).length} quarantined=${count('quarantined')} added=${intake.added.length} dup=${intake.skipped.dup} zone=${intake.skipped.zone} moved=${rb.moved} unstick=${st.orders.length}`
-  return { book: b, lists, orders: st.orders, row }
+  const added = fromRec.added.length + intake.added.length, sk = k => fromRec.skipped[k] + intake.skipped[k]
+  const row = `op=cycle open=${count('open')} unowned=${b.filter(j => j.state === 'open' && !j.owner).length} quarantined=${count('quarantined')} added=${added} dup=${sk('dup')} zone=${sk('zone')} record=${sk('record')} far=${sk('far')} moved=${rb.moved} unstick=${st.orders.length} lists=${Object.keys(lists).length}`
+  const setAside = b.filter(j => j.state === 'quarantined').map(j => ({ id: j.id, at: j.at, block: j.block, why: j.why, from: j.src?.from ?? null, tries: j.attempts.length }))
+  return { book: b, lists, orders: st.orders, row, setAside }
+}
+
+// ---------------------------------------------------------------- THE REPORT'S WIRE FORMAT (overseer-01show)
+// A bot's visit writes `_worklist op=ids list=<issued> ids=<t>:<id>[=<why>];...` rows (worklist.mjs, the bot side), as many as its
+// report needs, each within the logger's 300 characters: t = d (done) | g (gone) | r (refused, its why) | u (unreachable). The host's
+// cycle reads them back with parseIdRow. One codec, both directions, here.
+export const ID_TAGS = Object.freeze({ done: 'd', gone: 'g', refused: 'r', unreachable: 'u' })
+const TAG_OF = Object.freeze(Object.fromEntries(Object.entries(ID_TAGS).map(([k, v]) => [v, k])))
+/** A refusal that says nothing about the job (it waits on another, or its chunk was not read): never reported as an attempt. */
+export const NOT_AN_ATTEMPT = Object.freeze(new Set(['blocked', 'unread']))
+/** A visit's report -> the id rows' details (each <= rowMax). Pure. `rep` = worklist.mjs visitReport's ({ ids, why }). */
+export function idRows (rep, { issued = 0, rowMax = 300 } = {}) {
+  const ent = []
+  for (const [k, t] of Object.entries(ID_TAGS)) {
+    for (const id of rep?.ids?.[k] ?? []) {
+      const why = k === 'refused' ? String(rep?.why?.[id] ?? 'refused').replace(/[^A-Za-z0-9_]/g, '_').slice(0, 24) : null
+      if (why && NOT_AN_ATTEMPT.has(why)) continue
+      ent.push(`${t}:${id}${why ? `=${why}` : ''}`)
+    }
+  }
+  const head = `op=ids list=${Number(issued) || 0} ids=`, out = []
+  let cur = []
+  for (const e of ent) {
+    if (head.length + e.length > rowMax) continue   // an id that can never fit (ids are capped at 40): dropped, not split
+    if (cur.length && head.length + cur.join(';').length + 1 + e.length > rowMax) { out.push(head + cur.join(';')); cur = [] }
+    cur.push(e)
+  }
+  if (cur.length) out.push(head + cur.join(';'))
+  return out
+}
+/** An id row's detail -> { list, ids: { done, gone, refused, unreachable }, why: { id: why } } | null. Pure. */
+export function parseIdRow (detail) {
+  const m = /^op=ids list=(\d+) ids=(\S+)$/.exec(String(detail ?? '').trim())
+  if (!m) return null
+  const rep = { list: Number(m[1]), ids: { done: [], gone: [], refused: [], unreachable: [] }, why: {} }
+  for (const e of m[2].split(';')) {
+    const x = /^([dgru]):([^=;\s]+)(?:=([A-Za-z0-9_]+))?$/.exec(e)
+    if (!x) continue
+    const k = TAG_OF[x[1]]
+    rep.ids[k].push(x[2])
+    if (k === 'refused') rep.why[x[2]] = x[3] ?? 'refused'
+  }
+  return rep
+}
+/**
+ * TELEMETRY ROWS -> { reports, stats, cursor }. Pure. rows [{ bot, t (ms), detail }] of the `_worklist` kind (any op); only rows
+ * after `cursor` become reports (a row is ingested once); stats per bot over the last `windowMs`: rate = done+gone an hour,
+ * lastProgressAt = its newest done/gone (from every row given, cursor or not).
+ */
+export function readRows (rows = [], { cursor = 0, now = Date.now(), windowMs = 2 * 60 * 60_000 } = {}) {
+  const reports = [], stats = {}
+  let top = cursor
+  for (const r of [...rows].sort((a, b) => a.t - b.t)) {
+    const rep = parseIdRow(r.detail)
+    if (!rep || !r.bot) continue
+    const s = (stats[r.bot] ??= { closed: 0, lastProgressAt: null })
+    const n = rep.ids.done.length + rep.ids.gone.length
+    if (n && now - r.t <= windowMs) s.closed += n
+    if (n) s.lastProgressAt = Math.max(s.lastProgressAt ?? 0, r.t)
+    if (r.t > cursor) { reports.push({ bot: r.bot, rep }); top = Math.max(top, r.t) }
+  }
+  for (const s of Object.values(stats)) s.rate = s.closed / (windowMs / 3_600_000)
+  return { reports, stats, cursor: top }
 }
