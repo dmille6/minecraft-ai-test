@@ -134,6 +134,35 @@ await t('TWO BOTS, TWO LANES, ONE VISIT WINDOW (the real runner): each lane is i
     assert.ok(Math.min(r.a.placed, r.b.placed) === 0 && Math.max(r.a.placed, r.b.placed) === 20, `the one-segment yard: ${r.a.placed} and ${r.b.placed} (Paper: the second bot placed 0, stop=unknown)`)
   })
 })
+// Codex r2 BLOCKER 2, through the REAL runner: a lane another bot filled with gravel, under this bot's stale cobblestone plan
+const staleRun = async (M, { guard, yieldSeg }) => {
+  await built()
+  const srv = server(Object.fromEntries(BUILT.cells)), { p } = project(SITE.record, ['A'])
+  const opts = { lanes: M.laneSettings({ YARD: 'on' }) }
+  const bays = M.laneBays(SITE.record, BP, srv.read, opts)
+  const pc = M.pileCells(M.bayStates(bays, srv.read, { kinds: M.LANE_KINDS }), { cobblestone: 10 }, opts)   // planned while the lane was empty
+  const lane = bays.find(b => b.id === pc.bays.cobblestone)
+  for (const sl of lane.slots.slice(0, 10)) srv.set(sl, 'gravel')   // ...then another bot stocked gravel there and released the lane
+  const gravel = () => lane.slots.slice(0, 10).filter(sl => srv.read(...sl).name === 'gravel').length
+  const e0 = bot(srv, 'A', { inv: { cobblestone: 64 } })
+  const e = guard ? M.guardStockDig(e0, srv.read) : e0
+  const extra = yieldSeg ? { segYield: seg => M.laneStale(M.bayStates(bays, srv.read, { kinds: M.LANE_KINDS }).find(x => `pile${x.id}` === seg), 'cobblestone') } : {}
+  const r = await R.runVisit({ ...p('A'), ...extra, record: { ...SITE.record, cells: pc.cells, segments: pc.segments, clear: [], replant: [] }, palette: { ...BP.palette, ...pc.palette } }, e, { maxSteps: 600 })
+  return { r, gravel: gravel(), cobble: lane.slots.filter(sl => srv.read(...sl).name === 'cobblestone').length }
+}
+await t('A STALE PLAN NEVER DIGS ANOTHER BOT\'S STOCK (the real runner): the lane re-read after its lease is given back -- zero digs, zero placements; and with the dig guard alone the gravel still stands; MUTANT: the guard off', async () => {
+  const both = await staleRun(Y, { guard: true, yieldSeg: true })
+  assert.deepStrictEqual([both.gravel, both.cobble, both.r.placed, both.r.dug ?? 0], [10, 0, 0, 0], JSON.stringify({ stop: both.r.stop, why: both.r.why }))
+  const guardOnly = await staleRun(Y, { guard: true, yieldSeg: false })
+  assert.strictEqual(guardOnly.gravel, 10, `the hard rule alone: every gravel block stands (${JSON.stringify({ stop: guardOnly.r.stop, placed: guardOnly.r.placed })})`)
+  // the defect, reproduced: with neither, the runner clears the gravel as a foreign block
+  const none = await staleRun(Y, { guard: false, yieldSeg: false })
+  assert.ok(none.gravel < 10, `positive control (the defect): unguarded, ${10 - none.gravel} of the other bot's gravel were dug`)
+  await withMutant(YARD_PATH, "export const stockMayDig = (name, kinds = LANE_KINDS) => !kinds.includes(String(name ?? '').replace(/\\[.*\\]$/, ''))", 'export const stockMayDig = () => true', async M => {
+    const m = await staleRun(M, { guard: true, yieldSeg: false })
+    assert.ok(m.gravel < 10, 'killed: with the rule off the guard lets the gravel be dug')
+  })
+})
 await t('a second name goes to the next empty bay; a full yard takes nothing more', async () => {
   const { srv } = await bayRun()
   let st = Y.bayStates(SLOTS, srv.read)

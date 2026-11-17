@@ -199,6 +199,7 @@ import { clerkMayCarry, cargoOwed as clerkCargoOwed, clerkNext } from './compact
 import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
 import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
+import { kindRoom, guardStockDig, laneStale, rowFullKeys, rowHasRoom } from './yard.mjs'   // Codex r2
 import { leasedPileCells, yardRestMs, yardsWanted, YARD_PLOTS_ALL } from './yard.mjs'   // Codex r1 BLOCKERS 1, 6; Paper proof 11-17
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
@@ -21594,21 +21595,23 @@ function yardLaneOpts (bot, plot, now = Date.now()) {
  *  room it has in all (its lanes' + the lanes it may still open), and whether it is FULL at its cap (yard.mjs kindOverCap). */
 function yardKindNow (bot, name, now = Date.now()) {
   const ys = yardsNow(bot, now)
-  const held = lanesElsewhere(ys.map(y => y.states))[name] ?? { lanes: 0, room: 0 }
-  const emptyLanes = ys.flatMap(y => y.states).filter(s => s.name == null && s.foreign === 0 && s.free > 0)
-  const cap = laneCapOf(name)
-  const open = Math.max(0, Math.min(emptyLanes.length, cap - held.lanes))
-  const room = held.room + emptyLanes.slice(0, open).reduce((t, s) => t + s.free, 0)
-  return { lanes: held.lanes, room, empty: emptyLanes.length, cap, over: ys.length > 0 && kindOverCap(name, { held, empty: emptyLanes.length }) }
+  // Codex r2 BLOCKER 1: the room is yard.mjs kindRoom's -- the placement's own rule (laneMayOpen), nothing counted here
+  const k = kindRoom(ys.map(y => y.states), name)
+  return { lanes: k.lanes, room: k.room, cap: laneCapOf(name), over: k.over }
 }
-/** Has the chest row room for a kind now -> 1 | 0: a yard stands, and the kind has a chest this bot has not found full, or may still
- *  be given one (under LANES.rowCap). Never throws (0). */
+/** THE ROW'S FULL CHESTS NOW (yard.mjs rowFullKeys): the town index's latest observation decides; this bot's own "found it full" only
+ *  where the index has none. Never throws (none). */
+function yardRowFullNow (bot, now = Date.now()) {
+  try {
+    const entries = townIndexEntries(bot) ?? {}
+    return rowFullKeys(yardRowsNow(bot, now), { obsOf: k => entries[k]?.obs ?? null, remembered: bot.yardRowFull ?? new Map(), now, stackOf: n => mergeStackOf(bot, n) })
+  } catch { return new Set() }
+}
+/** Has the chest row room for a kind now -> 1 | 0 (yard.mjs rowHasRoom over the index's word: Codex r2 BLOCKER 3). Never throws (0). */
 function yardRowRoomNow (bot, kind, now = Date.now()) {
   try {
     if (!yardsNow(bot, now).length) return 0
-    const rows = yardRowsNow(bot, now).filter(r => r.kind === kind)
-    const full = bot.yardRowFull ?? new Map()
-    return rows.some(r => !((full.get(r.at.join(',')) ?? 0) > now)) || rows.length < LANES.rowCap ? 1 : 0
+    return rowHasRoom(yardRowsNow(bot, now), kind, yardRowFullNow(bot, now)) ? 1 : 0
   } catch { return 0 }
 }
 /** WELL_HOLD (well.mjs setYardHold): is `name` held off the well for the yard now? A lane kind with room in the yards, while this
@@ -21735,7 +21738,7 @@ function yardRowPlanNow (bot, rec, bp, now = Date.now()) {
     const read = planReader(bot)
     const cells = rowCells(rec, bp).map(at => { const b = read(...at); return { at, name: b ? String(b.name ?? '').replace(/\[.*\]$/, '') : null } })
     const items = bot.inventory?.items?.() ?? []
-    const full = new Set([...(bot.yardRowFull ?? new Map()).entries()].filter(([, until]) => until > now).map(([k]) => k))
+    const full = yardRowFullNow(bot, now)   // the index's word first (Codex r2 BLOCKER 3)
     return rowPlan({ held: heldMap(bot), keeps: yardRowKeepsNow(bot), rows: yardRowsNow(bot, now), cells, full, carried: countItem(bot, 'chest'), pressed: items.length >= 30 || clearActive(BAGFIX) })
   } catch { return { bank: [], place: null, why: 'error' } }
 }
@@ -22170,6 +22173,12 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
   const slot = takeSlot(dir, key, me, LANES.on && !(Number(draw) > 0) ? LANES.visitors : YARD_BUILDERS)
   if (!slot.ok) return out('no_effect', 'slots_full', `the yard is another bot's now (${slot.why})`)
   let lanesBusy = []   // the lanes another bot held when this visit planned (Paper proof 11-17, defect A)
+  // Codex r2 BLOCKER 2: a stock run's two guards -- (a) AFTER the runner takes a lane's segment lease the lane is read again, and a
+  // lane that now holds another kind is given back (the plan was made before another bot stocked it); (b) a stock run never digs a
+  // lane kind, whatever its plan says (yard.mjs guardStockDig)
+  const stockRun = pc => ({
+    segYield: seg => { try { const id = Number(String(seg).replace(/^pile/, '')); const kind = Object.keys(pc.lanes ?? {}).find(n => (pc.lanes[n] ?? []).includes(id)); const st = bayStates(bays, planReader(bot)).find(x => x.id === id); return LANES.on && laneStale(st, kind) } catch { return true } },
+  })
   const slotsNow = () => (bot.inventory?.items?.() ?? []).length
   // ONE LEASE A LANE, for every path that places on the piles (yard.mjs leasedPileCells; Codex r1 BLOCKER 6)
   // THE LANE'S LEASE IS THE RUNNER'S SEGMENT LEASE (`seg-pile<id>`: yard.mjs pileCells gives every lane its own segment, and
@@ -22266,7 +22275,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
         bot.yardRestUntil = Date.now() + yardRestMs({ slots: slotsNow(), held })
         return out('no_effect', stop, held ? `lane ${lanesBusy.join('+')} is another bot's now: back shortly` : w.noLane?.length ? `this yard has no lane for ${w.noLane.join(', ')}` : 'the yard has no room for what was to go on it', { stop })
       }
-      r = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: pc.segments }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
+      r = await runVisit({ ...base, ...stockRun(pc), record: { ...bare, cells: pc.cells, segments: pc.segments }, palette: { ...bp.palette, ...pc.palette } }, guardStockDig(effects, planReader(bot)), { deadline, maxSteps: 400 })
       f.placed = { ...placedBy }
     } else {
       // 4. A REFILL (the top of the piles, dug back) or THE AISLES (their clutter): runVisit's tidy digs, under the clear lease
@@ -22310,7 +22319,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
           lanesBusy = busy ?? []
           if (pc.cells.length) {
             f.kind = 'upkeep+stock'
-            const r2 = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: pc.segments }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
+            const r2 = await runVisit({ ...base, ...stockRun(pc), record: { ...bare, cells: pc.cells, segments: pc.segments }, palette: { ...bp.palette, ...pc.palette } }, guardStockDig(effects, planReader(bot)), { deadline, maxSteps: 400 })
             f.placed = { ...placedBy }
             r = { ...r2, cleared: f.cleared }
           }
@@ -22339,7 +22348,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     if (drawing) { const g = Number(result?.got) || 0; if (!(g > 0) || g * 2 < f.cleared) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) {
       // Paper proof 11-17 (defect A): a stock that placed NOTHING because its lane's segment was another bot's (the runner passed
       // every segment: `unknown`) is not an empty visit -- a short retry, and the stop says so; else the jam's rest (Codex r1 BLOCKER 1)
-      const laneHeld = LANES.on && (w.kind === 'stock' || w.kind === 'clerk') && (lanesBusy.length > 0 || r?.stop === 'unknown')
+      const laneHeld = LANES.on && (w.kind === 'stock' || w.kind === 'clerk') && (lanesBusy.length > 0 || r?.stop === 'unknown' || r?.stop === 'deps_open')
       if (laneHeld) stop = 'lane_held'
       bot.yardRestUntil = Date.now() + yardRestMs({ slots: slotsNow(), held: laneHeld })
     }
