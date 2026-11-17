@@ -69,6 +69,13 @@ const REQUIRED = [
   // overseer-01 (owner 11-17): per-bot job lists, the host's overseer cycle (pure; not wired)
   'bots/src/overseer.mjs',
   'bots/test/overseer.test.mjs',
+  // overseer-01show (owner 11-17, phase 1): the bot's own list (removals) and the host's cycle
+  'bots/src/worklist.mjs',
+  'bots/test/worklist.test.mjs',
+  'bots/test/overseer-host.test.mjs',
+  'scripts/host/overseer.py',
+  'scripts/host/overseer-cycle.mjs',
+  'scripts/host/test_overseer.py',
   // cleanzone-01 (11-13): no route places a block in the town or its margin; the valve lets a trapped bot out and writes where
   'bots/src/cleanzone.mjs',
   'bots/test/cleanzone.test.mjs',
