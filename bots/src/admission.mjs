@@ -21,6 +21,7 @@ import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+import { craftMemoFor, craftMemoDetail } from './craftmemo.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -561,6 +562,9 @@ export class AdmissionControl {
       // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
       const noSword = swordCraftRefusal(args.item, foodSkipNow(bot).active)
       if (noSword) return { ok: false, reason: 'peaceful_no_sword', detail: noSword }
+      // THE CRAFT REFUSAL MEMO (craftmemo.mjs): refused with this same bag in this same cell -- not again until one changes.
+      const memo = craftMemoFor(bot, args.item, args.count)
+      if (memo) return { ok: false, reason: 'craft_memo', detail: craftMemoDetail(memo), memo }
     }
 
     if (skill === 'place') {

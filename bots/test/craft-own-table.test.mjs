@@ -28,7 +28,7 @@ const start = CODE.indexOf("matching: b => bot.registry.blocks[b.type]?.name ===
 const region = CODE.slice(start, CODE.indexOf('await craftExecutions(ctx, { item, recipe, crafts: craftsFor(count, recipe)'))
 assert.ok(start > 0 && region.length > 0, 'craft region moved; re-read this test')
 
-const PLACES = /if \(reach > STATION_REACH && carried\)[\s\S]{0,200}?place\(ctx, \{ item: 'crafting_table' \}, signal\)/
+const PLACES = /if \(reach > STATION_REACH && carried\)[\s\S]{0,200}?placeTableOrWalk\(ctx, signal\)/   // craftmemo-01show: place(), and the zone walk it names
 
 test('an unreachable table makes craft place the one it carries, before it gives up', () => {
   assert.match(region, PLACES)
