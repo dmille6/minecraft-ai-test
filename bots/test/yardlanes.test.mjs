@@ -226,7 +226,7 @@ await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' le
   one(sk, 'const slot = takeSlot\\(dir, key, me, LANES\\.on && !\\(Number\\(draw\\) > 0\\) \\? LANES\\.visitors : YARD_BUILDERS\\)', 'several visitors')
   one(sk, 'const laneLease = id => \\{ try \\{ const l = projLeaseState\\(dir, key, `seg-pile\\$\\{id\\}`\\); return !\\(l && l\\.rec\\?\\.holder && l\\.rec\\.holder !== me && Date\\.now\\(\\) < \\(l\\.holdsUntil \\?\\? 0\\)\\)', 'the lane\'s lease is the runner\'s segment lease: the plan asks who holds it')
   assert.equal((sk.match(/segments: pc\.segments \}/g) ?? []).length, 2, 'both stocking paths hand the runner one segment a lane')
-  one(sk, "const laneHeld = LANES\\.on && \\(w\\.kind === 'stock' \\|\\| w\\.kind === 'clerk'\\) && \\(lanesBusy\\.length > 0 \\|\\| r\\?\\.stop === 'unknown'\\)", 'a zero-block visit behind a held lane is not an empty visit')
+  one(sk, "const laneHeld = LANES\\.on && \\(w\\.kind === 'stock' \\|\\| w\\.kind === 'clerk'\\) && \\(lanesBusy\\.length > 0 \\|\\| r\\?\\.stop === 'unknown' \\|\\| r\\?\\.stop === 'deps_open'\\)", 'a zero-block visit behind a held (or given-back) lane is not an empty visit')
   one(sk, "stop = held \\? 'lane_held' : \\(w\\.noLane\\?\\.length \\? 'no_lane' : 'yard_full'\\)", 'the stop names the reason')
   one(sk, 'if \\(LANES\\.on && w\\.noLane\\?\\.length\\) yardNoLaneNote\\(bot, plot, w\\.noLane, now\\)', 'no lane anywhere stamps the town\'s want')
   one(sk, 'if \\(LANES\\.on\\) setYardsWanted\\(\\(\\) => yardsWantedNow\\(activeMem\\?\\.bot \\?\\? null\\)\\)', 'the order reads how many yards are wanted')
