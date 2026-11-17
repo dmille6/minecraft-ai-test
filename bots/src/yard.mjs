@@ -295,6 +295,34 @@ export function rowSteps (bag = [], names = {}, keeps = {}, halves = () => []) {
   }
   return out
 }
+/**
+ * HAS A ROW CHEST ROOM for its kind? -> true | false | null (the index has never seen it: unknown). Pure. `obs` the town index's
+ * latest observation of the chest ({ names: { name: [count, slots] }, used, size }): an empty slot, or a stack of the kind that is
+ * not full.
+ */
+export function rowChestRoom (obs, kind, stackOf = () => 64) {
+  if (!obs || !Number.isFinite(obs.size)) return null
+  if ((Number(obs.used) || 0) < obs.size) return true
+  for (const [name, v] of Object.entries(obs.names ?? {})) if (rowKindOf(name) === kind && (Number(v?.[0]) || 0) < (Number(v?.[1]) || 0) * (Number(stackOf(name)) || 64)) return true
+  return false
+}
+/**
+ * THE ROW CHESTS THAT ARE FULL NOW -> Set("x,y,z"). Pure. Codex r2 BLOCKER 3: a bot's own "found it full" (30 minutes) outlived
+ * another bot's withdrawal, WELL_HOLD read no room and clay balls could be thrown. A REMEMBERED fullness is a banking retry hint,
+ * never proof: the INDEX's latest observation decides wherever it has one (`obsOf(key)`), and `remembered` (key -> until) only
+ * where it has none.
+ */
+export function rowFullKeys (rows = [], { obsOf = () => null, remembered = new Map(), now = Date.now(), stackOf = () => 64 } = {}) {
+  const out = new Set()
+  for (const r of rows) {
+    const k = r.at.join(',')
+    const room = rowChestRoom(obsOf(k), r.kind, stackOf)
+    if (room === false || (room === null && (remembered.get(k) ?? 0) > now)) out.add(k)
+  }
+  return out
+}
+/** HAS THE ROW ROOM FOR A KIND? -> bool. Pure. A chest of the kind that is not full (rowFullKeys), or one more may still be placed. */
+export const rowHasRoom = (rows = [], kind, full = new Set(), { lanes = LANES } = {}) => { const mine = rows.filter(r => r.kind === kind); return mine.some(r => !full.has(r.at.join(','))) || mine.length < (lanes?.rowCap ?? 2) }
 /** The record with a chest's kind written -> rows (a cell is one kind's for good; a second writer of the cell loses). Pure. */
 export function rowAssign (rows = [], at, kind, { plot = null, by = null, now = Date.now() } = {}) {
   const k = at.join(',')
@@ -501,15 +529,31 @@ export const yardHeld = (states = []) => states.reduce((m, s) => (s.name ? { ...
 /** The room the yard has for a name -> n (its bay's free slots + every empty bay's). Pure. */
 export function yardRoomFor (states = [], name, { lanes = LANES, others = {} } = {}) {
   if (!lanes?.on) return states.reduce((t, s) => t + ((s.name === name || (s.name == null && s.foreign === 0)) ? s.free : 0), 0)
-  // yardlanes-01: its own lanes' room, and the empty lanes it may still open under its cap (laneMayOpen)
+  // yardlanes-01: its own lanes' room, and the empty lanes it may still open. Codex r2 BLOCKER 1: ONE function decides an opening --
+  // laneMayOpen, the placement's own (pileCells) -- so the room, WELL_HOLD, `no_lane` and the next yard's want can never disagree
+  // with what a visit will actually place (a kind whose only remaining option was the lane kept for a first kind read "room",
+  // banked nothing, and never asked for a yard)
   let room = states.reduce((t, s) => t + (s.name === name ? s.free : 0), 0)
-  let mine = states.filter(s => s.name === name).length
-  const o = others?.[name] ?? { lanes: 0, room: 0 }
-  if (o.room > 0) return room
-  for (const s of states) { if (s.name != null || s.foreign !== 0 || !(s.free > 0)) continue; if (mine + o.lanes >= laneCapOf(name, lanes.caps)) break; room += s.free; mine++ }
+  const sim = states.map(s => ({ ...s }))
+  for (let i = 0; i < sim.length && laneMayOpen(sim, name, { lanes, others }); i++) {
+    const e = sim.find(s => s.name == null && s.foreign === 0 && s.free > 0)
+    if (!e) break
+    room += e.free; e.name = name
+  }
   return room
 }
-
+/**
+ * WHAT EVERY YARD HOLDS OF A KIND -> { lanes, room, over }. Pure over each standing yard's bay states. `room` is yardRoomFor's, yard
+ * by yard (each judged with the others' lanes: laneMayOpen's own inputs); `over`: the kind HAS a lane and has no room anywhere --
+ * full at its cap, or its only remaining option the lane kept for a first kind: nothing more of it is banked, the well may take
+ * its surplus (`over_cap`), and with no room anywhere it is what makes the next yard wanted.
+ */
+export function kindRoom (yards = [], name, { lanes = LANES } = {}) {
+  const held = lanesElsewhere(yards)[name] ?? { lanes: 0, room: 0 }
+  let room = 0
+  for (let i = 0; i < yards.length; i++) room += yardRoomFor(yards[i], name, { lanes, others: lanesElsewhere(yards.filter((_, j) => j !== i)) })
+  return { lanes: held.lanes, room, over: !!lanes?.on && yards.length > 0 && held.lanes > 0 && !(room > 0) }
+}
 /**
  * THE BAG'S SURPLUS FOR THE PILES -> { name: n }. Pure over the bag's counts { name: n }. The cobble family above
  * YARD_BAG_KEEP_COBBLE (cobblestone kept first, so the deepslate goes before it), every bamboo_block, and nothing else.
@@ -669,6 +713,19 @@ export function leasedPileCells (states = [], place = {}, opts = {}, tryLease = 
   }
   return { pc, leased, busy: [...busy] }
 }
+/**
+ * A STOCKING VISIT NEVER DIGS STOCK (Codex r2 BLOCKER 2: two bots planned different kinds into one empty lane; the second took the
+ * segment after the first released it and the runner treated the first's fresh gravel as a foreign block to CLEAR). May a stock
+ * visit dig this block? -> bool. Pure. Never a lane kind, whatever lane it stands in and whatever the plan says.
+ */
+export const stockMayDig = (name, kinds = LANE_KINDS) => !kinds.includes(String(name ?? '').replace(/\[.*\]$/, ''))
+/** The runner's effects with that rule as a hard guard on `dig` -> effects. `read(x, y, z)` the world. A refused dig is `refused`. */
+export function guardStockDig (effects, read, kinds = LANE_KINDS) {
+  return { ...effects, dig: async (c, ...rest) => { let b = null; try { b = read(...c) } catch { b = null } return b && !stockMayDig(b.name, kinds) ? 'refused' : effects.dig(c, ...rest) } }
+}
+/** IS A LANE NO LONGER THIS PLAN'S? -> bool. Pure. `state` the lane's state read AFTER its segment's lease was taken; `kind` the plan's.
+ *  It holds another kind now (another bot stocked it between the plan and the lease), or something that is not stock at all. */
+export const laneStale = (state, kind) => !state || (state.name != null && state.name !== kind) || (state.foreign ?? 0) > 0
 /** THE REFILL'S PICKAXE from the bag's items ({ name, uses left }) -> the item | null: a pickaxe with at least 2 uses left, the
  *  cheapest tier first (wooden, stone, then the rest), so the iron pickaxe a miner needs is the last spent. Pure: `left(item)` the
  *  uses left (toolfor.mjs remaining). */
