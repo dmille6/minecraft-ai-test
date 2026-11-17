@@ -333,6 +333,43 @@ export const visitGone = (bot, signal) => !!signal?.aborted || connEnded(bot)
  *   log(kind, d)   the row writer (the skill's logEvent)
  *   spawnedAt()    ms of the last spawn
  */
+/**
+ * READFIX-01 (memtidy rig 11-17): THE BUILD VISIT'S BLOCK READ -> (x, y, z) => { name, boundingBox, props } | null (null: the
+ * column is not loaded, exactly as bot.blockAt). name, boundingBox and properties are functions of the block STATE alone
+ * (prismarine-block's constructor reads them off registry.blocksByStateId[stateId]; the equality test checks every 1.21.8 state), so
+ * ONE frozen view a state answers every read of it. bot.blockAt built a Block, a Biome and a position string for every read: on the
+ * showcase's tidy, 87% of a visit's ~280 MB/s of allocation, through the walks' thousands of reads -- the heap then grew to 300-450 MB
+ * under the churn and was handed back only minutes after the visits stopped. The view is frozen (and its props): a caller that
+ * writes to it throws instead of changing every later read of that state. A bot without the world's state reads (a test's fake),
+ * and the states in READ_UNCACHED, read through blockAt as before (`props` then read when asked).
+ */
+export const READ_UNCACHED = new Set()
+export function blockReader (bot) {
+  const slow = v => {
+    const b = bot.blockAt(v)
+    if (!b) return null
+    return { name: b.name, boundingBox: b.boundingBox, get props () { try { return b.getProperties?.() ?? null } catch { return null } } }
+  }
+  const byState = new Map()
+  const w = bot.world
+  const fast = typeof w?.getBlockStateId === 'function' && typeof w?.getColumnAt === 'function'
+  return (x, y, z) => {
+    const v = new Vec3(x, y, z)
+    if (!fast) return slow(v)
+    if (!w.getColumnAt(v)) return null
+    const sid = w.getBlockStateId(v)
+    const r = byState.get(sid)
+    if (r !== undefined) return r ?? slow(v)
+    const b = bot.blockAt(v, false)
+    if (!b) return null
+    if (b.stateId !== sid || READ_UNCACHED.has(b.name)) { byState.set(sid, null); return slow(v) }
+    let props = null
+    try { props = b.getProperties?.() ?? null } catch { props = null }
+    const view = Object.freeze({ name: b.name, boundingBox: typeof b.boundingBox === 'object' && b.boundingBox ? Object.freeze(b.boundingBox) : b.boundingBox, props: props && typeof props === 'object' ? Object.freeze({ ...props }) : props })
+    byState.set(sid, view)
+    return view
+  }
+}
 export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted: skillAborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS, cornerSquare = false, apexDig = null } = {}) {
   const own = !acks
   // keeperstall-01: ONE definition for every use below and for the visit (`e.aborted()`): the skill's signal, or the connection gone
@@ -348,11 +385,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
   has.planks = () => [...new Set(items().map(i => i.name).filter(n => /_planks$/.test(n)))].find(n => spare(n) > 0) ?? null
   // townstyle-01: the block's PROPERTIES ride along, read only when asked (`props`: a stair's facing and half, a log's axis), so the
   // thousands of reads a walk makes cost nothing more
-  const read = (x, y, z) => {
-    const b = bot.blockAt(new Vec3(x, y, z))
-    if (!b) return null
-    return { name: b.name, boundingBox: b.boundingBox, get props () { try { return b.getProperties?.() ?? null } catch { return null } } }
-  }
+  const read = blockReader(bot)
   // townstyle-01: an AIMED click (townstyle.mjs orientAim): the yaw a stair's facing needs goes to the server as its OWN look packet
   // immediately before the block_place, in the same synchronous write (mineflayer's lookAt(force) only queues its look for the next
   // physics tick: a click in the same tick is judged with the old yaw), and the cursor sits where the state's half needs it

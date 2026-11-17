@@ -18638,6 +18638,17 @@ function plotRecordsNow () {
     return out
   } catch { return null }
 }
+/** readfix-01: buildTidyVisit's three work-time guards over ONE read of every project's record (plotRecordsNow); the records
+ *  are dropped when this returns. Same answers as the three reads made one after another (synchronous, nothing between them). */
+function tidyGuardsNow (rec) {
+  let recs, recsRead = false
+  const prNow = () => { if (!recsRead) { recsRead = true; recs = plotRecordsNow() } return recs }
+  let plotsSited = new Set(), claimsNow = [], paStands = null
+  if (GROUNDS.on && rec.plotprep) { const pr = prNow(); plotsSited = pr ? plotsSitedNow(rec, pr) : new Set((rec.plotprep.plots ?? []).map(p => String(p.id))) }
+  if (claimOn()) { try { const pr = prNow(); claimsNow = pr ? buildingClaims(pr) : [] } catch { claimsNow = [] } }
+  if (PLANAHEAD_ON) { try { const pr = prNow(); paStands = pr ? standClaims(pr) : null } catch { paStands = null } }
+  return { plotsSited, claimsNow, paStands }
+}
 /** Every project's record head that exists -> [{ plot, key, head }]. Never throws. */
 /** scaftown-01 (index.mjs's 60 s area refresh): the town's project records -> [rec] (the wall rings come from these). Never throws. */
 export function scafTownRecords () {
@@ -30254,16 +30265,19 @@ async function buildTidyVisit (ctx, args, signal) {
   // is passed -- never a cut under its pad, a fill in its footprint, a stand on its site -- whoever's visit, whether the keeper's
   // retirement was written yet or not
   let plotsSited = new Set()
-  if (GROUNDS.on && rec.plotprep) { const pr = plotRecordsNow(); plotsSited = pr ? plotsSitedNow(rec, pr) : new Set((rec.plotprep.plots ?? []).map(p => String(p.id))) }
+  // readfix-01: every project's record is read ONCE for the three guards, in a helper's frame (three reads held ~5 MB each in
+  // this generator's registers for the whole visit)
+  const g3 = tidyGuardsNow(rec)
+  if (GROUNDS.on && rec.plotprep) plotsSited = g3.plotsSited
   // claim-01: at EXECUTION time too, every entry inside a sited claim plot's volume is passed (whoever's visit, whether the keeper's
   // retirement is written yet or not); a records read that fails passes nothing extra (the record's own cell guard still holds)
   let claimsNow = []
-  if (claimOn()) { try { const pr = plotRecordsNow(); claimsNow = pr ? buildingClaims(pr) : [] } catch { claimsNow = [] } }
+  if (claimOn()) claimsNow = g3.claimsNow
   // planahead-01 (Codex r1 BLOCKER 3, the work-time guard): an open building's claimed STAND is never filled (feet, head) nor its floor
   // cut or cleared, whatever generation the visit works -- read as claimed (done / given), as claim-01's volume is: a record CELL (it has
   // a role) on a claimed feet/head cell, a cut, clear or given key (no role) on a claimed floor (planahead.mjs standClaims)
   let paStands = null
-  if (PLANAHEAD_ON) { try { const pr = plotRecordsNow(); paStands = pr ? standClaims(pr) : null } catch { paStands = null } }
+  if (PLANAHEAD_ON) paStands = g3.paStands
   const standQ = q => !!paStands && Array.isArray(q?.at) && (q.role != null ? paStands.feet : paStands.floor).has(q.at.join(','))
   const claimedQ = q => (claimsNow.length > 0 && claimEntry(q, claimsNow)) || standQ(q)
   // fillcolumn-01 (`floatHeld`, filled once the visit's reader stands, below): a fill no order of work can lay now is passed too

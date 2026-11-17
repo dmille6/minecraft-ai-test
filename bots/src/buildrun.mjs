@@ -80,6 +80,8 @@ const wallNow = () => performance.now()
 // a deferral stands for the rest of its visit (2 min) either way.
 // STANDCACHE=off|0|false|no: one walkFrom a pass, as before.
 export const STAND_MS = 3_000
+/** readfix-01: the obstacle sets' node maps a kept walk holds at once (walkMem.by), the plain walk's own besides. */
+export const WALK_BY_MAX = 4
 export const standCacheOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.STANDCACHE ?? '').trim())
 const STANDCACHE_ON = standCacheOn()
 // tempstand-01 (tempstand.mjs): TEMPSTAND=off|0|false|no -> no temporary stand, no receipt read: the visit as it was
@@ -583,7 +585,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   let bodyWaits = 0
   const unknown = p.unknown ?? new Set()
   // THE VISIT'S READ: an UNKNOWN cell (a dig the server never answered) reads as unknown -- no stand, no support, never clear
-  const rd = (x, y, z) => (unknown.has(k3(x, y, z)) ? null : e.read(x, y, z))
+  const rd = (x, y, z) => (unknown.size > 0 && unknown.has(k3(x, y, z)) ? null : e.read(x, y, z))   // readfix-01: no key string while nothing is unknown
   let needSapling = null
   const bump = c => { const n = (tries.get(kOf(c)) ?? 0) + 1; tries.set(kOf(c), n); return n }
   let steps = 0
@@ -675,13 +677,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       const graph = {}, seq = toldNow()   // taken BEFORE the walk: it reads nothing from the socket while it runs
       const all = walkFrom(walkRd, home, new Set(), walkR, { ...walkOpts(null), graph })
       walkMem = { gen: worldGen, unknown: unknown.size, graph, by: new Map([['|', byColumn(all)]]), at: wallNow(), seq }
-      noStep.clear()
+      noStep.clear(); classMemo.clear()   // readfix-01: a memo entry holds its node map; a rebuilt walk leaves the old maps to the GC
     }
     const sig = `${sigOf(block)}|${sigOf(noFloor)}`
     let nodes = walkMem.by.get(sig)
     if (!nodes) {
       const walk = walkAgain(walkMem.graph, walkRd, home, block, walkR, walkOpts(noFloor))
       nodes = walk === walkMem.graph.all ? walkMem.by.get('|') : byColumn(walk)
+      // readfix-01: at most WALK_BY_MAX obstacle sets kept (each ~6 MB of node map on the showcase's town); the oldest goes first, never '|'
+      if (walkMem.by.size >= WALK_BY_MAX) { for (const k of walkMem.by.keys()) if (k !== '|') { walkMem.by.delete(k); break } }
       walkMem.by.set(sig, nodes)
     }
     return nodes

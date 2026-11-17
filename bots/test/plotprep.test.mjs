@@ -206,7 +206,7 @@ await t('WIRED: the visit passes sited plots\' entries (cells, cuts, clears) who
   assert.ok(/const cuts0 = tidyCuts\(rec, read, mem\)\.filter\(q => !claimedQ\(q\) && !plotEntryRetired\(q, plotsSited\) &&/.test(s), 'cuts never dug')
   assert.ok(/if \(plotsSited\.size\) visitRec = \{ \.\.\.visitRec, clear: \(visitRec\.clear \?\? \[\]\)\.filter\(q => !plotEntryRetired\(q, plotsSited\)\) \}/.test(s), 'trees never felled')
   assert.ok(/plotRetire\(cur, plotsSitedNow\(cur, pr\)\)/.test(s), 'the keeper retires them')
-  assert.ok(/const pr = plotRecordsNow\(\); plotsSited = pr \? plotsSitedNow\(rec, pr\) : new Set\(\(rec\.plotprep\.plots \?\? \[\]\)\.map\(p => String\(p\.id\)\)\)/.test(s), 'Codex r1: an unreadable record passes every plot (fail closed)')
+  assert.ok(/const pr = prNow\(\); plotsSited = pr \? plotsSitedNow\(rec, pr\) : new Set\(\(rec\.plotprep\.plots \?\? \[\]\)\.map\(p => String\(p\.id\)\)\)/.test(s), 'Codex r1: an unreadable record passes every plot (fail closed)')
   assert.ok(/rec\?\.blueprint === TIDY_BLUEPRINT && \(gkStageDue\(rec\) \|\| stuckStale\(keys, rec, c => !!rec\.waived\?\.\[c\.at\.join\(','\)\] \|\| recordCellDone\(b, rec, c\)\)\)\) return true/.test(s), 'the quiet hours: no back-off over a due next stage')
   assert.ok(/gathered\?\.n > 0 \|\| completed \? 'success' : 'no_effect'/.test(s), 'a completing visit')
 })
