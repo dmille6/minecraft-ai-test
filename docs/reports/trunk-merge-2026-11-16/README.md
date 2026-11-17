@@ -2,6 +2,16 @@
 
 Branch `trunk-showcase-into-main`. **Work in progress: not reviewed, not on main.**
 
+**State at 5e90ddce1 (2026-11-17 00:25Z):** fifth suite on ci3: 590 of 603 test files pass, 10 are skipped with a written
+reason, 3 are red (lavastep, plinth-skill, well) and all three are red on the showcase build `6ed264b9` alone on the same
+kind of host (`suite/showcase-baseline-ci4.log`: 528 of 534, six red). Suites in order: 526, 574, 586, 586, 590.
+Read next: `DECISIONS.md` (what the two lines disagreed on and how each was settled), `SHOWCASE-NEW.md` and
+`showcase-pool-off.env` (what the trunk would newly switch on for the showcase, and the block that switches it off).
+**Still owed before this is a trunk:** the hand read of the 33 protected declarations where the fleet's version stands
+(`ledgers/review-worklist.json`, key `fleet`); the two-engine tier-3 review; merging in what both lines have landed since
+(main's tooling commits; the showcase's bagfix-01show `0e33aa99`, live 11-16 23:03Z, which reads `CHESTCARRY`, a name the
+fleet's chestcarry-01 also reads); and the release path for each world, which belongs to the showcase's control session.
+
 - Merged: main and the live showcase release `6ed264b9` (branch `planvalid-01show-on-projturn`), on the owner's word of
   2026-11-16 and the control session's choice of sha. Not in it: tidyflow, minecrew, airroute.
 - A plain merge conflicts in 122 files. They were resolved by rule, by the scripts in this folder, run in this order

@@ -1,0 +1,762 @@
+running 602 files 10 at a time, then 1 serial
+ok   air-model.test.mjs                               68ms  [1/603]
+ok   air-trace.test.mjs                               79ms  [2/603]
+ok   abhash.test.mjs                                 142ms  [3/603]
+ok   assign.test.mjs                                 263ms  [4/603]
+ok   air-release.test.mjs                            590ms  [5/603]
+ok   action-key.test.mjs                             599ms  [6/603]
+ok   any-log-milestone.test.mjs                      595ms  [7/603]
+ok   args-sayable.test.mjs                           552ms  [8/603]
+ok   bagdiet.test.mjs                                313ms  [9/603]
+ok   affordance-contract.test.mjs                    677ms  [10/603]
+ok   board.test.mjs                                   63ms  [11/603]
+ok   board-visit.test.mjs                            118ms  [12/603]
+ok   atlas.test.mjs                                  683ms  [13/603]
+ok   bagroom.test.mjs                                240ms  [14/603]
+ok   block-name-resolver.test.mjs                    279ms  [15/603]
+ok   bagfull.test.mjs                                308ms  [16/603]
+ok   breach-head-wall.test.mjs                       103ms  [17/603]
+ok   bamboowalk.test.mjs                             456ms  [18/603]
+ok   arbiter.test.mjs                               1328ms  [19/603]
+ok   bridgepost.test.mjs                             362ms  [20/603]
+ok   bucket-admission.test.mjs                        98ms  [21/603]
+ok   bootstrap-table.test.mjs                        651ms  [22/603]
+ok   bucket-pour.test.mjs                             59ms  [23/603]
+ok   bucket-aim.test.mjs                             137ms  [24/603]
+ok   body-claim.test.mjs                             758ms  [25/603]
+ok   bucket.test.mjs                                  90ms  [26/603]
+skip buildnext.test.mjs                               59ms  [27/603]
+ok   break-veto.test.mjs                             676ms  [28/603]
+ok   buildcorner.test.mjs                            362ms  [29/603]
+ok   brainwatch.test.mjs                            1035ms  [30/603]
+ok   buildproj.test.mjs                              709ms  [31/603]
+ok   access.test.mjs                                4376ms  [32/603]
+ok   boardwalk3.test.mjs                           10359ms  [33/603]
+ok   buildretry.test.mjs                           21987ms  [34/603]
+ok   bridges-design.test.mjs                       45511ms  [35/603]
+ok   airpocket.test.mjs                            63168ms  [36/603]
+ok   buildrun-closer.test.mjs                      66444ms  [37/603]
+ok   buildwait.test.mjs                             9977ms  [38/603]
+ok   canefarm.test.mjs                              5279ms  [39/603]
+ok   canopy-drop.test.mjs                            578ms  [40/603]
+ok   cavefall.test.mjs                              5249ms  [41/603]
+ok   ceilescape.test.mjs                            1601ms  [42/603]
+ok   chatgate.test.mjs                               435ms  [43/603]
+ok   chatonly.test.mjs                               471ms  [44/603]
+ok   buildrun-replant-mutants.test.mjs            104099ms  [45/603]
+ok   chest-lid.test.mjs                              551ms  [46/603]
+ok   chestcarry.test.mjs                             924ms  [47/603]
+ok   chestreach.test.mjs                             703ms  [48/603]
+ok   chunk-evictor.test.mjs                          252ms  [49/603]
+ok   chest-full.test.mjs                           19226ms  [50/603]
+ok   buildrun-stuck.test.mjs                      115905ms  [51/603]
+ok   buildsite.test.mjs                            82975ms  [52/603]
+ok   buildrun-replant.test.mjs                    145796ms  [53/603]
+ok   clean-args.test.mjs                             154ms  [54/603]
+ok   cleanzone.test.mjs                              863ms  [55/603]
+ok   climb-escape.test.mjs                          8835ms  [56/603]
+ok   civic.test.mjs                                48923ms  [57/603]
+ok   civicvisit.test.mjs                           47840ms  [58/603]
+ok   claim.test.mjs                                34916ms  [59/603]
+ok   climb-need.test.mjs                             511ms  [60/603]
+ok   coalrun-mine.test.mjs                           600ms  [61/603]
+ok   coalrun.test.mjs                                263ms  [62/603]
+ok   coalsite.test.mjs                               517ms  [63/603]
+ok   climb-flood-mutants.test.mjs                  31176ms  [64/603]
+ok   cobblekeep.test.mjs                            1447ms  [65/603]
+ok   cobbleroom.test.mjs                             654ms  [66/603]
+ok   collect-verified.test.mjs                       135ms  [67/603]
+ok   comet-flooded-slot.test.mjs                      78ms  [68/603]
+ok   cobble-rule.test.mjs                          11982ms  [69/603]
+ok   buildrun-stuck3.test.mjs                     172161ms  [70/603]
+ok   cooldown-cap.test.mjs                           640ms  [71/603]
+ok   climb-flood-chain.test.mjs                    38946ms  [72/603]
+ok   copperrun.test.mjs                              216ms  [73/603]
+ok   copperrun02-fleet.test.mjs                      281ms  [74/603]
+ok   cornerwalk.test.mjs                             365ms  [75/603]
+ok   buildrun-r2b.test.mjs                        201898ms  [76/603]
+ok   buildrun-r2.test.mjs                         202523ms  [77/603]
+ok   country-order.test.mjs                          701ms  [78/603]
+ok   country.test.mjs                               1988ms  [79/603]
+ok   cottagepost.test.mjs                           3516ms  [80/603]
+ok   craft-advice-reach.test.mjs                     938ms  [81/603]
+ok   coverdig.test.mjs                              4013ms  [82/603]
+ok   craft-own-table.test.mjs                        131ms  [83/603]
+ok   copperhall.test.mjs                           15273ms  [84/603]
+ok   craft-tree.test.mjs                             482ms  [85/603]
+ok   craftable-alternative.test.mjs                  510ms  [86/603]
+ok   craftable-now.test.mjs                          568ms  [87/603]
+ok   buildrun-stuck2.test.mjs                     202238ms  [88/603]
+ok   composter.test.mjs                            18698ms  [89/603]
+ok   climb-flood.test.mjs                          52597ms  [90/603]
+ok   craftsync-recount.test.mjs                      879ms  [91/603]
+ok   craft-room.test.mjs                           15886ms  [92/603]
+ok   craftsync-mutants.test.mjs                    19642ms  [93/603]
+ok   craftroom-craftsync.test.mjs                  22616ms  [94/603]
+ok   cutterfold.test.mjs                              94ms  [95/603]
+ok   craftsync-window-bind.test.mjs                16382ms  [96/603]
+ok   danger-owns-the-body.test.mjs                   465ms  [97/603]
+ok   deathsites-wired.test.mjs                        48ms  [98/603]
+ok   deathsites.test.mjs                              47ms  [99/603]
+ok   cwstall.test.mjs                               4234ms  [100/603]
+ok   decorholdfold.test.mjs                          132ms  [101/603]
+ok   deepmine.test.mjs                              1125ms  [102/603]
+ok   dep-contract.test.mjs                           310ms  [103/603]
+ok   deposit-demand.test.mjs                         550ms  [104/603]
+ok   composter-craftsync.test.mjs                  49269ms  [105/603]
+ok   deposit-noop.test.mjs                           103ms  [106/603]
+ok   deposit-item-arg.test.mjs                       433ms  [107/603]
+ok   deposit-plan.test.mjs                            95ms  [108/603]
+ok   deposit-palette-block.test.mjs                  447ms  [109/603]
+ok   deposit-town.test.mjs                           485ms  [110/603]
+ok   deposit-truth.test.mjs                          677ms  [111/603]
+ok   descent-blockers.test.mjs                       548ms  [112/603]
+ok   descent-escape.test.mjs                         459ms  [113/603]
+ok   decorator.test.mjs                            10963ms  [114/603]
+ok   dig-approach.test.mjs                          3316ms  [115/603]
+ok   depositoffer.test.mjs                          9891ms  [116/603]
+ok   dig-collision.test.mjs                           84ms  [117/603]
+ok   dig-env.test.mjs                                358ms  [118/603]
+ok   dig-hand.test.mjs                                90ms  [119/603]
+ok   dig-split.test.mjs                               80ms  [120/603]
+ok   dig-approach-watchdog.test.mjs                 9099ms  [121/603]
+ok   digtown.test.mjs                                147ms  [122/603]
+ok   drainpick.test.mjs                              566ms  [123/603]
+ok   dirtrung.test.mjs                               663ms  [124/603]
+ok   drops.test.mjs                                  230ms  [125/603]
+ok   craftsync-grid.test.mjs                       49852ms  [126/603]
+ok   drown-suppress.test.mjs                         583ms  [127/603]
+ok   drowning-cave.test.mjs                          474ms  [128/603]
+ok   dig-budget.test.mjs                           11769ms  [129/603]
+ok   drowning-floor.test.mjs                         519ms  [130/603]
+ok   drowning-yield.test.mjs                         513ms  [131/603]
+ok   drowning.test.mjs                               519ms  [132/603]
+ok   drown-route-truth.test.mjs                    11880ms  [133/603]
+ok   craft-from-logs.test.mjs                      58615ms  [134/603]
+ok   endpoint-pool.test.mjs                          136ms  [135/603]
+ok   craftsync.test.mjs                            55331ms  [136/603]
+ok   enchant.test.mjs                              21596ms  [137/603]
+ok   entrypoint-calls-exist.test.mjs                  52ms  [138/603]
+ok   escape-reserve.test.mjs                         468ms  [139/603]
+ok   entombed-escape.test.mjs                      35919ms  [140/603]
+ok   escape-total.test.mjs                          1131ms  [141/603]
+ok   escape-water-maroon.test.mjs                    534ms  [142/603]
+ok   escape-stair.test.mjs                         22714ms  [143/603]
+ok   escdead.test.mjs                                990ms  [144/603]
+ok   entombed-gravel.test.mjs                      42293ms  [145/603]
+ok   escpocket.test.mjs                            13573ms  [146/603]
+ok   exit-contract.test.mjs                           66ms  [147/603]
+ok   dropdig.test.mjs                              70967ms  [148/603]
+ok   evidence-gate.test.mjs                         1078ms  [149/603]
+ok   expedition.test.mjs                             358ms  [150/603]
+ok   expwater.test.mjs                               226ms  [151/603]
+ok   failclass.test.mjs                               48ms  [152/603]
+ok   failclass2.test.mjs                              50ms  [153/603]
+ok   explore-known.test.mjs                          602ms  [154/603]
+ok   fall-settle.test.mjs                            111ms  [155/603]
+ok   fallpath-wired.test.mjs                          70ms  [156/603]
+ok   fallpath.test.mjs                                64ms  [157/603]
+ok   features-wired.test.mjs                         516ms  [158/603]
+ok   exit-remedy.test.mjs                           4089ms  [159/603]
+ok   failmine.test.mjs                              8395ms  [160/603]
+ok   fellcanopy.test.mjs                           17547ms  [161/603]
+ok   cropfarm.test.mjs                            119665ms  [162/603]
+ok   buildrun.test.mjs                            312945ms  [163/603]
+ok   felldone.test.mjs                             10058ms  [164/603]
+ok   fell-live.test.mjs                            39444ms  [165/603]
+ok   fewerdec.test.mjs                             12009ms  [166/603]
+ok   enchantshop.test.mjs                         110638ms  [167/603]
+ok   fillcolumn-inputs.test.mjs                    18715ms  [168/603]
+ok   float-up.test.mjs                                86ms  [169/603]
+ok   floodpocket.test.mjs                             59ms  [170/603]
+ok   fillshare.test.mjs                            11185ms  [171/603]
+ok   fleetpaths.test.mjs                            5813ms  [172/603]
+ok   flowledger.test.mjs                             567ms  [173/603]
+ok   effectwatch.test.mjs                         119180ms  [174/603]
+ok   foodskip-order.test.mjs                        1212ms  [175/603]
+ok   flowers.test.mjs                               4184ms  [176/603]
+ok   found-compose.test.mjs                         2554ms  [177/603]
+ok   fuel-affordable.test.mjs                         81ms  [178/603]
+ok   furnaceseen.test.mjs                           1601ms  [179/603]
+ok   gate-deadlock.test.mjs                          583ms  [180/603]
+ok   gate.test.mjs                                   505ms  [181/603]
+ok   gather-bounded.test.mjs                          74ms  [182/603]
+ok   foodskip.test.mjs                              9456ms  [183/603]
+ok   fillcolumn.test.mjs                           27525ms  [184/603]
+ok   found.test.mjs                                 8889ms  [185/603]
+ok   generation-cap.test.mjs                         109ms  [186/603]
+ok   gkaccessfold.test.mjs                           189ms  [187/603]
+ok   gkclear.test.mjs                                210ms  [188/603]
+ok   gkcrew4.test.mjs                                164ms  [189/603]
+ok   gkcrewcut.test.mjs                              163ms  [190/603]
+skip gkforever.test.mjs                               61ms  [191/603]
+ok   gathermem.test.mjs                             4091ms  [192/603]
+ok   gklease.test.mjs                                312ms  [193/603]
+ok   gklease2.test.mjs                               257ms  [194/603]
+ok   gkleft.test.mjs                                 215ms  [195/603]
+ok   gather-reach.test.mjs                         10097ms  [196/603]
+ok   gkroom.test.mjs                                 328ms  [197/603]
+ok   gkstagefold.test.mjs                            191ms  [198/603]
+ok   gkstay.test.mjs                                 196ms  [199/603]
+ok   gkmarker.test.mjs                              3047ms  [200/603]
+ok   gksweep.test.mjs                               1061ms  [201/603]
+ok   gkwork.test.mjs                                 285ms  [202/603]
+ok   glass-show.test.mjs                             214ms  [203/603]
+ok   glass.test.mjs                                  426ms  [204/603]
+ok   goto-dig-retry.test.mjs                         593ms  [205/603]
+ok   groundledger.test.mjs                           381ms  [206/603]
+ok   groundplan.test.mjs                             307ms  [207/603]
+ok   gatherzone.test.mjs                           10831ms  [208/603]
+ok   escapeguard.test.mjs                         102201ms  [209/603]
+ok   gkunblock.test.mjs                             8028ms  [210/603]
+ok   gkhelpers.test.mjs                            14041ms  [211/603]
+ok   harvest-underfoot.test.mjs                       77ms  [212/603]
+ok   hard-stop.test.mjs                             1096ms  [213/603]
+ok   handcap.test.mjs                               4837ms  [214/603]
+ok   hive-progress.test.mjs                          808ms  [215/603]
+skip hivedrop.test.mjs                                75ms  [216/603]
+ok   hole-walks-budget.test.mjs                      247ms  [217/603]
+ok   hive-place-scope.test.mjs                      3161ms  [218/603]
+ok   hole-walks.test.mjs                             338ms  [219/603]
+ok   home-rescue.test.mjs                            622ms  [220/603]
+ok   homefix-declined.test.mjs                      6731ms  [221/603]
+ok   homefix-r2.test.mjs                           16815ms  [222/603]
+ok   homefix2-c3.test.mjs                           4409ms  [223/603]
+ok   homefix2-chain.test.mjs                        8191ms  [224/603]
+ok   homefix2-relocate.test.mjs                      248ms  [225/603]
+ok   hive-forgets.test.mjs                         36704ms  [226/603]
+ok   homefix.test.mjs                              36800ms  [227/603]
+ok   house-runtime.test.mjs                          681ms  [228/603]
+ok   citywall.test.mjs                            356992ms  [229/603]
+ok   house.test.mjs                                 8804ms  [230/603]
+ok   idle-gap.test.mjs                               631ms  [231/603]
+skip idlework-sites.test.mjs                          53ms  [232/603]
+ok   forest.test.mjs                               82617ms  [233/603]
+ok   idlework.test.mjs                               581ms  [234/603]
+ok   idlework2.test.mjs                              681ms  [235/603]
+ok   inflight.test.mjs                               187ms  [236/603]
+ok   inventory-summary.test.mjs                      732ms  [237/603]
+ok   indexsearch2.test.mjs                          1390ms  [238/603]
+ok   iron-rung.test.mjs                              675ms  [239/603]
+ok   groundskeeper.test.mjs                        64673ms  [240/603]
+ok   iron-three.test.mjs                             666ms  [241/603]
+ok   ironchain.test.mjs                             1573ms  [242/603]
+ok   ironpick-homefix-compose.test.mjs              1756ms  [243/603]
+ok   ironsmelt-chain.test.mjs                       1617ms  [244/603]
+ok   ironpick.test.mjs                              3385ms  [245/603]
+ok   ironsmelt-off.test.mjs                          781ms  [246/603]
+ok   hygiene.test.mjs                               8986ms  [247/603]
+ok   ironsmelt-furnace.test.mjs                     3628ms  [248/603]
+ok   ironsmelt.test.mjs                             2353ms  [249/603]
+ok   junkout.test.mjs                                558ms  [250/603]
+ok   keepout-chatgate-compose.test.mjs               288ms  [251/603]
+ok   keepout-homefix.test.mjs                       1035ms  [252/603]
+ok   jobshadow.test.mjs                             3523ms  [253/603]
+ok   junkout-found-compose.test.mjs                 2407ms  [254/603]
+ok   keepout-ironpick-compose.test.mjs               170ms  [255/603]
+ok   keepout-townindex-compose.test.mjs              702ms  [256/603]
+ok   cottage2.test.mjs                            280333ms  [257/603]
+ok   keepout-loop.test.mjs                          1586ms  [258/603]
+ok   kitmulti.test.mjs                              1078ms  [259/603]
+ok   ladder-climb.test.mjs                           106ms  [260/603]
+ok   ladder.test.mjs                                 101ms  [261/603]
+ok   kitsearch.test.mjs                             3405ms  [262/603]
+ok   last-resort.test.mjs                            114ms  [263/603]
+ok   last-swing.test.mjs                             859ms  [264/603]
+ok   landmark.test.mjs                              3410ms  [265/603]
+ok   lava-guards-wired.test.mjs                      136ms  [266/603]
+ok   lavaguard.test.mjs                               95ms  [267/603]
+ok   lavatarget.test.mjs                             673ms  [268/603]
+ok   leaf-fallback.test.mjs                         1577ms  [269/603]
+ok   leaffell-res.test.mjs                          2961ms  [270/603]
+ok   grounds2.test.mjs                             88552ms  [271/603]
+ok   learned-avoid-scope.test.mjs                   6293ms  [272/603]
+ok   keepout-protectzone-compose.test.mjs          17609ms  [273/603]
+ok   keeperstall.test.mjs                          22782ms  [274/603]
+ok   levelfall.test.mjs                             8684ms  [275/603]
+ok   ledger.test.mjs                               15055ms  [276/603]
+ok   fellfirst.test.mjs                           155215ms  [277/603]
+ok   lidplace.test.mjs                              5309ms  [278/603]
+ok   livelock-fixation.test.mjs                      591ms  [279/603]
+ok   livelock-ladder.test.mjs                        663ms  [280/603]
+ok   keepout.test.mjs                              32501ms  [281/603]
+ok   livelock.test.mjs                               654ms  [282/603]
+ok   llm-endpoint-attribution.test.mjs               109ms  [283/603]
+ok   llm-admission-attribution.test.mjs              823ms  [284/603]
+ok   llm-oai.test.mjs                                769ms  [285/603]
+ok   logcap.test.mjs                                 516ms  [286/603]
+ok   logcap2.test.mjs                                697ms  [287/603]
+ok   loggate.test.mjs                                973ms  [288/603]
+ok   mapping-drift.test.mjs                           66ms  [289/603]
+ok   lidclear.test.mjs                             15299ms  [290/603]
+ok   market.test.mjs                                 852ms  [291/603]
+ok   maroon-terminates.test.mjs                      608ms  [292/603]
+ok   mats-chain.test.mjs                            2080ms  [293/603]
+ok   logsurface.test.mjs                            4193ms  [294/603]
+ok   leasegen.test.mjs                             24157ms  [295/603]
+ok   maroon-self-source.test.mjs                    3485ms  [296/603]
+ok   matset.test.mjs                                 276ms  [297/603]
+ok   mats-return.test.mjs                           1354ms  [298/603]
+ok   mats.test.mjs                                   888ms  [299/603]
+ok   merchantscout.test.mjs                          168ms  [300/603]
+ok   milestones.test.mjs                             548ms  [301/603]
+ok   mine-ascent.test.mjs                            764ms  [302/603]
+ok   mine-descent-range.test.mjs                     570ms  [303/603]
+ok   mine-preconditions.test.mjs                      58ms  [304/603]
+ok   lint-gate.test.mjs                            12521ms  [305/603]
+ok   mine-step-retry.test.mjs                        137ms  [306/603]
+ok   mine-target.test.mjs                            101ms  [307/603]
+ok   mineorder.test.mjs                              255ms  [308/603]
+ok   memoryscope.test.mjs                           4856ms  [309/603]
+ok   fell.test.mjs                                195927ms  [310/603]
+ok   model-identity.test.mjs                         115ms  [311/603]
+ok   minewell-home.test.mjs                         4214ms  [312/603]
+ok   litter.test.mjs                               22807ms  [313/603]
+ok   nobridge.test.mjs                               405ms  [314/603]
+ok   monustuck.test.mjs                             6918ms  [315/603]
+ok   nothing-important-is-orphaned.test.mjs          604ms  [316/603]
+ok   obsidian.test.mjs                               262ms  [317/603]
+ok   ordernowait.test.mjs                            175ms  [318/603]
+ok   orderroom.test.mjs                             1528ms  [319/603]
+ok   mine-bearing.test.mjs                         18031ms  [320/603]
+ok   outcome-not-intention.test.mjs                  119ms  [321/603]
+ok   no-tdz.test.mjs                               11635ms  [322/603]
+ok   oxygen-guard.test.mjs                           630ms  [323/603]
+ok   packet-witness.test.mjs                         100ms  [324/603]
+ok   path-watchdog.test.mjs                           57ms  [325/603]
+ok   path-failure-shape.test.mjs                     139ms  [326/603]
+ok   pathbackoff.test.mjs                            120ms  [327/603]
+ok   pathclass.test.mjs                              500ms  [328/603]
+ok   pathhalt.test.mjs                              1915ms  [329/603]
+ok   paths-wiring.test.mjs                           758ms  [330/603]
+ok   oretunnel.test.mjs                             8472ms  [331/603]
+ok   outbands.test.mjs                              7199ms  [332/603]
+ok   pathsmem.test.mjs                               145ms  [333/603]
+ok   pause-recovery.test.mjs                        1076ms  [334/603]
+ok   peacefulkit-order.test.mjs                      894ms  [335/603]
+ok   paths.test.mjs                                 6101ms  [336/603]
+ok   peacefulkit.test.mjs                           3174ms  [337/603]
+ok   pens.test.mjs                                  2105ms  [338/603]
+ok   minewell.test.mjs                             32052ms  [339/603]
+ok   pickswings.test.mjs                             645ms  [340/603]
+ok   mine-staircase.test.mjs                       37159ms  [341/603]
+ok   pickuplog-review.test.mjs                      1806ms  [342/603]
+ok   pickuplog.test.mjs                             1030ms  [343/603]
+ok   pickup-sweep.test.mjs                          5314ms  [344/603]
+ok   place-airborne.test.mjs                         509ms  [345/603]
+ok   place-perch.test.mjs                            455ms  [346/603]
+ok   place-readback.test.mjs                         588ms  [347/603]
+ok   placeable-into.test.mjs                         458ms  [348/603]
+ok   placeaudit.test.mjs                              64ms  [349/603]
+ok   paths-build.test.mjs                          27300ms  [350/603]
+ok   plank-affinity.test.mjs                         528ms  [351/603]
+skip plankeep.test.mjs                                45ms  [352/603]
+ok   planstore.test.mjs                              439ms  [353/603]
+ok   plant-arm.test.mjs                              693ms  [354/603]
+ok   planting.test.mjs                               471ms  [355/603]
+ok   mats-session.test.mjs                         55046ms  [356/603]
+ok   pickcraft.test.mjs                            22426ms  [357/603]
+ok   planahead.test.mjs                            12040ms  [358/603]
+ok   plinth02.test.mjs                               709ms  [359/603]
+ok   plinth021.test.mjs                              134ms  [360/603]
+ok   plotledgerfold.test.mjs                          50ms  [361/603]
+ok   pipeline.test.mjs                             19349ms  [362/603]
+ok   plinthfirst.test.mjs                           4526ms  [363/603]
+ok   pathsclose.test.mjs                           38027ms  [364/603]
+ok   pocket-plan-for.test.mjs                        471ms  [365/603]
+ok   pocket-rung-slot.test.mjs                        82ms  [366/603]
+ok   pocket-side-exit-wired.test.mjs                  68ms  [367/603]
+ok   pool-model-pinning.test.mjs                     133ms  [368/603]
+ok   plugcut.test.mjs                               2026ms  [369/603]
+ok   prereq-preempts-milestone.test.mjs              619ms  [370/603]
+ok   prereq-usable.test.mjs                          662ms  [371/603]
+ok   plotprep.test.mjs                              9626ms  [372/603]
+ok   project-reserve.test.mjs                        564ms  [373/603]
+ok   plinth.test.mjs                               14140ms  [374/603]
+ok   prodserve.test.mjs                             3625ms  [375/603]
+ok   projfix.test.mjs                               2835ms  [376/603]
+ok   promomerge.test.mjs                            1652ms  [377/603]
+ok   prompt-usage-coverage.test.mjs                  479ms  [378/603]
+ok   promptcache.test.mjs                            576ms  [379/603]
+ok   promptfix.test.mjs                              121ms  [380/603]
+ok   protectzone-homefix-compose.test.mjs             81ms  [381/603]
+ok   protectzone-townindex-compose.test.mjs          814ms  [382/603]
+ok   protectzone-townsearch-compose.test.mjs         701ms  [383/603]
+ok   poolescape.test.mjs                           19125ms  [384/603]
+ok   reach-probe-wiring.test.mjs                      75ms  [385/603]
+ok   reach-probe.test.mjs                             73ms  [386/603]
+ok   peacefulkit-smelt.test.mjs                    64446ms  [387/603]
+ok   reccache.test.mjs                              8868ms  [388/603]
+ok   reflex-reaches-model.test.mjs                   639ms  [389/603]
+ok   rehearsalcard.test.mjs                         1218ms  [390/603]
+ok   regrade.test.mjs                               4580ms  [391/603]
+ok   requests.test.mjs                               825ms  [392/603]
+ok   protectzone.test.mjs                          24289ms  [393/603]
+ok   reroof3.test.mjs                               3886ms  [394/603]
+ok   repeatwork.test.mjs                           11973ms  [395/603]
+ok   rescue-learnability.test.mjs                    574ms  [396/603]
+ok   respawnfall-found-compose.test.mjs             2248ms  [397/603]
+ok   respawnfall-junkout-compose.test.mjs           2404ms  [398/603]
+ok   homeplots.test.mjs                           184099ms  [399/603]
+ok   plotprep03.test.mjs                           51965ms  [400/603]
+ok   ride-floor-gate.test.mjs                        122ms  [401/603]
+ok   leaffell.test.mjs                            150357ms  [402/603]
+ok   homesearch.test.mjs                          189464ms  [403/603]
+ok   reroof02.test.mjs                             22687ms  [404/603]
+ok   roughfill.test.mjs                              153ms  [405/603]
+ok   roles.test.mjs                                 2925ms  [406/603]
+ok   roughground.test.mjs                           5353ms  [407/603]
+ok   ride-floor-down.test.mjs                      14151ms  [408/603]
+ok   projturn.test.mjs                             56374ms  [409/603]
+ok   scaffold-species.test.mjs                        76ms  [410/603]
+ok   sandrung.test.mjs                               527ms  [411/603]
+ok   scaffold-wood.test.mjs                          153ms  [412/603]
+ok   protected-paths.test.mjs                      56658ms  [413/603]
+ok   scan-order.test.mjs                             475ms  [414/603]
+ok   routewatch.test.mjs                            8215ms  [415/603]
+ok   seapocket.test.mjs                             1050ms  [416/603]
+ok   shaft-dig-budget.test.mjs                       564ms  [417/603]
+ok   shared-store.test.mjs                           443ms  [418/603]
+ok   scaffold-vocabulary.test.mjs                   7647ms  [419/603]
+ok   shop.test.mjs                                  2213ms  [420/603]
+ok   shore-egress.test.mjs                           365ms  [421/603]
+ok   shore.test.mjs                                   69ms  [422/603]
+ok   shopchest.test.mjs                             2839ms  [423/603]
+ok   showcase-on-fleet.test.mjs                      205ms  [424/603]
+ok   shoreline-log.test.mjs                         2079ms  [425/603]
+ok   showchat.test.mjs                               563ms  [426/603]
+ok   roads.test.mjs                                25335ms  [427/603]
+ok   sinkfix.test.mjs                                173ms  [428/603]
+ok   sandbox-registry.test.mjs                     15284ms  [429/603]
+ok   showdrop.test.mjs                              3272ms  [430/603]
+ok   sinkfix3.test.mjs                               214ms  [431/603]
+ok   sinkfix4.test.mjs                               214ms  [432/603]
+ok   sinkturn.test.mjs                               243ms  [433/603]
+ok   sinkfix2.test.mjs                              3510ms  [434/603]
+ok   sinkwaive.test.mjs                             3631ms  [435/603]
+ok   siteprep-overlap.test.mjs                       846ms  [436/603]
+ok   siteprep-sp1.test.mjs                          1076ms  [437/603]
+ok   showcase-ops.test.mjs                         12739ms  [438/603]
+ok   siteprepcursor.test.mjs                         192ms  [439/603]
+ok   siteprepfold.test.mjs                           287ms  [440/603]
+ok   smelt-own-furnace.test.mjs                      119ms  [441/603]
+FAIL plinth-skill.test.mjs                         98953ms  [442/603]
+ok   smelt-plan.test.mjs                              58ms  [443/603]
+ok   smelt-wiring.test.mjs                           621ms  [444/603]
+ok   smeltgate.test.mjs                               93ms  [445/603]
+ok   smeltjob-return.test.mjs                        511ms  [446/603]
+ok   sitecanopy.test.mjs                            8679ms  [447/603]
+ok   sealedcore.test.mjs                           24599ms  [448/603]
+ok   smeltsearch.test.mjs                           1782ms  [449/603]
+ok   stair-claim.test.mjs                             96ms  [450/603]
+ok   sortstore.test.mjs                              619ms  [451/603]
+ok   stair-descent.test.mjs                         6004ms  [452/603]
+ok   stair-entry.test.mjs                            535ms  [453/603]
+ok   smelt-skill.test.mjs                          14913ms  [454/603]
+ok   smeltjob.test.mjs                             14235ms  [455/603]
+ok   stair-egress.test.mjs                         11142ms  [456/603]
+ok   stallcheck.test.mjs                             609ms  [457/603]
+ok   stair-handoff.test.mjs                         5835ms  [458/603]
+ok   stations.test.mjs                              2121ms  [459/603]
+ok   standreplay.test.mjs                           4258ms  [460/603]
+ok   step-down.test.mjs                               78ms  [461/603]
+ok   step-off-edges.test.mjs                         510ms  [462/603]
+ok   station-room.test.mjs                          8564ms  [463/603]
+ok   stationsback.test.mjs                          6916ms  [464/603]
+ok   stepwell03.test.mjs                             548ms  [465/603]
+ok   scaftown.test.mjs                             61126ms  [466/603]
+ok   stockpile-category.test.mjs                     502ms  [467/603]
+ok   steprefusal.test.mjs                          17745ms  [468/603]
+ok   stocktarget-journal.test.mjs                    393ms  [469/603]
+ok   stockpile-reachable.test.mjs                    564ms  [470/603]
+ok   stocktarget.test.mjs                            813ms  [471/603]
+ok   siteprep.test.mjs                             44532ms  [472/603]
+ok   stopwatch.test.mjs                             4630ms  [473/603]
+ok   storage-full.test.mjs                          3028ms  [474/603]
+ok   stoneworks.test.mjs                           10948ms  [475/603]
+ok   roofclimb.test.mjs                            84124ms  [476/603]
+ok   stranding.test.mjs                              360ms  [477/603]
+ok   stuckcells.test.mjs                            9680ms  [478/603]
+skip stuckclose.test.mjs                              42ms  [479/603]
+skip stuckfleet-cap.test.mjs                          60ms  [480/603]
+ok   respawnfall.test.mjs                         104711ms  [481/603]
+skip stuckfleet02.test.mjs                            61ms  [482/603]
+ok   stuckfleet.test.mjs                            4385ms  [483/603]
+skip stuckproj.test.mjs                               45ms  [484/603]
+ok   stuckwait.test.mjs                              792ms  [485/603]
+ok   submerged-break.test.mjs                         74ms  [486/603]
+ok   support-outvoted.test.mjs                        77ms  [487/603]
+ok   surface.test.mjs                                670ms  [488/603]
+ok   survey.test.mjs                                 547ms  [489/603]
+ok   sustaining.test.mjs                             643ms  [490/603]
+ok   swimcentre.test.mjs                             590ms  [491/603]
+ok   stuckfleet03.test.mjs                          6216ms  [492/603]
+ok   table-access.test.mjs                           526ms  [493/603]
+ok   stoneworks-session.test.mjs                   33743ms  [494/603]
+ok   tech-ladder.test.mjs                            618ms  [495/603]
+ok   takeback.test.mjs                              3320ms  [496/603]
+ok   swimunder.test.mjs                             4195ms  [497/603]
+ok   test-result.test.mjs                            271ms  [498/603]
+ok   terrace.test.mjs                              17966ms  [499/603]
+ok   storehouse.test.mjs                           46467ms  [500/603]
+skip tidydead.test.mjs                                58ms  [501/603]
+ok   tidygrow.test.mjs                               298ms  [502/603]
+ok   sinks.test.mjs                               107982ms  [503/603]
+ok   tier1-repairs.test.mjs                          751ms  [504/603]
+ok   tombexit.test.mjs                               111ms  [505/603]
+ok   stepwell05.test.mjs                           73711ms  [506/603]
+ok   tool-safe-window.test.mjs                       311ms  [507/603]
+ok   tidyrefresh.test.mjs                           4375ms  [508/603]
+ok   tool-safe.test.mjs                              100ms  [509/603]
+ok   tool-wear.test.mjs                               61ms  [510/603]
+ok   tool-equivalence.test.mjs                       605ms  [511/603]
+ok   toolfor-wired.test.mjs                          148ms  [512/603]
+ok   toolfor.test.mjs                                 78ms  [513/603]
+ok   toolhygiene-mutants.test.mjs                    981ms  [514/603]
+ok   thprep.test.mjs                               25701ms  [515/603]
+ok   toolrank.test.mjs                              1005ms  [516/603]
+ok   toolwatch.test.mjs                               49ms  [517/603]
+ok   toolhygiene.test.mjs                           3444ms  [518/603]
+ok   toolkit.test.mjs                               3085ms  [519/603]
+ok   town-stair-stuck.test.mjs                      1084ms  [520/603]
+ok   toolfor-spent.test.mjs                         6481ms  [521/603]
+ok   town-travel-routing.test.mjs                     78ms  [522/603]
+ok   town-stair.test.mjs                            1832ms  [523/603]
+ok   town-stair-wiring.test.mjs                     3888ms  [524/603]
+ok   towndress.test.mjs                             5533ms  [525/603]
+ok   townindex.test.mjs                            10030ms  [526/603]
+ok   stepwell.test.mjs                             99270ms  [527/603]
+ok   townplan-adopters.test.mjs                     3896ms  [528/603]
+ok   townplan-compose.test.mjs                      1131ms  [529/603]
+ok   townplan-storehouse-geometry.test.mjs           348ms  [530/603]
+ok   townplan.test.mjs                              8050ms  [531/603]
+ok   towndeposit.test.mjs                          31389ms  [532/603]
+ok   townsearch.test.mjs                            3319ms  [533/603]
+ok   tidy.test.mjs                                 49081ms  [534/603]
+ok   reroof4.test.mjs                             192915ms  [535/603]
+ok   townmine.test.mjs                             43189ms  [536/603]
+ok   townwork.test.mjs                               993ms  [537/603]
+ok   townground.test.mjs                           70746ms  [538/603]
+ok   townstyle-reroof.test.mjs                     41602ms  [539/603]
+ok   tree-corpus.test.mjs                            604ms  [540/603]
+ok   townzone-minewell.test.mjs                    16751ms  [541/603]
+ok   tunnel-escalation.test.mjs                      110ms  [542/603]
+ok   underground-hint.test.mjs                        87ms  [543/603]
+ok   unstick.test.mjs                                602ms  [544/603]
+ok   tempstand.test.mjs                           116253ms  [545/603]
+ok   value.test.mjs                                  506ms  [546/603]
+ok   veto-faces.test.mjs                             949ms  [547/603]
+ok   upkeep.test.mjs                                9424ms  [548/603]
+ok   viewer-port.test.mjs                             68ms  [549/603]
+ok   villagefeed.test.mjs                            745ms  [550/603]
+ok   villageunlock.test.mjs                          537ms  [551/603]
+ok   travel-budget.test.mjs                        21751ms  [552/603]
+ok   visitswitch.test.mjs                           5979ms  [553/603]
+ok   townstyle.test.mjs                            57121ms  [554/603]
+ok   wall-wiring.test.mjs                           1355ms  [555/603]
+ok   wallaccessfold.test.mjs                         136ms  [556/603]
+ok   voidfill.test.mjs                              6566ms  [557/603]
+ok   vetoremedy.test.mjs                           17295ms  [558/603]
+ok   watchdog-busy.test.mjs                          385ms  [559/603]
+ok   water-entry-cost.test.mjs                       164ms  [560/603]
+ok   water-gating.test.mjs                           480ms  [561/603]
+ok   water-is-terrain.test.mjs                       575ms  [562/603]
+ok   water-safety.test.mjs                           543ms  [563/603]
+ok   well-gridfix-compose.test.mjs                  2368ms  [564/603]
+ok   treefarm.test.mjs                             30193ms  [565/603]
+ok   wallstuck.test.mjs                             6784ms  [566/603]
+ok   topdown.test.mjs                             111421ms  [567/603]
+ok   wellsite.test.mjs                               769ms  [568/603]
+ok   wellstep.test.mjs                              5028ms  [569/603]
+ok   wellcare.test.mjs                             17408ms  [570/603]
+ok   wholemap.test.mjs                             15045ms  [571/603]
+ok   wood-funnel.test.mjs                           1339ms  [572/603]
+ok   woodworks.test.mjs                             3535ms  [573/603]
+ok   workbench.test.mjs                              500ms  [574/603]
+ok   workorder.test.mjs                              545ms  [575/603]
+ok   worldfacts-death.test.mjs                       110ms  [576/603]
+ok   wrong-wood.test.mjs                             479ms  [577/603]
+ok   withdraw-pick.test.mjs                         7281ms  [578/603]
+ok   townstyle-build.test.mjs                     125944ms  [579/603]
+ok   townstyle-slab.test.mjs                      133540ms  [580/603]
+ok   zigbamboo.test.mjs                             3058ms  [581/603]
+ok   withdraw-hold.test.mjs                        67732ms  [582/603]
+ok   wall.test.mjs                                 87727ms  [583/603]
+ok   ziggurat-project.test.mjs                      1709ms  [584/603]
+ok   standcache.test.mjs                          302871ms  [585/603]
+FAIL well.test.mjs                                114144ms  [586/603]
+ok   yarduse.test.mjs                              67984ms  [587/603]
+ok   yard.test.mjs                                 98580ms  [588/603]
+ok   ziggurat.test.mjs                              4228ms  [589/603]
+ok   zigsealed.test.mjs                             6508ms  [590/603]
+ok   zoneguard.test.mjs                              640ms  [591/603]
+ok   yardsite.test.mjs                            110923ms  [592/603]
+ok   zonewalk.test.mjs                               920ms  [593/603]
+ok   storehub.test.mjs                            337513ms  [594/603]
+ok   ziggurat-build.test.mjs                      119419ms  [595/603]
+ok   ziggurat-v2.test.mjs                          98209ms  [596/603]
+ok   ziggurat-build2.test.mjs                     145345ms  [597/603]
+ok   wallext.test.mjs                             234294ms  [598/603]
+ok   zigtidy2.test.mjs                            210319ms  [599/603]
+ok   ziggurat-tidy.test.mjs                       313185ms  [600/603]
+ok   ziggurat-v2-build.test.mjs                   287807ms  [601/603]
+ok   zonesite.test.mjs                            291662ms  [602/603]
+FAIL lavastep.test.mjs                             63173ms  [603/603]
+
+============================================================
+FAILING DETAIL
+============================================================
+
+--- lavastep.test.mjs (exit 1, serial) ---
+  PASS  D23 a deadline that coincides with the air rescue's seize is the rescue's: ended `air`, and the move clears nothing (Codex code r2 P1, r3 P2)
+  PASS  D23b MUTANT KILLED: the r2 order (deadline first, cleanup keyed on the recorded reason) clears the rescue's stroke (D23 catches it)
+  PASS  D24 a witnessed seal re-classified as `in` whose plan step misses goes straight to the aimed escape (Codex code r2 P2)
+  PASS  D25 a missed `in` step that has already carried the bot onto safe ground does not sprint off it (Claude code r4 P2-1)
+  FAIL  D25b the same after a witnessed seal: a re-classification `in` step that overshoots onto stone ends sealed_plan_missed_safe, no aim (Claude code r5 P3-2)
+        AssertionError [ERR_ASSERTION]: null == 'in'
+            at file:///home/mike/ci/trunk01-pass5/bots/test/lavastep.test.mjs:690:10
+            at async t (file:///home/mike/ci/trunk01-pass5/bots/test/lavastep.test.mjs:40:9)
+            at async file:///home/mike/ci/trunk01-pass5/bots/test/lavastep.test.mjs:681:1
+  PASS  D26 a move ended INSIDE runner.reserve() (the air rescue took the body during the abort unwind): no dig stop, no path halt, no timer, no control write, the reservation released
+  PASS  E1 a live lavastep reservation is never replaced: the watchdog's reserve() is refused and its run declines runner_reserved; a model skill declines too
+  PASS  E2 the watchdog's reservation is SUPERSEDED by a danger move: its pending owner run declines "a newer reservation replaced this one"
+  PASS  F1 CHAIN S1 pool edge (no cobble): aim -> safe
+  PASS  F2 CHAIN S1 pool edge (cobble): seal -> safe
+  PASS  F3 CHAIN S2 1-deep lava: plan -> safe
+  PASS  F4 CHAIN S4 magma: plan -> safe
+  PASS  F5 CHAIN S6 campfire underfoot (in): a move every firing until off it
+  PASS  F6 CHAIN the enclosed magma floor: three firings that do not move -> sneak + relaxation -> the ordinary escape arms may run
+  PASS  F7 CHAIN the enclosed LAVA floor is never relaxed: every firing acts (aims) and the arms keep standing down
+  PASS  F8 the relaxation ends on a block update at the cell, and on moving off it (sneak dropped)
+[2026-11-17T00:25:03.235Z] ERROR reflex: pillar out FAILED, no height gained y=64
+  PASS  F9 CHAIN the relaxed magma floor hands over to a REAL ordinary escape (pillarOut): it runs, its seize does not cost the sneak for more than a tick, and the bot takes no magma damage
+[2026-11-17T00:25:11.605Z] ERROR reflex: pillar out FAILED, no height gained y=64
+  PASS  F10 CHAIN (real jump arcs, open-topped magma pit): the aim settles before the move ends, the relaxation starts within 4 firings, and the handed-over pillar runs with the ARM ticking -- its own jump never ends the relaxation (Claude code r2 P1, P2-2)
+  PASS  F11 a bot that alternates between two cells of one episode counts as stationary from its second firing (Claude code r2 P2-3)
+  PASS  G1 WIRED (reflex.mjs, comments stripped): the arm, the rollback, the stand-downs, ownership and air preemption -- each once
+  PASS  G3 WIRED (index.mjs): the licence row once per spawn, and the in-flight guard attached OUTERMOST (after protectzone)
+  PASS  G4 the watchdog declines on a refused reserve: its rescue run is made with owner=watchdog after reserve() (structural, comments stripped)
+  PASS  P1 PARITY: the real executor's rows (every scene x bag, 8 single-bearing corridors, 60 seeded random worlds), judged by the real read: zero G1-G5, every ground decision replays
+  PASS  P2 MUTANT KILLED: the read without the angular wrap grades every due-south aim a G5 defect (P1 catches it)
+  PASS  H1 MUTANT KILLED (G1): allowing DANGER in the sweep plans past a fire cell beside the origin (B6's independent check catches it)
+  PASS  H2 MUTANT KILLED (G2): a decision that skips its plan aims instead -- and the recorded cells still replay to the plan it skipped
+  PASS  H3 MUTANT KILLED (G3): sprinting on an edge plan step (D1 catches it)
+  PASS  H4 MUTANT KILLED (G4): accepting an unwitnessed seal re-classifies (D4 catches it)
+  PASS  H5 MUTANT KILLED (G5): aiming at the facing bearing sprints into the pool (D2 catches it)
+  PASS  H6 MUTANT KILLED: without the runner refusal the watchdog replaces the danger move's reservation (E1 catches it)
+  PASS  H7 MUTANT KILLED: a guard that ignores the move lets a dig through mid-move (D14 catches it)
+  PASS  H8 MUTANT KILLED: without the air check in ownership the move keeps steering over the rescue (D11 catches it)
+
+69 passed, 1 failed
+
+--- plinth-skill.test.mjs (exit 1) ---
+            at async t (file:///home/mike/ci/trunk01-pass5/bots/test/plinth-skill.test.mjs:39:9)
+  PASS  N2 (Codex r3): void -> a failed search -> aged none still plans again with the no-site hold gone (the void is carried as the trigger)
+  PASS  ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease, nothing placed; an expired one is taken
+  FAIL  NO FUNDS: a bag at the reserve with no town chest -> failed plinth_unfunded naming the remedy; nothing placed; the reserve untouched
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        + actual - expected
+        
+        + 'no_effect'
+        - 'failed'
+  PASS  A FOREIGN BLOCK IN A PLAN CELL (a chest put there) voids the plan: failed plinth_blocked; the town plans again
+  PASS  A VOIDED PLAN WITH A WALLED-IN PIT: the voiding visit covers it; the next plan keeps the old cap excluded and watched (prev)
+  PASS  THE PLAN IS NOT THE WORLD: a block a bot dug out of the finished part is placed again on the next visit
+  PASS  a usable well in town: nothing to build (the order and the skill agree)
+  PASS  MUTANT (skills): no ownership at the walling-in click -> the click guard refuses it ("changed"): the column is never walled in unowned, the build stops there
+  PASS  MUTANT (skills): the handoff keeps the no-site hold -> build_well would wait 2 h for a site that exists
+  PASS  MUTANT (skills): the lease not honoured -> a second builder builds while another holds the town
+  PASS  MUTANT (skills): the finally does not cover -> an unfinished, walled-in pit is left open by a run that could cover it
+  PASS  MUTANT (skills): the walling-in ownership only for placements -> the leaf clear that would wall the column in is refused by the click guard; the build stops there
+  PASS  MUTANT (skills): no settle wait -> a second bot builds the instant the plan is recorded (the SETTLE test asserts it does not)
+  PASS  MUTANT (skills): the opportunistic clear without ownIfWalls -> the guard refuses the dig ("changed"); nothing owned, nothing dug (Claude r4 mutant C)
+  PASS  MUTANT (skills): the none record without its void trigger -> the N2 writer test sees trigger null (Claude r4 mutant D)
+  PASS  MUTANT (skills): the cover dig without its guard -> a body that walked into the column meanwhile has the cover dug over it (Codex r4 N5)
+  PASS  MUTANT (skills): every retry-time "done" counted as another hand's -> the late-landed step loses its row (Claude r5 P3)
+  PASS  THE STAIR IS NEVER A PATH'S DIG, through the well columns index.mjs already prices (no new array entry: townzone-01 forbids pushes on the shared arrays): knownWellCells carries the plan's stair and wellBreakCost refuses it
+  PASS  THE STAIR SURVIVES THE HAND-OFF (Claude r7): once the well-site record names the plinth cap, that column still carries the stair
+  PASS  MUTANT (skills): the stair not merged into an existing column -> the handed-off well loses its stair veto
+  PASS  cognitive.mjs: the plinth order goes before the town deposit, and its outcome is fed back
+  PASS  MUTANT (cognitive): the deposit first, or the outcome line removed, is detected
+  PASS  DIGTOWN (composition, 8cd0bc62): the plinth's own digs (no dig scope; the runner's context supplied as build_plinth) through the real wrapper -- a leaf clear is vegetation (class free: counted in the summary, never a _dig_town row), the dirt cover is town ground (one row), purpose other. (No pathfinder dig is possible: the plinth walks on townWalkMovements, canDig=false -- not exercised here.)
+  PASS  TOWNZONE (composition, 75cfb447): the zone is ON here and refuses the plinth's dirt cover as a discretionary dig (positive control), yet the real build_plinth digs that cover and completes; every placed cell and the stair end up town ground the zone keeps
+  PASS  MUTANT (townzone x plinth): the zone applied to the plinth's cover dig -> the cover is never dug and the plinth never completes (the composition test above sees it)
+
+50 passed, 6 failed
+FAILED:
+  PARTIAL HAND-OFF RECOVERY (Codex r2 P2-6): the site generation written and the hold lifted but the record still a plan -> the next visit completes it, needing no funds
+  NO EVICTION (Codex r2 P2-4): a town already carrying PLINTH_PREV_MAX unresolved columns starts no new plan; every one stays carried
+  N5 (Codex r4): the cover removal is guarded -- a chest in the cap cell voids the plan and is never dug; a cover swapped for a chest in the walk is not dug; a body arriving before the dig stops it; a dirt cover is dug (positive control)
+  N1 (Codex r3, Claude r4 mutant C): leaves grown into the FLOOR -- the clear that walls the column in is owned first (row from=plinth_clear) and the pit it opens is covered before the visit ends
+  N2 WRITER (Claude r4): a void, then a search that finds nothing -> the none record carries trigger void; aged, with the no-site hold gone, the town plans again
+  NO FUNDS: a bag at the reserve with no town chest -> failed plinth_unfunded naming the remedy; nothing placed; the reserve untouched
+
+--- well.test.mjs (exit 1) ---
+[2026-11-17T00:19:15.200Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-17T00:19:15.267Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.268Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-17T00:19:15.326Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.327Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-17T00:19:15.385Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.386Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 CHAIN (real loop): a NOT-full bag with listed junk at town -> dispose_well {visit} -> the listed junk goes, the cobble stays -> no second visit order in the visit
+[2026-11-17T00:19:15.553Z] INFO  lessons loaded run=1 avoid=0 worked=0 hazard_sites=0 progress_skipped=0 progress_cycle=0 progress_blocked=0
+[2026-11-17T00:19:15.557Z] INFO  cognitive loop starting model=qwen2.5:7b-instruct endpoints=["http://127.0.0.1:11434"] num_ctx=4096
+[2026-11-17T00:19:15.567Z] INFO  LLM -> smelt_town args={} reason=the town has raw iron left to look for, and nothing turns it into anything: smelt up to 8  ms=0
+[2026-11-17T00:19:15.568Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-17T00:19:15.632Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.633Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 CHAIN (real loop): the latch is TICKED on every decision -- a bot outside the zone starts the outside clock though no visit order runs
+[2026-11-17T00:19:15.637Z] INFO  lessons loaded run=1 avoid=0 worked=0 hazard_sites=0 progress_skipped=0 progress_cycle=0 progress_blocked=0
+[2026-11-17T00:19:15.640Z] INFO  cognitive loop starting model=qwen2.5:7b-instruct endpoints=["http://127.0.0.1:11434"] num_ctx=4096
+[2026-11-17T00:19:15.649Z] INFO  LLM -> smelt_town args={} reason=the town has raw iron left to look for, and nothing turns it into anything: smelt up to 8  ms=0
+[2026-11-17T00:19:15.650Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-17T00:19:15.707Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.707Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-17T00:19:15.763Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.763Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-17T00:19:15.829Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.829Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 CHAIN (real loop): a BREACHED well gets no visit order -- no loop, the bot keeps its turns
+[2026-11-17T00:19:15.850Z] INFO  lessons loaded run=1 avoid=0 worked=0 hazard_sites=0 progress_skipped=0 progress_cycle=0 progress_blocked=0
+[2026-11-17T00:19:15.854Z] INFO  cognitive loop starting model=qwen2.5:7b-instruct endpoints=["http://127.0.0.1:11434"] num_ctx=4096
+[2026-11-17T00:19:15.871Z] INFO  LLM -> smelt_town args={} reason=the town has raw iron left to look for, and nothing turns it into anything: smelt up to 8  ms=0
+[2026-11-17T00:19:15.872Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-17T00:19:15.931Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.931Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-17T00:19:15.987Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:15.987Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-17T00:19:16.041Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-17T00:19:16.041Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 MUTANT (cognitive): the loop's visit call removed -> the not-full bag of junk gets no well order (the defect the change fixes)
+
+237 passed, 1 failed
+  CODEX R5 THE EXEMPTION STOPS AT THE CAP: from inside, a goal ON the open cap is unreachable (no shaft -> beside -> cap path); the escape still gets out
+
+slowest files:
+   356992ms  citywall.test.mjs
+   337513ms  storehub.test.mjs
+   313185ms  ziggurat-tidy.test.mjs
+   312945ms  buildrun.test.mjs
+   302871ms  standcache.test.mjs
+   291662ms  zonesite.test.mjs
+   287807ms  ziggurat-v2-build.test.mjs
+   280333ms  cottage2.test.mjs
+   234294ms  wallext.test.mjs
+   210319ms  zigtidy2.test.mjs
+
+wall 1362.8s, summed file time 11540.8s, jobs 10
+FAILED (3): lavastep.test.mjs plinth-skill.test.mjs well.test.mjs
+SKIPPED buildnext.test.mjs: replaced on the showcase line by projturn-01show (24cc654f6); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED gkforever.test.mjs: superseded on the showcase line by gkhelpers-01show (a3fed85e0), country-01show (8db58556b) and roughground-01show (44e3717ac); kept until tidyflow-01show has landed and been read (control session 11-16)
+SKIPPED hivedrop.test.mjs: replaced on the showcase line by keeperstall-01show (fb4a50335); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED idlework-sites.test.mjs: replaced on the showcase line by sinkfix-03 (305057d03) and projturn-01show (24cc654f6); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED plankeep.test.mjs: replaced on the showcase line by standcache-01show (1394d8acd); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED stuckclose.test.mjs: superseded on the showcase line by tidyrefresh-01show (7a4930d10); kept until tidyflow-01show has landed and been read (control session 11-16)
+SKIPPED stuckfleet-cap.test.mjs: replaced on the showcase line by coverdig-01 (005e29324) and gkleft (a6042d12a); the fleet's cap and light waiver are not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED stuckfleet02.test.mjs: replaced on the showcase line by fillcolumn-01 (0c142ae69); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED stuckproj.test.mjs: replaced on the showcase line by projturn-01show (24cc654f6: starve) and leaffell-01show (e81ff36a5: canopy, a judgement call); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md)
+SKIPPED tidydead.test.mjs: superseded on the showcase line by gkunblock-01 (341510d5a); kept until tidyflow-01show has landed and been read (control session 11-16)
+SKIPPED (10): buildnext.test.mjs gkforever.test.mjs hivedrop.test.mjs idlework-sites.test.mjs plankeep.test.mjs stuckclose.test.mjs stuckfleet-cap.test.mjs stuckfleet02.test.mjs stuckproj.test.mjs tidydead.test.mjs -- not run here, NOT passed
+590/603 files passed
+DONE rc=1
