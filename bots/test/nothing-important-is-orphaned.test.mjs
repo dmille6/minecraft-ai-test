@@ -1038,6 +1038,7 @@ const REQUIRED = [
   'scripts/host/rehearsalcard.py',
   'scripts/host/test_rehearsalcard.py',
   'bots/test/rehearsalcard.test.mjs',
+  'docs/reports/rehearsal-0-close-2026-11-16.md',   // rehearsal-0 closed 11-16 after 52.8 h: what broke, in what order
   'scripts/host/test_pager.py',
   'scripts/host/test_union_merge.py',
   'scripts/host/test_suite_run.py',

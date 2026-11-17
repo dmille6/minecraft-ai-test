@@ -2337,6 +2337,34 @@ class Timelapse(unittest.TestCase):
         self.assertIn('the brain setting is unreadable', h['error'])
         self.assertFalse(TL.brain_health({}, lambda: qw, lambda u: [1])['ok'], 'an answer that is no object is not ok')
 
+    def test_heartbeat_carries_the_brain_setting_for_the_far_reader(self):
+        # monfix-01 (11-16): fleetstatus (another host, no BRAIN.json) judged the decision rows against a hardcoded Studio
+        # proxy and gemma4. The heartbeat names the setting it read; an unread setting names nothing.
+        qw = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama', 'owner': 'the owner 11-16'}
+        px = {'url': 'http://127.0.0.1:11612', 'model': 'gemma4:26b', 'kind': 'proxy', 'owner': None}
+        tags = {'models': [{'name': 'qwen2.5:7b-instruct'}]}
+        want = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama'}
+        h = TL.brain_health({}, lambda: qw, lambda u: tags)
+        self.assertEqual({k: h.get(k) for k in want}, want)
+        self.assertNotIn('owner', h, "the owner's sentence stays in the file")
+        self.assertTrue(h['ok'])
+
+        def boom(*a):
+            raise OSError('no route')
+        h = TL.brain_health({}, lambda: qw, boom)
+        self.assertEqual(({k: h.get(k) for k in want}, h['ok']), (want, False), 'a dark endpoint is still the set one')
+        h = TL.brain_health({}, lambda: px, lambda u: {'ok': True})
+        self.assertEqual((h['url'], h['model'], h['kind']), ('http://127.0.0.1:11612', 'gemma4:26b', 'proxy'))
+        h = TL.brain_health({}, boom, lambda u: tags)
+        self.assertEqual([k for k in ('url', 'model', 'kind') if k in h], [], 'a setting nobody could read names no brain')
+        now = dt.datetime(2026, 11, 16, 20, 0, tzinfo=dt.timezone.utc)
+        row = lambda brain: [{'t': '2026-11-16T19:45:00Z', 'brain': brain}]
+        self.assertEqual(SS.brain_expected(row(TL.brain_health({}, lambda: qw, lambda u: tags)), now), (want, None),
+                         'what the heartbeat writes is what the far reader takes')
+        exp, why = SS.brain_expected(row(TL.brain_health({}, boom, lambda u: tags)), now)
+        self.assertIsNone(exp)
+        self.assertIn('the brain setting is unreadable', why)
+
     def test_pair_publish_all_or_nothing(self):
         moved = []
         ok, why = TL.publish_pair(['a', 'b'], ['A', 'B'], size=lambda p: 99999, exists=lambda p: True,
@@ -2915,8 +2943,10 @@ class Timelapse(unittest.TestCase):
                                                  'paused_since': FR.iso(T0 - dt.timedelta(hours=8))})], now)
         self.assertIn('PAUSED by /x/GPU_RESERVED', p)
         self.assertIn('stale holder', p)
-        b = SS.brain_line({'gemma4:26b': 90, 'qwen2.5:7b-instruct': 5}, 5, 100, 0)
-        self.assertIn('gemma4 90 (90.0%)', b)
+        px = {'url': 'http://127.0.0.1:11612', 'model': 'gemma4:26b', 'kind': 'proxy'}
+        b = SS.brain_line({'gemma4:26b': 90, 'qwen2.5:7b-instruct': 5}, 5, 100, {'http://127.0.0.1:11612': 95}, px)
+        self.assertIn('gemma4:26b 90 (90.0%)', b)
+        self.assertTrue(b.startswith('!! SHOWCASE BRAIN: 100 decisions'), b)      # 5 rows by a model that is not the set one
 
 
 class TripRemedy(unittest.TestCase):

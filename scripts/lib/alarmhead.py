@@ -317,26 +317,57 @@ def slot_lines(now, path=SCHED_LOG):
     return [slot_idle(parse_ticks(text), now)]
 
 
+# What this file calls in lib/alarm.py. The fleetstatus copy (~/estel/scripts/lib) is installed file by file: from 11-07
+# 15:08Z to 11-16 it held main's alarmhead.py beside an alarm.py of 10-28 that has no outbox, and the WHOLE header was the one
+# line `header failed (AttributeError ... outbox_status)` -- nine days without the slot, state-file, monitor-log and showcase
+# lines. Now the pair is checked, and a part that fails costs its own line only.
+AL_NEEDS = ('push_channel', 'outbox_status', 'gaveup_recent', '_ts', '_iso')
+
+
+def stale_alarm_lib(al=None):
+    """PURE. The names this file needs that the alarm.py beside it lacks ([] = the two files belong together)."""
+    al = AL if al is None else al
+    return [n for n in AL_NEEDS if not hasattr(al, n)]
+
+
+def _part(out, what, fn):
+    """One part of the header. A part that raises costs ONE '!! ' line that names it; the parts after it are still read."""
+    try:
+        out += fn()
+    except Exception as e:          # noqa: BLE001
+        out.append(f'!! W5 alarms: {what} failed ({type(e).__name__}: {str(e)[:100]}) -- the other header lines are still read')
+
+
+def channel_lines(conf=AL.CONF):
+    ok, desc = AL.push_channel(conf)
+    return [('' if ok else '!! ') + f'alarm push: {desc}' + ('' if ok else ' -- alarms reach only this header and ~/digest/ALARMS.log')]
+
+
+def outbox_lines(now, state_dir=STATE):
+    out = []
+    nq, oldest = AL.outbox_status(os.path.expanduser(state_dir))
+    if nq:
+        out.append(f'!! alarm push: {nq} push(es) NOT DELIVERED, queued since {oldest} (retried every run; '
+                   f'{state_dir}/ALARMS-delivery.log)')
+    ng, gat = AL.gaveup_recent(os.path.expanduser(state_dir), now)
+    if ng:
+        out.append(f'!! alarm push: {ng} push(es) GIVEN UP undelivered after 24 h (last {gat}): the owner never got '
+                   f'them -- read {state_dir}/ALARMS-delivery.log')
+    return out
+
+
 def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG, home='~'):
     out = []
-    try:
-        ok, desc = AL.push_channel(conf)
-        out.append(('' if ok else '!! ') + f'alarm push: {desc}' +
-                   ('' if ok else ' -- alarms reach only this header and ~/digest/ALARMS.log'))
-        nq, oldest = AL.outbox_status(os.path.expanduser(state_dir))
-        if nq:
-            out.append(f'!! alarm push: {nq} push(es) NOT DELIVERED, queued since {oldest} (retried every run; '
-                       f'{state_dir}/ALARMS-delivery.log)')
-        ng, gat = AL.gaveup_recent(os.path.expanduser(state_dir), now)
-        if ng:
-            out.append(f'!! alarm push: {ng} push(es) GIVEN UP undelivered after 24 h (last {gat}): the owner never got '
-                       f'them -- read {state_dir}/ALARMS-delivery.log')
-        out += slot_lines(now, sched_log)
-        for name, label, stale in FILES:
-            out += file_lines(now, name, label, stale, state_dir)
-        out += monitor_lines(now, home)
-        if client is not None:
-            out += es_lines(now, client)
-    except Exception as e:          # noqa: BLE001
-        out.append(f'!! W5 alarms: header failed ({type(e).__name__}: {str(e)[:100]})')
+    missing = stale_alarm_lib()
+    if missing:
+        out.append(f'!! W5 alarms: {getattr(AL, "__file__", "lib/alarm.py")} is OLDER than the alarmhead.py beside it (it has no '
+                   f'{", ".join(missing)}) -- copy scripts/lib/alarm.py from main beside it; the parts that need it fail below')
+    _part(out, 'the push channel', lambda: channel_lines(conf))
+    _part(out, 'the push outbox', lambda: outbox_lines(now, state_dir))
+    _part(out, 'the canary slot', lambda: slot_lines(now, sched_log))
+    for name, label, stale in FILES:
+        _part(out, label, lambda: file_lines(now, name, label, stale, state_dir))
+    _part(out, 'the monitor logs', lambda: monitor_lines(now, home))
+    if client is not None:
+        _part(out, 'the showcase rows', lambda: es_lines(now, client))
     return out

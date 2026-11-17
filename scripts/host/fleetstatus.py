@@ -181,12 +181,21 @@ def hazardmap_line(now, home=None):
 # what "published" means. Before 06:00Z, yesterday's OK publication is the normal state (today's waits for the backup).
 STRUCTCOUNT_IN = '~/structcount/in'
 STRUCTCOUNT_READER = '~/structcount/bin/scread.py'
+STRUCTCOUNT_HOME = '~/structcount'
+STRUCTCOUNT_RETIRED = 'RETIRED-COUNT'   # the building COUNT only: the hourly pull stays, it also carries the town chest census
 STRUCTCOUNT_DUE = dt.time(6, 0)
 
 
-def structcount_line(now, sdir=None, reader=None):
+def structcount_line(now, sdir=None, reader=None, home=None):
     """One header line for the structure count. NEVER raises: no mirror, no reader, a failed or stale publication is an
-    alarm line ('!! '). RUNNING (today's attempt is in progress) is not an alarm."""
+    alarm line ('!! '). RUNNING (today's attempt is in progress) is not an alarm.
+    The building COUNT is RETIRED 2026-11-16 (owner; the 16-town fleet it counts ends with the consolidation): with the
+    marker ~/structcount/RETIRED-COUNT this is retired_line()'s one quiet line. No newest_output is passed on purpose:
+    the hourly pull keeps running because it also carries the town chest census (goalboard, dashboard), so "the job
+    still writes" is expected here and is not a hidden failure of the count."""
+    gone = retired_line('structcount (B5 buildings, from the world)', home or STRUCTCOUNT_HOME, marker=STRUCTCOUNT_RETIRED)
+    if gone:
+        return gone
     try:
         import importlib.util
         rp = os.path.expanduser(reader or STRUCTCOUNT_READER)
@@ -237,9 +246,55 @@ COOP_DIR = '~/coopread/out'
 COOP_STALE = dt.timedelta(hours=30)
 
 
+RETIRED_DATE = re.compile(r'^\d{4}-\d{2}-\d{2}\b')
+RETIRED_SLACK = dt.timedelta(hours=1)
+
+
+def retired_line(label, home, newest_output=None, marker='RETIRED'):
+    """A job retired ON PURPOSE (the lavamap pattern, 10-31): a file RETIRED in the job's home whose first line starts with
+    the date and says why -> the one quiet line '<label> RETIRED: <that line>'. None when there is no such file: the job is
+    then judged as before. NEVER raises, and never excuses more than it says:
+      * a marker that is empty, unreadable or undated is '!! ' (a retirement nobody can date or explain is not one);
+      * newest_output (a path the job writes) newer than the marker by RETIRED_SLACK is '!! ': the job still runs, so its
+        failures would be hidden behind the word RETIRED -- comment out its cron line, or remove the marker."""
+    p = os.path.join(os.path.expanduser(home), marker)
+    try:
+        if not os.path.exists(p):
+            return None
+        why = (open(p, errors='replace').read().strip().splitlines() or [''])[0].strip()[:300]
+        if not RETIRED_DATE.match(why):
+            return (f'!! {label}: the RETIRED marker {p} does not start with its date (YYYY-MM-DD) and the reason '
+                    f'({why[:60]!r}) -- a retirement nobody can date is not one')
+        if newest_output and os.path.exists(newest_output):
+            late = dt.timedelta(seconds=os.path.getmtime(newest_output) - os.path.getmtime(p))
+            if late > RETIRED_SLACK:
+                return (f'!! {label}: marked RETIRED ({why[:80]}) but its job STILL WRITES ({newest_output}, '
+                        f'{late.total_seconds() / 3600:.1f} h after the marker) -- comment out its cron line, or remove {p}')
+        return f'{label} RETIRED: {why}'
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! {label}: the RETIRED marker {p} is unreadable ({type(e).__name__}: {str(e)[:80]})'
+
+
+def _newest(dirpath, suffix):
+    """The newest file in dirpath that ends with suffix, or None (a missing directory is None too)."""
+    try:
+        fs = [os.path.join(dirpath, f) for f in os.listdir(dirpath) if f.endswith(suffix)]
+        return max(fs, key=os.path.getmtime) if fs else None
+    except OSError:
+        return None
+
+
 def coop_line(now, out_dir=None):
-    """One header line for the daily cooperation census. NEVER raises."""
+    """One header line for the daily cooperation census. NEVER raises.
+    RETIRED 2026-11-16 (owner; consolidation decision 2026-11-14 ends the 16-town fleet it measures): with the marker
+    ~/coopread/RETIRED beside the out dir this is retired_line()'s one quiet line."""
     d = os.path.expanduser(out_dir or COOP_DIR)
+    # the job's heartbeat counts as a write too (Codex r1): coopread.py appends out/heartbeat.jsonl even when its selftests
+    # fail or the census raises, without a new daily file -- a job left running and failing must not sit behind RETIRED
+    wrote = [x for x in (_newest(os.path.join(d, 'daily'), '.json'), os.path.join(d, 'heartbeat.jsonl')) if x and os.path.exists(x)]
+    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), max(wrote, key=os.path.getmtime) if wrote else None)
+    if gone:
+        return gone
     try:
         fs = sorted(f for f in os.listdir(os.path.join(d, 'daily')) if f.endswith('.json'))
         if not fs:
@@ -667,6 +722,18 @@ def showcase_report(until, client=None, window_h=3):
     except Exception as e:
         lines.append(f'SHOWCASE bots: stream unreadable ({type(e).__name__}: {str(e)[:120]}) -- before the first '
                      f'showcase bot row this is expected; afterwards check filebeat on 10.0.0.40')
+    # The heartbeat rows are read first: they carry the brain the showcase is SET to (tl_showcase.brain_health reads
+    # /srv/showcase/BRAIN.json through make_env.load_brain, the tripwire's reading), and the decision rows are judged against
+    # that. This host cannot read the file. Until 11-16 the line compared against the Studio proxy and gemma4, hardcoded here.
+    rows, hb_err = None, None
+    try:
+        r = client('POST', f'{SHOWCASE_OPS}/_search',
+                   {'size': 400, 'sort': [{'@timestamp': {'order': 'desc'}}],
+                    'query': {'bool': {'filter': [{'term': {'kind': 'showcase_timelapse'}},
+                                                  {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=26))}}}]}}})
+        rows = [h['_source'] for h in r['hits']['hits']]
+    except Exception as e:
+        hb_err = e
     try:
         ll = EsEvents.load('showcase-llm', since=since, until=until, gaps='allow', client=client)
         n = ll.total()
@@ -674,17 +741,18 @@ def showcase_report(until, client=None, window_h=3):
         unserved = n - sum(v for k, v in models.items() if k != _est.MISSING)
         models = {k: v for k, v in models.items() if k != _est.MISSING}
         eps = ll.terms('llm.endpoint', allow_zero=True) if n else {}
-        foreign = sum(v for k, v in eps.items() if k not in (_est.MISSING, 'http://127.0.0.1:11612'))
-        out.update(llm_docs=n, models=models, unserved=unserved, foreign_endpoint_rows=foreign)
-        lines.append(SS.brain_line(models, unserved, n, foreign))
+        eps = {k: v for k, v in eps.items() if k != _est.MISSING}
+        expect, unread = (None, f'the heartbeat is unreadable ({type(hb_err).__name__}: {str(hb_err)[:80]})') if rows is None \
+            else SS.brain_expected(rows, until)
+        other_model, foreign = SS.brain_off(models, eps, expect)
+        out.update(llm_docs=n, models=models, unserved=unserved, endpoints=eps, brain_expected=expect, brain_unread=unread,
+                   other_model_rows=other_model, foreign_endpoint_rows=foreign)
+        lines.append(SS.brain_line(models, unserved, n, eps, expect, unread))
     except Exception as e:
         lines.append(f'SHOWCASE BRAIN: stream unreadable ({type(e).__name__}: {str(e)[:120]})')
     try:
-        r = client('POST', f'{SHOWCASE_OPS}/_search',
-                   {'size': 400, 'sort': [{'@timestamp': {'order': 'desc'}}],
-                    'query': {'bool': {'filter': [{'term': {'kind': 'showcase_timelapse'}},
-                                                  {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=26))}}}]}}})
-        rows = [h['_source'] for h in r['hits']['hits']]
+        if rows is None:
+            raise hb_err
         f0 = next((dt.datetime.fromisoformat(x['frame0_t'].replace('Z', '+00:00')) for x in rows if x.get('frame0_t')),
                   None)
         lines.append(SS.timelapse_line(rows, until, frame0=f0))

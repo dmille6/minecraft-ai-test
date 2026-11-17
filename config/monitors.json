@@ -146,7 +146,7 @@
     "~/staffcensus/out/tick.log"
    ],
    "fresh_hours": 0.5,
-   "consumer": "coopread daily census -> fleetstatus coop line",
+   "consumer": "check-staffcensus.py (its liveness line in the fleetstatus header). Its one DATA reader, the coopread daily census, was RETIRED 2026-11-16 (see coopread below): nothing reads the positions it records now. Kept running only because retiring it was not part of that word; it goes with the fleet (consolidation C4), or sooner on the owner's word, together with staffcensus-check and alarmhead's MONITOR_LOGS row",
    "kind": "monitor"
   },
   {
@@ -197,13 +197,19 @@
   {
    "id": "coopread",
    "host": "31",
-   "cron": "coopread.py --day",
+   "cron": null,
    "outputs": [
     "~/coopread/out/daily/*.json"
    ],
-   "fresh_hours": 26,
-   "consumer": "fleetstatus header (coop line): the owner-approved daily cooperation numbers (C17, 10-23), kept after B5 closed INCONCLUSIVE 11-01. 11-01/11-02 'controls FAILED xfer_through_chain' was the CONTROL, not lost hand-offs (1,008 of 1,011 / 1,288 of 1,289 verified): a townmate's observation or op inside the <1 s between a transfer's pre and ver; FIXED 11-03 (chain path + bounded 'concurrent', coopread selftest)",
-   "kind": "monitor"
+   "fresh_hours": null,
+   "consumer": null,
+   "kind": "retired",
+   "retired": {
+    "when": "2026-11-16",
+    "why": "the daily cooperation census (B1, C17 10-23) measures the 16-town fleet, which the consolidation decision of 2026-11-14 ends (docs/decisions/consolidation-2026-11-14.md, step C4); owner's word 11-16 (monitoring item 5: retire the cooperation census). Its control xfer_through_chain was failing again on 11-16 and is not being repaired for a fleet that is going away. The fleetstatus header prints one line, 'cooperation census (B1) RETIRED: ...', from the marker ~/coopread/RETIRED (first line: the date and the reason); with the marker and a job that still writes, the line is '!! ... STILL WRITES'",
+    "data": "kept: ~/coopread/out (daily/*.json and *.txt)",
+    "cron_was": "coopread.py --day"
+   }
   },
   {
    "id": "valuescore",

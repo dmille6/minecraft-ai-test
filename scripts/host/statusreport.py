@@ -464,10 +464,12 @@ def brain_text(line):
     m = re.search(r'BRAIN: (\d+) decisions', line)
     u = re.search(r'unserved (\d+)', line)
     models = re.findall(r"'([\w.:-]+)': \d+", line)
-    if not m:
-        return plain(line, 120)
+    if not m:                     # also the line that says the brain setting is UNREAD: it is shown as it is, never as a count
+        return plain(line, 160)
+    off = re.search(r'NOT THE SET BRAIN \(must be 0\): (.*)$', line)       # monfix-01: decisions by another model or endpoint
     return (f'{n(int(m.group(1)))} decisions in 3 h' + (f' by {", ".join(models)}' if models else '')
-            + (f'; {u.group(1)} unanswered' if u else ''))
+            + (f'; {u.group(1)} unanswered' if u else '')
+            + (f' -- NOT the model or endpoint the showcase is set to: {plain(off.group(1), 160)}' if off else ''))
 
 
 def halt_episodes(rows, gap=dt.timedelta(minutes=11)):

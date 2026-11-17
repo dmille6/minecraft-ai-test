@@ -1009,6 +1009,20 @@ def compact_cases(hm):
     r = row('2026-10-22T00:00:00.000Z', 'hive-a-Alpha', '_death_site_recorded', 'death:other x1 at 373,2,147 (after a 29-block fall; 4 sites on file)', (1.5, 2, 3.5))
     c.append(('compact: the death site row names its cell', hm.compact('site', r)[2:], [373, 2, 147, 'other']))
     c.append(('categorize: vines are a fall', hm.categorize('fell off some vines after falling 26 blocks')[1], 'cave_fall'))
+    # monfix-01 (11-16): the one row that stopped nine refreshes -- hive-d-Echo 2026-11-07T18:30:46Z, as the cache holds it
+    climb = [hm.parse_ms('2026-11-07T18:30:46Z'), 'hive-d-Echo', 292, -11, 39, 'fall|fell while climbing after falling 36 blocks; was running goto']
+    c.append(('categorize: a fall while climbing is a fall', hm.categorize(climb[5].partition('|')[2]), ('fall', 'cave_fall')))
+
+    def classified(tag):
+        try:
+            out, _ = hm.classify_deaths([{'rows': {'death': [climb[:5] + [tag]]}}], 0)
+            return [(d['bot'], d['cell'], d['fail_class'], d['category'], d['kind']) for d in out]
+        except hm.Blind as e:
+            return 'Blind: ' + str(e)[:44]
+    c.append(('classify: that death row is a cave fall in the validated window, not a blind map', classified(climb[5]),
+              [('hive-d-Echo', (292, -11, 39), 'fall', 'fall', 'cave_fall')]))
+    c.append(('classify: a message nobody has named still stops the build (the guard is alive)',
+              classified('fall|fell out of the world; was running goto'), 'Blind: 1 death row(s) in the validated window carry'))
     c.append(('categorize: a stalactite after a fall is dripstone', hm.categorize('was skewered by a falling stalactite after falling 29 blocks; x')[1], 'dripstone'))
     c.append(('categorize: lava after a fall is lava', hm.categorize('tried to swim in lava after falling 6 blocks')[0], 'lava after a fall'))
     pts = [{'x': i, 'y': 0, 'z': 0} for i in range(0, 60, 2)]
@@ -1023,6 +1037,12 @@ BEHAVIOUR = [
     ('value: ... three of them ONLY from another world', "            if not hit_same:\n", "            if True:\n"),
     ('value: ... three of them ONLY from another world', "                        else:\n                            hit_same = True",
      "                        elif p['t'] <= d['t'] - lag_ms:\n                            hit_same = True"),
+    ('categorize: a fall while climbing is a fall', "fell off|fell while climbing|doomed to fall", "fell off|doomed to fall"),
+    ('classify: that death row is a cave fall in the validated window, not a blind map', "fell off|fell while climbing|doomed to fall",
+     "fell off|doomed to fall"),
+    ('classify: a message nobody has named still stops the build (the guard is alive)',
+     "            if fc not in (FAIL_CLASSES if validated else HISTORY_FAIL_CLASSES) or cat is None:",
+     "            if fc not in (FAIL_CLASSES if validated else HISTORY_FAIL_CLASSES):"),
     ('fold: hive-c after its reseed folds into S2', "            if s['from_ms'] <= t and (s['until_ms'] is None or t < s['until_ms']):",
      "            if s['from_ms'] <= t:"),
     ('fold: the quarantine row is dropped and counted', "                if t < s['from_ms'] + QUARANTINE_MS:", "                if False:"),

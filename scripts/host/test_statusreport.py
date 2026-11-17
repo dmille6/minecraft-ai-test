@@ -282,6 +282,24 @@ def ck_parsers(M):
             and M.title_of('stations-01', led) == 'Crafting tables and furnaces' and M.title_of('nope-01', led) is None)
 
 
+def ck_brain_words(M):
+    """monfix-01 (11-16): the owner's report reads fleetstatus' SHOWCASE BRAIN line as lib/showcasestatus.py writes it: the
+    healthy line as a count, rows by another model or endpoint WITH that said, an unread setting as itself, never a count."""
+    if os.path.join(HERE, '..') not in sys.path:
+        sys.path.insert(0, os.path.join(HERE, '..'))
+    from lib import showcasestatus as SS
+    qw = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama'}
+    ok = M.brain_text(SS.brain_line({'qwen2.5:7b-instruct': 3296}, 0, 3296, {qw['url']: 2924}, qw))
+    off = M.brain_text(SS.brain_line({'qwen2.5:7b-instruct': 3000, 'gemma4:26b': 296}, 0, 3296,
+                                     {qw['url']: 2700, 'http://127.0.0.1:11612': 296}, qw))
+    unread = M.brain_text(SS.brain_line({'qwen2.5:7b-instruct': 3296}, 0, 3296, {qw['url']: 2924}, None,
+                                        'the heartbeat of 2026-11-16T19:45:00Z names no brain setting'))
+    return (ok == '3,296 decisions in 3 h by qwen2.5:7b-instruct; 0 unanswered'
+            and off.startswith('3,296 decisions in 3 h by ') and 'NOT the model or endpoint the showcase is set to' in off
+            and 'gemma4:26b x296' in off
+            and 'UNREAD' in unread and 'names no brain setting' in unread and 'decisions in 3 h' not in unread)
+
+
 def ck_windows_of_time(M):
     # 30 closed hours to 12:00Z (the last 6 worth 2.5/bot-h, the 24 before 1.25) + the open 12:00 hour (must be ignored)
     hours = [{'hour': (T(12) - dt.timedelta(hours=i)).strftime('%Y-%m-%dT%H:00:00Z'), 'value': 200.0 if i <= 6 else 100.0,
@@ -401,7 +419,7 @@ def ck_headline_block(M):
 CHECKS = [ck_headline_block, ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
           ck_unread_no_verdict, ck_bots_down, ck_world_down_first, ck_canary, ck_stuck_and_unstuck, ck_bags,
           ck_showcase_halt, ck_showcase_deaths, ck_finished, ck_narrative_ok, ck_narrative_new_number, ck_narrative_parts, ck_numbers,
-          ck_effects, ck_grounds_town, ck_narrative_words, ck_unread_mood, ck_owner_alarms, ck_parsers, ck_windows_of_time, ck_backups, ck_render]
+          ck_effects, ck_grounds_town, ck_narrative_words, ck_unread_mood, ck_owner_alarms, ck_parsers, ck_brain_words, ck_windows_of_time, ck_backups, ck_render]
 
 # (name, old, new, the check it must break)
 MUTANTS = [
@@ -443,6 +461,10 @@ MUTANTS = [
      ck_unread_mood),
     ('bots not running ignored', "        if run < exp:", "        if run < 0:", ck_bots_down),
     ('unstuck never reported', "    if unstuck and g.get('read'):", "    if False:", ck_stuck_and_unstuck),
+    ('showcase decisions off the set brain not said', "    off = re.search(r'NOT THE SET BRAIN \\(must be 0\\): (.*)$', line)", "    off = None",
+     ck_brain_words),
+    ('an unread brain setting shown as a count', "    m = re.search(r'BRAIN: (\\d+) decisions', line)", "    m = re.search(r'(\\d+) llm rows', line) or re.search(r'BRAIN: (\\d+) decisions', line)",
+     ck_brain_words),
     ('value window counts the open hour', "    end = now.replace(minute=0, second=0, microsecond=0)",
      "    end = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)", ck_windows_of_time),
 ]

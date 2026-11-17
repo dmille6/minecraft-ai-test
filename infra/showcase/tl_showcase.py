@@ -795,7 +795,11 @@ def brain_report(d, model):
 
 def brain_health(cfg, load=None, get=None):
     """The health of the brain the bots are set to: {'ok', 'paused_by', 'error', ...} -- carried in every heartbeat so a
-    stale pause holder (the proxy) or a dark endpoint is visible in fleetstatus. Never raises."""
+    stale pause holder (the proxy) or a dark endpoint is visible in fleetstatus. Never raises.
+    THE SETTING RIDES WITH IT ('url', 'model', 'kind', monfix-01 11-16): fleetstatus runs on another host and cannot read
+    /srv/showcase/BRAIN.json, so its SHOWCASE BRAIN line judged the decision rows against the Studio proxy and gemma4 it
+    had hardcoded, two days after the owner's setting said qwen2.5 on the 5080. A setting that cannot be read carries no
+    url and no model: the reader then says it is unread, and judges nothing."""
     import urllib.request, urllib.error
 
     def fetch(url):
@@ -810,13 +814,15 @@ def brain_health(cfg, load=None, get=None):
         if load is None:
             import make_env                 # beside this file, in the repo and in /srv/showcase/bin
             load = make_env.load_brain
-        url, model = brain_target(cfg, load())
+        brain = load()
+        url, model = brain_target(cfg, brain)
+        setting = {k: brain[k] for k in ('url', 'model', 'kind')}
     except Exception as e:
         return brain_report({'error': f'the brain setting is unreadable ({type(e).__name__}: {str(e)[:100]})'}, None)
     try:
-        return brain_report((get or fetch)(url), model)
+        return dict(brain_report((get or fetch)(url), model), **setting)
     except Exception as e:
-        return brain_report({'error': f'{type(e).__name__}: {str(e)[:120]}'}, None)
+        return dict(brain_report({'error': f'{type(e).__name__}: {str(e)[:120]}'}, None), **setting)
 
 
 def render(cfg, full=False):
