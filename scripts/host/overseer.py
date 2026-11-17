@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """overseer.py -- the host's overseer for the showcase town (overseer-01show, owner 11-17, phase 1: clean-up REMOVALS within 128).
 
-Every 15 minutes (cron) it reads the bots' telemetry with lib.telemetry (a full walk of the window, rotated files included), and
-hands it to `node overseer-cycle.mjs`, which runs bots/src/overseer.mjs overseerCycle -- the ONE implementation of the rules -- over
+Every 15 minutes (cron) it reads ONLY THE NEW BYTES of the bots' live skill logs since its last cycle (r5: tail_read, offsets
+by inode in <state>/tail.json, a rolling 180-min state of each bot's newest row and the `_worklist` rows), and hands it to `node overseer-cycle.mjs`, which runs bots/src/overseer.mjs overseerCycle -- the ONE implementation of the rules -- over
 the town's directory and the overseer's book, and writes one `worklist-<bot>.json` a bot. Design:
 docs/reports/overseer-design-2026-11-17.md.
 
@@ -15,6 +15,10 @@ go to --scratch and the town's directory is never written or deleted from (r1 C6
 live book says lists were published, they are removed, and the book records it (`stoppedAt`). --zones is required (r1 C4); a log
 file that cannot be read, or a log directory gone since the last cycle, is no cycle at all (r1 C3).
 The bots also stop reading at once when `worklist.OFF` stands in the town's directory (bot-side switch).
+
+COST (r5, measured on ci2, synthetic showcase volume: 14 bots, 18k rows/h, ~1.2 KB rows): the full walk it replaced parsed the
+whole live file every cycle (128 MB at 6 h into the day, ~500 MB at 24 h; 410 MB RSS, 1.5-4.3 s CPU). Incremental: one cycle
+reads ~5 MB (15 min of rows). It runs anywhere the logs are: --logs is a path, so a synced copy on another host works.
 
 THE INPUTS: roster = every bot with a row in the last --window-min (default 180); online = a row in the last --online-min (10);
 pos = its newest row's bot.pos; the `_worklist` rows (the bots' per-job reports). Rate and last progress are measured by the cycle
@@ -32,7 +36,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
-from lib.telemetry import Events, canon, open_log  # noqa: E402
+from lib.telemetry import canon, open_log  # noqa: E402
 import glob  # noqa: E402
 
 CYCLE = os.path.join(HERE, 'overseer-cycle.mjs')
@@ -127,6 +131,71 @@ def observe(state, files, now_ms, **kw):
     return problems, retired
 
 
+def _ts_ms(s):
+    try:
+        return int(dt.datetime.fromisoformat(str(s).replace('Z', '+00:00')).timestamp() * 1000)
+    except Exception:
+        return None
+
+
+def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
+    """r5 (cost): THE INCREMENTAL READ -> (state, bytes_read). Only the bytes appended to each live (plain) log since the last
+    cycle are read; a .gz is rotated history and is never read here (read_problems validates it once). Per file the state keeps
+    {ino, off}; a file is followed by its INODE, so a live file renamed by the rotation is finished under its new name, and a new
+    inode (or a file shorter than its offset) is read from 0. Only whole lines are consumed. From the new bytes it keeps, rolling
+    over `window_ms`: each bot's newest row (time, position) and the `_worklist` rows -- nothing else is parsed (a line is
+    json-parsed only when it names `_worklist`, or is the newest of its chunk). An unreadable file raises (fail closed)."""
+    st = {'files': {}, 'bots': dict(prev.get('bots', {})), 'wl': list(prev.get('wl', []))}
+    old_by_ino = {v['ino']: v for v in prev.get('files', {}).values()}
+    nbytes = 0
+    for f in sorted(files):
+        if f.endswith('.gz'):
+            continue
+        s_ = stat(f)
+        was = old_by_ino.get(s_.st_ino)
+        off = was['off'] if was and was['off'] <= s_.st_size else 0
+        if off < s_.st_size:
+            with open(f, 'rb') as fh:
+                fh.seek(off)
+                buf = fh.read(s_.st_size - off)
+            end = buf.rfind(b'\n') + 1
+            nbytes += end
+            last = None
+            for line in buf[:end].splitlines():
+                if b'"_worklist"' in line:
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    t = _ts_ms(d.get('@timestamp'))
+                    name = (d.get('bot') or {}).get('name')
+                    if t is not None and name:
+                        st['wl'].append({'bot': name, 't': t, 'detail': (d.get('skill') or {}).get('detail') or ''})
+                if line.strip():
+                    last = line
+            if last is not None:
+                try:
+                    d = json.loads(last)
+                    b, t = d.get('bot') or {}, _ts_ms(d.get('@timestamp'))
+                    p = b.get('pos') if isinstance(b.get('pos'), dict) else None
+                    if b.get('name') and t is not None and t >= st['bots'].get(b['name'], {}).get('t', 0):
+                        st['bots'][b['name']] = {'t': t, 'pos': [p.get('x'), p.get('y'), p.get('z')] if p else st['bots'].get(b['name'], {}).get('pos')}
+                except ValueError:
+                    pass
+            off += end
+        st['files'][f] = {'ino': s_.st_ino, 'off': off}
+    lo = now_ms - window_ms
+    st['wl'] = [r for r in st['wl'] if r['t'] >= lo]
+    st['bots'] = {n: v for n, v in st['bots'].items() if v['t'] >= lo}
+    return st, nbytes
+
+
+def roster_from_tail(st, now_ms, online_min=10):
+    """PURE. The tail state -> (bots, worklist rows) in the cycle's input shape."""
+    bots = [{'name': n, 'online': now_ms - v['t'] <= online_min * 60000, 'pos': v.get('pos')} for n, v in sorted(st['bots'].items())]
+    return bots, sorted(st['wl'], key=lambda r: r['t'])
+
+
 def inputs_from_rows(rows, now, online_min=10):
     """PURE. Telemetry rows ({t, name, detail, bot}) -> (bots, worklist rows). A bot is any name seen; online when seen within
     online_min; pos its newest row's bot.pos."""
@@ -192,8 +261,25 @@ def main(argv=None):
         return 1
     for d in retired:   # r2: one row a retirement; the directory leaves logdirs.json, so the next cycles run
         log_row({'kind': 'showcase_overseer', 'op': 'retired', 'at': now.isoformat(), 'dir': d})
-    ev = Events.load(paths=os.path.join(a.logs, '*', 'skill-*.jsonl*'), since_minutes=a.window_min)
-    bots, wl = inputs_from_rows(ev.rows, now, a.online_min)
+    # r5: incremental -- only the bytes appended since the last cycle (tail.json: offsets by inode, the rolling window's state)
+    tail_file = os.path.join(a.state, 'tail.json')
+    try:
+        with open(tail_file) as fh:
+            prev_tail = json.load(fh)
+    except (OSError, ValueError):
+        prev_tail = {}
+    try:
+        tail, nbytes = tail_read(glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), prev_tail, now_ms, a.window_min * 60000)
+    except OSError as e:
+        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'logs: unreadable %s' % e, 'wrote': 'nothing'}
+        log_row(row)
+        print(json.dumps(row, sort_keys=True))
+        return 1
+    bots, wl = roster_from_tail(tail, now_ms, a.online_min)
+    # kept whatever the cycle does next: its rows stay in the window, and the book's cursor ingests each report once
+    with open(tail_file + '.tmp', 'w') as fh:
+        json.dump(tail, fh)
+    os.replace(tail_file + '.tmp', tail_file)
     live = switch_live(a.switch)
     inp = {'now': int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
            'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl}
@@ -203,7 +289,7 @@ def main(argv=None):
     except Exception:
         out = {'error': 'no summary: rc=%s %s' % (p.returncode, p.stderr.strip()[-300:])}
     # the denominator beside the result: the rows and bots the cycle was given
-    row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'mode': 'live' if live else 'dry', 'telemetry_rows': len(ev.rows),
+    row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'mode': 'live' if live else 'dry', 'bytes_read': nbytes,
            'bots': len(bots), 'online': sum(1 for b in bots if b['online']), 'worklist_rows': len(wl), **out}
     with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
         fh.write(json.dumps(row, sort_keys=True, default=str) + '\n')

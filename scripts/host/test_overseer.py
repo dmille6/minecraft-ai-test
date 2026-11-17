@@ -113,6 +113,45 @@ def test_observe_persists_on_blocked_cycles(R=None):
     assert p == [] and ret == [], 'cycles run after it'
 
 
+def _line(bot, mins, kind='_shop', detail='x', x=1):
+    import json as _j
+    t = (NOW + dt.timedelta(minutes=mins)).isoformat().replace('+00:00', 'Z')
+    return _j.dumps({'@timestamp': t, 'bot': {'name': bot, 'pos': {'x': x, 'y': 70, 'z': 2}}, 'skill': {'name': kind, 'detail': detail}}) + '\n'
+
+
+def test_tail_incremental(R=None):
+    """r5: only new bytes are read; a half-written line waits; a rotation (rename + new file) loses nothing; rows roll out of the
+    window; an unreadable file raises."""
+    R = R or OV
+    now_ms = int(NOW.timestamp() * 1000)
+    root = tempfile.mkdtemp()
+    d = os.path.join(root, 'showcase-Ann')
+    os.makedirs(d)
+    live = os.path.join(d, 'skill-Ann.jsonl')
+    open(live, 'w').write(_line('Ann', 0) + _line('Ann', 1, '_worklist', 'op=ids list=1 ids=d:r:1,2,3') + _line('Ann', 2, x=7))
+    st, n1 = R.tail_read([live], {}, now_ms)
+    assert len(st['wl']) == 1 and st['bots']['Ann']['pos'] == [7, 70, 2] and n1 == os.path.getsize(live)
+    st2, n2 = R.tail_read([live], st, now_ms)
+    assert n2 == 0 and len(st2['wl']) == 1, 'nothing new: nothing read, nothing counted twice'
+    partial = _line('Ann', 3, '_worklist', 'op=ids list=2 ids=g:r:4,4,4')
+    open(live, 'a').write(partial[:20])
+    st3, n3 = R.tail_read([live], st2, now_ms)
+    assert n3 == 0 and len(st3['wl']) == 1, 'a half line waits'
+    open(live, 'a').write(partial[20:])
+    # rotation: the live file is renamed (its tail still unread is finished there) and a new one starts
+    os.rename(live, live + '-20261117')
+    open(live, 'w').write(_line('Ann', 5, '_worklist', 'op=ids list=3 ids=d:r:5,5,5'))
+    st4, _ = R.tail_read([live, live + '-20261117'], st3, now_ms)
+    assert [r['detail'][-7:] for r in sorted(st4['wl'], key=lambda r: r['t'])] == ['r:1,2,3', 'r:4,4,4', 'r:5,5,5'], st4['wl']
+    st5, _ = R.tail_read([live, live + '-20261117'], st4, now_ms + 200 * 60000)
+    assert st5['wl'] == [] and st5['bots'] == {}, 'rolled out of the 180-min window'
+    try:
+        R.tail_read([os.path.join(d, 'missing.jsonl')], {}, now_ms)
+        raise AssertionError('an unreadable file must raise')
+    except OSError:
+        pass
+
+
 def _load_mutant(old, new):
     import importlib.util
     src = open(OV.__file__).read()
@@ -132,6 +171,8 @@ def test_mutants():
             ("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass', test_gzip_truncated),
             ("        if now_ms - last < grace_ms:", '        if True:', test_retire_grace),
             ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace),
+            ("        off = was['off'] if was and was['off'] <= s_.st_size else 0", '        off = 0', test_tail_incremental),
+            ("            end = buf.rfind(b'\\n') + 1", '            end = len(buf)', test_tail_incremental),
             ("    jwrite(dirs_file, seen)\n    return problems, retired", "    if not problems:\n        jwrite(dirs_file, seen)\n    return problems, retired", test_observe_persists_on_blocked_cycles)]:
         m = _load_mutant(old, new)
         try:

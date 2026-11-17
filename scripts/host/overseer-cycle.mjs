@@ -92,6 +92,9 @@ export function runCycle (inp, { write = true } = {}) {
   const summary = { at: now, mode, row: c.row, lists: Object.fromEntries(Object.entries(c.lists).map(([b, d]) => [b, d.order ? `order:${d.order.kind}` : d.jobs.length])),
     orders: c.orders, reports: rr.reports.length, setAside: c.setAside.length }
   if (!write) return { summary, cycle: c }
+  // r5: THE BOOK FIRST. A crash after it and before the lists leaves the old lists, which expire (listDoc: 30 min) -- and the
+  // book's notBefore already guards every move; the other order could leave lists the book never knew it gave out.
+  writeAtomic(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, cursor: rr.cursor, givenAt, unstuckAt, at: now })
   if (inp.live) {
     for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.pool, listFile(b)), d)
     // a list file this cycle did not write is removed: a bot with no list now
@@ -102,7 +105,6 @@ export function runCycle (inp, { write = true } = {}) {
     summary.stopped = stopLive(inp, now)
     for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.scratch, listFile(b)), d)
   }
-  writeAtomic(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, cursor: rr.cursor, givenAt, unstuckAt, at: now })
   writeAtomic(path.join(inp.state, 'setaside.json'), { v: 1, at: now, mode, n: c.setAside.length, jobs: c.setAside })
   return { summary, cycle: c }
 }
