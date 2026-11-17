@@ -152,6 +152,69 @@ def test_tail_incremental(R=None):
         pass
 
 
+def test_tail_fingerprint(R=None):
+    """r6 (Codex B): a file truncated and regrown past the offset, and a deleted file whose inode is reused, are read again
+    from 0 -- their new reports are taken exactly once."""
+    R = R or OV
+    now_ms = int(NOW.timestamp() * 1000)
+    root = tempfile.mkdtemp()
+    d = os.path.join(root, 'showcase-Ann')
+    os.makedirs(d)
+    f = os.path.join(d, 'skill-Ann.jsonl')
+    open(f, 'w').write(_line('Ann', 0, '_worklist', 'op=ids list=1 ids=d:r:1,1,1') + _line('Ann', 1, '_shop', 'x' * 200))
+    st, _ = R.tail_read([f], {}, now_ms)
+    # truncated in place (same inode) and regrown longer than the old offset
+    with open(f, 'r+') as fh:
+        fh.truncate(0)
+    with open(f, 'a') as fh:
+        fh.write(_line('Ann', 2, '_worklist', 'op=ids list=2 ids=d:r:2,2,2') + _line('Ann', 3, '_shop', 'y' * 400))
+    st2, _ = R.tail_read([f], st, now_ms)
+    assert sorted(r['detail'][-7:] for r in st2['wl']) == ['r:1,1,1', 'r:2,2,2'], st2['wl']
+    st3, n = R.tail_read([f], st2, now_ms)
+    assert n == 0 and len(st3['wl']) == 2, 'taken once'
+    # a deleted file's inode handed to a new one: the saved state claims that inode with an unrelated offset
+    g = os.path.join(d, 'skill-Ann.jsonl-new')
+    open(g, 'w').write(_line('Ann', 4, '_worklist', 'op=ids list=3 ids=d:r:4,4,4') + _line('Ann', 5, '_shop', 'z' * 900))
+    fake = dict(st3)
+    fake['files'] = {'/gone/old.jsonl': {'ino': os.stat(g).st_ino, 'off': 300, 'hl': 300, 'head': 'x', 'tail': 'y'}}
+    st4, _ = R.tail_read([g], fake, now_ms)
+    assert sorted(r['detail'][-7:] for r in st4['wl']) == ['r:1,1,1', 'r:2,2,2', 'r:4,4,4'], st4['wl']
+    st5, _ = R.tail_read([g], st4, now_ms)
+    assert len(st5['wl']) == 3
+    # a pre-r6 state (offsets, no fingerprint) re-reads from 0: what it already holds is not taken twice
+    legacy = dict(st5)
+    legacy['files'] = {k: {'ino': v['ino'], 'off': v['off']} for k, v in st5['files'].items()}
+    st6, n6 = R.tail_read([g], legacy, now_ms)
+    assert n6 > 0 and len(st6['wl']) == 3, st6['wl']
+
+
+def test_trip_reading(R=None):
+    """r6: the tripwire's read is seen by its own command words; a pgrep or shell line naming the pattern, and this process, never."""
+    R = R or OV
+    run = ['  812 /usr/bin/python3 -B /opt/showcase/showcase_trip.py read --hour', '  900 bash -c sleep 5']
+    assert R.trip_reading(run) is True
+    assert R.trip_reading(['  812 python3 showcase_trip.py read']) is True
+    assert R.trip_reading(['  901 pgrep -f showcase_trip.py read']) is False, 'pgrep matching itself'
+    assert R.trip_reading(['  902 /bin/sh -c pgrep -f "showcase_trip.py read" || python3 overseer.py']) is False
+    assert R.trip_reading(['  903 python3 showcase_trip.py status']) is False, 'another subcommand'
+    assert R.trip_reading(['  812 python3 showcase_trip.py read'], self_pids=(812,)) is False, 'never itself'
+
+
+def test_mem_cap(R=None):
+    """r6: over-cap peak RSS is caught (kB on Linux, bytes on macOS); a node child over its heap cap fails the cycle closed."""
+    import shutil
+    R = R or OV
+    assert R.over_cap(301 * 1024, 300, linux=True) is True and R.over_cap(299 * 1024, 300, linux=True) is False
+    assert R.over_cap(301 * 1024 * 1024, 300, linux=False) is True
+    node = shutil.which('node')
+    if node:
+        hog = 'const a = []; for (;;) a.push(new Array(1e6).fill(1))'
+        out = R.run_child([node, '--max-old-space-size=32', '-e', hog], '{}', 32, timeout=60)
+        assert 'error' in out and 'exit' in out['error'], out
+        ok = R.run_child([node, '-e', 'process.stdout.write(JSON.stringify({row: "op=cycle"}) + "\\n")'], '{}', 300)
+        assert ok == {'row': 'op=cycle'}, ok
+
+
 def _load_mutant(old, new):
     import importlib.util
     src = open(OV.__file__).read()
@@ -170,8 +233,13 @@ def test_mutants():
             ("                if key not in cache:\n                    check_gz(f)", "                if False:\n                    check_gz(f)", test_gzip_truncated),
             ("            problems.append('unreadable %s: %s' % (f, type(e).__name__))", '            pass', test_gzip_truncated),
             ("        if now_ms - last < grace_ms:", '        if True:', test_retire_grace),
+            ("    for ln in ps_lines:\n        parts = ln.strip().split(None, 1)\n        if len(parts) < 2 or not parts[0].isdigit() or int(parts[0]) in set(self_pids):", "    for ln in ps_lines:\n        parts = ln.strip().split(None, 1)\n        if len(parts) < 2 or not parts[0].isdigit():", test_trip_reading),
+            ("            if os.path.basename(w) == 'showcase_trip.py' and argv[i + 1] == 'read' and any(os.path.basename(x).startswith('python') for x in argv[:i]):", "            if 'showcase_trip.py' in w and argv[i + 1] == 'read':", test_trip_reading),
+            ("    if p.returncode != 0:\n", "    if False:\n", test_mem_cap),
             ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace),
             ("        off = was['off'] if was and was['off'] <= s_.st_size else 0", '        off = 0', test_tail_incremental),
+            ("        if off and not fingerprint_ok(f, was):\n            off = 0", "        if False:\n            off = 0", test_tail_fingerprint),
+            ("                        if (name, t, r['detail']) not in have:", "                        if True:", test_tail_fingerprint),
             ("            end = buf.rfind(b'\\n') + 1", '            end = len(buf)', test_tail_incremental),
             ("    jwrite(dirs_file, seen)\n    return problems, retired", "    if not problems:\n        jwrite(dirs_file, seen)\n    return problems, retired", test_observe_persists_on_blocked_cycles)]:
         m = _load_mutant(old, new)

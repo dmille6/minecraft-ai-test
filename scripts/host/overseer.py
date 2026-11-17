@@ -20,6 +20,26 @@ COST (r5, measured on ci2, synthetic showcase volume: 14 bots, 18k rows/h, ~1.2 
 whole live file every cycle (128 MB at 6 h into the day, ~500 MB at 24 h; 410 MB RSS, 1.5-4.3 s CPU). Incremental: one cycle
 reads ~5 MB (15 min of rows). It runs anywhere the logs are: --logs is a path, so a synced copy on another host works.
 
+INSTALL ON THE SHOWCASE VM (.40) -- the control session's conditions (r6):
+  * Cron (Linux), minutes 10, 20 and 30 only -- never beside the tripwire's hourly read (~:35 to ~:05); nice 19, a hard 120 s
+    wall clock, and a non-blocking flock on its OWN file (not --lock: flock(1)'s lock and the script's are separate descriptions
+    of one file and would refuse each other):
+      10,20,30 * * * * cd <tree>/scripts/host && flock -n /tmp/overseer.cron.lock timeout 120 nice -n 19 python3 overseer.py \
+        --pool <town dir> --home 0,70,0 --radius 128 --state /home/<user>/digest/overseer --switch /home/<user>/digest/overseer/LIVE \
+        --scratch /home/<user>/digest/overseer/dry --zones <tree>/infra/showcase/protected-zones.showcase.json \
+        --logs /var/log/mcai --ship /var/log/showcase/heartbeat.jsonl --mem-cap-mb 300 >> /home/<user>/digest/overseer/cron.log 2>&1 # overseer
+  * THE FIRST CYCLE reads the day's live files once (up to ~500 MB at 23:00Z). The control session runs it BY HAND, dry (no LIVE
+    file), at a quiet minute between :10 and :30 -- the same command as the cron line, which takes the same script lock
+    (--lock /tmp/overseer.lock) and makes the same tripwire check (a hand run beside the read exits at once, skipped).
+  * AT LEAST THREE DRY CYCLES are read (<state>/cycles.jsonl, <state>/dry/worklist-*.json) before LIVE is created.
+  * The script itself: its own lock (--lock); exits 0 with one `op=skipped why=tripwire_read` row while
+    `python ... showcase_trip.py read` runs (trip_reading: matched on the command's words, never on itself or a pgrep);
+    --mem-cap-mb (300): the python step's address space is capped and its peak RSS checked; the node step runs with
+    --max-old-space-size=<cap-44> and any non-zero exit is a failed cycle (fail closed: an error row, nothing more written).
+  * Lists live 60 min (overseer.mjs OVERSEER.listTtlMs): the longest gap between slots is :30 -> :10 (40 min), 50 min when the :10
+    slot is skipped for an overrunning read; 60 covers one skipped slot. The stall (30 min of no progress) and unstick (10 min) clocks
+    are measured from the bots' rows, not from the cycle, and the bot's own 3 h stale-save check is longer than 60: none assumed 30.
+
 THE INPUTS: roster = every bot with a row in the last --window-min (default 180); online = a row in the last --online-min (10);
 pos = its newest row's bot.pos; the `_worklist` rows (the bots' per-job reports). Rate and last progress are measured by the cycle
 from those rows. ONE summary row a cycle: appended to <state>/cycles.jsonl and shipped as kind `showcase_overseer`.
@@ -138,6 +158,34 @@ def _ts_ms(s):
         return None
 
 
+FP_HEAD, FP_TAIL = 4096, 256
+
+
+def _sha(b):
+    import hashlib
+    return hashlib.sha1(b).hexdigest()
+
+
+def fingerprint(path, off):
+    """r6: what identifies the bytes already read -> {hl, head, tail}: the first min(4096, off) bytes and the 256 before `off`."""
+    hl = min(FP_HEAD, off)
+    with open(path, 'rb') as fh:
+        head = fh.read(hl)
+        fh.seek(max(0, off - FP_TAIL))
+        tail = fh.read(off - max(0, off - FP_TAIL))
+    return {'hl': hl, 'head': _sha(head), 'tail': _sha(tail)}
+
+
+def fingerprint_ok(path, was):
+    """r6: does the file still hold the bytes the saved offset was taken over? (an old state without a fingerprint: no -- read again)"""
+    if not was or 'head' not in was:
+        return False
+    try:
+        return fingerprint(path, was['off']) == {'hl': was['hl'], 'head': was['head'], 'tail': was['tail']}
+    except OSError:
+        return False
+
+
 def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
     """r5 (cost): THE INCREMENTAL READ -> (state, bytes_read). Only the bytes appended to each live (plain) log since the last
     cycle are read; a .gz is rotated history and is never read here (read_problems validates it once). Per file the state keeps
@@ -147,6 +195,7 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
     json-parsed only when it names `_worklist`, or is the newest of its chunk). An unreadable file raises (fail closed)."""
     st = {'files': {}, 'bots': dict(prev.get('bots', {})), 'wl': list(prev.get('wl', []))}
     old_by_ino = {v['ino']: v for v in prev.get('files', {}).values()}
+    have = {(r['bot'], r['t'], r['detail']) for r in st['wl']}
     nbytes = 0
     for f in sorted(files):
         if f.endswith('.gz'):
@@ -154,6 +203,11 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
         s_ = stat(f)
         was = old_by_ino.get(s_.st_ino)
         off = was['off'] if was and was['off'] <= s_.st_size else 0
+        # r6 (Codex B): the same inode is the same file only while its fingerprint holds -- its first bytes and the bytes just before
+        # the offset. Truncated and regrown past the offset, or a deleted file's inode reused: read again from 0 (the row
+        # identities make a re-read harmless)
+        if off and not fingerprint_ok(f, was):
+            off = 0
         if off < s_.st_size:
             with open(f, 'rb') as fh:
                 fh.seek(off)
@@ -170,7 +224,10 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
                     t = _ts_ms(d.get('@timestamp'))
                     name = (d.get('bot') or {}).get('name')
                     if t is not None and name:
-                        st['wl'].append({'bot': name, 't': t, 'detail': (d.get('skill') or {}).get('detail') or ''})
+                        r = {'bot': name, 't': t, 'detail': (d.get('skill') or {}).get('detail') or ''}
+                        if (name, t, r['detail']) not in have:
+                            have.add((name, t, r['detail']))
+                            st['wl'].append(r)
                 if line.strip():
                     last = line
             if last is not None:
@@ -183,7 +240,7 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat):
                 except ValueError:
                     pass
             off += end
-        st['files'][f] = {'ino': s_.st_ino, 'off': off}
+        st['files'][f] = {'ino': s_.st_ino, 'off': off, **fingerprint(f, off)}
     lo = now_ms - window_ms
     st['wl'] = [r for r in st['wl'] if r['t'] >= lo]
     st['bots'] = {n: v for n, v in st['bots'].items() if v['t'] >= lo}
@@ -217,6 +274,52 @@ def inputs_from_rows(rows, now, online_min=10):
     return bots, wl
 
 
+TRIP_READ = 'showcase_trip.py read'   # r6: the showcase tripwire's hourly read (~:35 to ~:05); the overseer never runs beside it
+
+
+def trip_reading(ps_lines, self_pids=()):
+    """r6 -- PURE. `ps -eo pid=,args=` lines -> True when the tripwire's read is running. Matched on the command's own words (an
+    interpreter then a path ending showcase_trip.py, then `read`), never on a line that merely CONTAINS the pattern -- a
+    `pgrep -f "showcase_trip.py read"` or a shell whose script names it would match itself (the known trap); this process and
+    its parents (`self_pids`) are never counted."""
+    for ln in ps_lines:
+        parts = ln.strip().split(None, 1)
+        if len(parts) < 2 or not parts[0].isdigit() or int(parts[0]) in set(self_pids):
+            continue
+        argv = parts[1].split()
+        for i, w in enumerate(argv[:-1]):
+            if os.path.basename(w) == 'showcase_trip.py' and argv[i + 1] == 'read' and any(os.path.basename(x).startswith('python') for x in argv[:i]):
+                return True
+    return False
+
+
+def trip_reading_now():
+    """The live check: one `ps` listing (no pgrep -f: it can match itself)."""
+    out = subprocess.run(['ps', '-eo', 'pid=,args='], capture_output=True, text=True, timeout=20).stdout.splitlines()
+    return trip_reading(out, (os.getpid(), os.getppid()))
+
+
+def over_cap(maxrss_kb, cap_mb, linux=sys.platform.startswith('linux')):
+    """r6 -- PURE. ru_maxrss (kB on Linux, bytes on macOS) over the cap?"""
+    mb = maxrss_kb / 1024 if linux else maxrss_kb / (1024 * 1024)
+    return mb > cap_mb
+
+
+def run_child(cmd, payload, cap_mb, timeout=110):
+    """r6: the node step under its heap cap -> (summary dict) with `error` on any failure (a non-zero exit -- an out-of-memory
+    abort included --, no summary, or a timeout). The caller writes nothing more on an error."""
+    try:
+        p = subprocess.run(cmd, input=payload, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {'error': 'node: timeout %ss' % timeout}
+    if p.returncode != 0:
+        return {'error': 'node: exit %s (cap %s MB) %s' % (p.returncode, cap_mb, p.stderr.strip()[-200:])}
+    try:
+        return json.loads(p.stdout.strip().splitlines()[-1])
+    except Exception:
+        return {'error': 'node: no summary'}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--pool', required=True)
@@ -232,6 +335,7 @@ def main(argv=None):
     ap.add_argument('--ship', default=None)
     ap.add_argument('--lock', default='/tmp/overseer.lock')
     ap.add_argument('--node', default='node')
+    ap.add_argument('--mem-cap-mb', type=int, default=300, help='r6: the python step and the node step each abort above this')
     a = ap.parse_args(argv)
     os.makedirs(a.state, exist_ok=True)
     lk = open(a.lock, 'w')
@@ -241,6 +345,20 @@ def main(argv=None):
         print('overseer: another cycle holds the lock; this one is skipped')
         return 0
     now = dt.datetime.now(dt.timezone.utc)
+    # r6: NEVER BESIDE THE TRIPWIRE'S READ -- a skipped cycle, not a failure; the row is the only thing written
+    if trip_reading_now():
+        row = {'kind': 'showcase_overseer', 'op': 'skipped', 'why': 'tripwire_read', 'at': now.isoformat(), 'wrote': 'nothing'}
+        with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
+            fh.write(json.dumps(row, sort_keys=True) + '\n')
+        print(json.dumps(row, sort_keys=True))
+        return 0
+    # r6: the python step's memory cap (the address space; the node child gets its own heap cap below)
+    import resource
+    try:
+        hard = resource.getrlimit(resource.RLIMIT_AS)[1]
+        resource.setrlimit(resource.RLIMIT_AS, (a.mem_cap_mb * 1024 * 1024, hard))
+    except (ValueError, OSError):
+        pass
     # r1 C3: a log that cannot be read (or one gone since the last cycle) is no cycle: nothing is written, the row says why
     def log_row(row):
         with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
@@ -275,6 +393,16 @@ def main(argv=None):
         log_row(row)
         print(json.dumps(row, sort_keys=True))
         return 1
+    except MemoryError:
+        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'python: over %s MB' % a.mem_cap_mb, 'wrote': 'nothing'}
+        log_row(row)
+        print(json.dumps(row, sort_keys=True))
+        return 1
+    if over_cap(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, a.mem_cap_mb):
+        row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'error': 'python: peak RSS over %s MB' % a.mem_cap_mb, 'wrote': 'nothing'}
+        log_row(row)
+        print(json.dumps(row, sort_keys=True))
+        return 1
     bots, wl = roster_from_tail(tail, now_ms, a.online_min)
     # kept whatever the cycle does next: its rows stay in the window, and the book's cursor ingests each report once
     with open(tail_file + '.tmp', 'w') as fh:
@@ -283,11 +411,11 @@ def main(argv=None):
     live = switch_live(a.switch)
     inp = {'now': int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
            'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl}
-    p = subprocess.run([a.node, CYCLE], input=json.dumps(inp), capture_output=True, text=True, timeout=300)
-    try:
-        out = json.loads(p.stdout.strip().splitlines()[-1])
-    except Exception:
-        out = {'error': 'no summary: rc=%s %s' % (p.returncode, p.stderr.strip()[-300:])}
+    try:   # the child must not inherit the python step's address-space cap (V8 reserves far more than it uses)
+        resource.setrlimit(resource.RLIMIT_AS, (resource.RLIM_INFINITY, resource.getrlimit(resource.RLIMIT_AS)[1]))
+    except (ValueError, OSError):
+        pass
+    out = run_child([a.node, '--max-old-space-size=%d' % max(16, a.mem_cap_mb - 44), CYCLE], json.dumps(inp), a.mem_cap_mb)
     # the denominator beside the result: the rows and bots the cycle was given
     row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'mode': 'live' if live else 'dry', 'bytes_read': nbytes,
            'bots': len(bots), 'online': sum(1 for b in bots if b['online']), 'worklist_rows': len(wl), **out}

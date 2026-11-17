@@ -61,14 +61,50 @@ export const WORKLIST_FILE_RE = /^worklist-[A-Za-z0-9_-]+\.json$/
  * this one's too): the shared record's draw never takes such a cell, so two bots under two leases never dig one cell.
  */
 /**
- * r2 (C1 race): THE LISTED CELLS, RE-READ before each shared cut -> (now?) => Set. Pure over `readDocs` and `clock`. The read is
- * kept at most `ttlMs` (5 s): a cell the host lists after the shared visit began is skipped by its next cut.
+ * r2 (C1 race) / r6: THE LISTED CELLS, RE-READ before each shared cut -> () => Set. Pure over `readFiles` and `clock`.
+ * readFiles() -> [{ name, doc }] or [{ name, err }] per list file ([] while the town's switch is off: no veto at all). The read is
+ * kept at most `ttlMs` (5 s): a cell listed after the shared visit began is skipped by its next cut. FAILS CLOSED: a read that
+ * throws keeps the previous set whole; one unreadable file keeps that file's previous cells (none known: it is skipped, and
+ * `onError(name)` is called once for it).
  */
-export function listedCache (readDocs, { home, ttlMs = 5_000, clock = Date.now } = {}) {
+export function listedCache (readFiles, { home, ttlMs = 5_000, clock = Date.now, onError = () => {} } = {}) {
+  let at = -Infinity, set = new Set()
+  const byFile = new Map(), told = new Set()
+  return () => {
+    const now = clock()
+    if (now - at <= ttlMs) return set
+    at = now
+    let files
+    try { files = readFiles() ?? [] } catch { return set }
+    const next = new Set(), names = new Set()
+    for (const f of files) {
+      names.add(f.name)
+      let cells = null
+      if (f.doc !== undefined && !f.err) { cells = listedCells([f.doc], { home, now }); byFile.set(f.name, cells) } else {
+        cells = byFile.get(f.name) ?? null
+        if (!cells && !told.has(f.name)) { told.add(f.name); try { onError(f.name) } catch { /* a log */ } }
+      }
+      for (const k of cells ?? []) next.add(k)
+    }
+    for (const n of [...byFile.keys()]) if (!names.has(n)) byFile.delete(n)
+    set = next
+    return set
+  }
+}
+/**
+ * r6 (Codex A, bot side): THIS BOT'S OWN LIST, RE-READ before each job -> () => Set(job id). Pure over `readDoc` and `clock`; at most
+ * `ttlMs` old. A file gone, refused (another bot's, expired, ...) or unreadable reads as EMPTY: the visit takes no further job.
+ */
+export function ownIdsCache (readDoc, { bot, home, ttlMs = 5_000, clock = Date.now } = {}) {
   let at = -Infinity, set = new Set()
   return () => {
     const now = clock()
-    if (now - at > ttlMs) { at = now; let docs = []; try { docs = readDocs() ?? [] } catch { docs = [] }; set = listedCells(docs, { home, now }) }
+    if (now - at <= ttlMs) return set
+    at = now
+    let doc = null
+    try { doc = readDoc() } catch { doc = null }
+    const chk = listCheck(doc, { bot, home, now })
+    set = new Set(chk.ok ? chk.jobs.map(j => j.id) : [])
     return set
   }
 }

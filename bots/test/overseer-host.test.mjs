@@ -92,6 +92,27 @@ await t('C4 ZONES: none given, missing, or unreadable -> the cycle throws and wr
   H.runCycle(inp)
   assert.ok(!fs.existsSync(path.join(pool, 'worklist-Ann.json')) || JSON.parse(fs.readFileSync(path.join(pool, 'worklist-Ann.json'), 'utf8')).jobs.length === 0)
 })
+// r6 (Codex A): minute 0 Ann's list holds X; minute 15 a cycle moves X off Ann and CRASHES before rewriting Ann's list; the retry
+// at minute 21 must not publish X to Bo while Ann's old list still holds it. X reaches Bo only after Ann's list is rewritten.
+const crashScenario = async H => {
+  const pool = town({ cuts: [[-20, 72, 0]] })
+  const inp = input(pool)
+  const X = 'r:-20,72,0', annF = path.join(pool, 'worklist-Ann.json'), boF = path.join(pool, 'worklist-Bo.json')
+  const live = now => fs.readdirSync(pool).filter(f => H.LIST_RE.test(f)).map(f => JSON.parse(fs.readFileSync(path.join(pool, f), 'utf8'))).filter(d => now <= d.expires && d.jobs.some(j => j.id === X)).map(d => d.bot)
+  H.runCycle(inp)
+  assert.deepStrictEqual(live(NOW), ['Ann'])
+  const annOld = fs.readFileSync(annF, 'utf8')
+  const off = { ...inp, bots: [{ name: 'Ann', online: false, pos: [-20, 71, 0] }, { name: 'Bo', online: true, pos: [20, 71, 0] }] }
+  H.runCycle({ ...off, now: NOW + 15 * 60_000 })
+  fs.writeFileSync(annF, annOld)   // the crash: Ann's list was never rewritten
+  H.runCycle({ ...off, now: NOW + 21 * 60_000 })
+  assert.ok(!(fs.existsSync(boF) && JSON.parse(fs.readFileSync(boF, 'utf8')).jobs.some(j => j.id === X)), 'Bo does not get X while Ann\'s list held it at the cycle')
+  for (const m of [21, 36]) assert.ok(live(NOW + m * 60_000).length <= 1, `never on two live lists (minute ${m})`)
+  H.runCycle({ ...off, now: NOW + 36 * 60_000 })
+  assert.deepStrictEqual(live(NOW + 36 * 60_000), ['Bo'], 'after Ann\'s list is gone, X reaches Bo')
+}
+await t('C-A: a crash between the book and the lists never puts one job on two published lists', () => crashScenario(H))
+await t('MUTANT KILLED: the published lists are not read', () => killed('  const onDisk = publishedIds(pubDocs, now)', '  const onDisk = {}', crashScenario))
 await t('AN UNREADABLE RECORD: the cycle throws and writes nothing', async () => {
   const pool = town({ cuts: [[-20, 72, 0]] })
   const k = PJ.projKey(HOME, 'cottage2')

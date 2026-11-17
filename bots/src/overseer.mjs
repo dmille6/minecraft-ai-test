@@ -19,6 +19,10 @@
 
 export const OVERSEER = Object.freeze({
   cycleMs: 15 * 60_000,
+  // r6: a list lives 60 min. On the showcase the cycle runs at :10, :20 and :30 only (never beside the tripwire's read, ~:35 to
+  // ~:05): the longest gap is :30 -> :10 (40 min), 50 min when the :10 slot is skipped because the read overran. 60 min covers
+  // one skipped slot; a host that is gone leaves the bots on the shared record within an hour.
+  listTtlMs: 60 * 60_000,
   leaseMs: 4 * 60_000 + 60_000,  // buildproj.mjs LEASE_TTL_MS + its reclaim: a moved job waits this long past the move
   rateFloor: 2,                  // jobs/h a bot with no measured rate is credited (a new bot still gets work)
   slack: 1.5,                    // rebalance when the slowest list's hours-to-finish > slack x the fastest's
@@ -236,8 +240,10 @@ export function recheck (book, { zones = [], guard = () => false, home = null, r
   return { book: out, dropped }
 }
 /** A bot's list file (worklist-01show's v1 format; its listCheck refuses anything else). Pure. Only jobs it may start now. */
-export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs = 2 * OVERSEER.cycleMs, project = 'tidy', order = null, T = OVERSEER } = {}) {
-  const mine = order ? [] : book.filter(j => j.state === 'open' && j.owner === bot && j.notBefore <= now)
+export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs = OVERSEER.listTtlMs, project = 'tidy', order = null, onDisk = {}, T = OVERSEER } = {}) {
+  // r6 (crash safety): a job still on ANOTHER bot's published list (read from disk this cycle, not expired) is never listed here:
+  // whatever crashed, a job is live on one published list at most. It comes once that bot's list is rewritten without it, or expires.
+  const mine = order ? [] : book.filter(j => j.state === 'open' && j.owner === bot && j.notBefore <= now && !(onDisk[j.id] && onDisk[j.id] !== bot))
   const ok = new Set(mine.filter(j => !heldBelow(book, j, mine)).map(j => j.id))
   // r1 B2: sorted (a column top first) BEFORE the cap, so a cut column keeps its upper cells; a cell under one this list does not
   // carry (another's, unowned, waiting, set aside) is held back
@@ -260,7 +266,7 @@ export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs
  * A stalled bot's list carries its `unstick` order and no jobs (overseer-01show: the bot reads the order from its own file).
  * The host stores each order's time as that bot's `unstuckAt`.
  */
-export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, T = OVERSEER } = {}) {
+export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, onDisk = {}, T = OVERSEER } = {}) {
   let b = book
   for (const r of reports) b = ingestReport(b, r.bot, r.rep, { now, whyOf, T })
   const h3 = home ? [Math.floor(home.x), Math.floor(home.y), Math.floor(home.z)] : null
@@ -277,8 +283,8 @@ export function overseerCycle ({ book = [], reports = [], cells = [], scar = [],
   b = prune(b, now, T)
   const lists = {}
   if (home) {
-    for (const x of workers) if (x.online !== false) lists[x.name] = listDoc(b, x.name, { home, now, T })
-    for (const o of st.orders) lists[o.bot] = listDoc(b, o.bot, { home, now, order: o, T })
+    for (const x of workers) if (x.online !== false) lists[x.name] = listDoc(b, x.name, { home, now, onDisk, T })
+    for (const o of st.orders) lists[o.bot] = listDoc(b, o.bot, { home, now, order: o, onDisk, T })
   }
   const count = s => b.filter(j => j.state === s).length
   const added = fromRec.added.length + intake.added.length, sk = k => fromRec.skipped[k] + intake.skipped[k]
@@ -329,14 +335,18 @@ export function parseIdRow (detail) {
   }
   return rep
 }
+/** r6: a report row's identity -- the bot, its stamp and its whole detail (every job id it names). Pure. */
+export const rowKey = r => `${r.bot}|${r.t}|${r.detail}`
 /**
- * TELEMETRY ROWS -> { reports, stats, cursor }. Pure. rows [{ bot, t (ms), detail }] of the `_worklist` kind (any op); only rows
- * after `cursor` become reports (a row is ingested once); stats per bot over the last `windowMs`: rate = done+gone an hour,
- * lastProgressAt = its newest done/gone (from every row given, cursor or not).
+ * TELEMETRY ROWS -> { reports, stats, seen }. Pure. rows [{ bot, t (ms), detail }] of the `_worklist` kind (any op). r6: a row
+ * becomes a report ONCE by its identity (rowKey), not by a time cursor -- a row written after the last read with an earlier stamp,
+ * or two rows in one millisecond, are each taken exactly once. `seen` (the keys taken) is kept `keepMs` (longer than the rows'
+ * window, so a row can never come back after its key is forgotten). Stats per bot over the last `windowMs`: rate = done+gone an
+ * hour, lastProgressAt = its newest done/gone (from every row given).
  */
-export function readRows (rows = [], { cursor = 0, now = Date.now(), windowMs = 2 * 60 * 60_000 } = {}) {
+export function readRows (rows = [], { seen = [], now = Date.now(), windowMs = 2 * 60 * 60_000, keepMs = 4 * 60 * 60_000 } = {}) {
   const reports = [], stats = {}
-  let top = cursor
+  const had = new Map(seen.map(k => [k, Number(String(k).split('|')[1]) || 0]))
   for (const r of [...rows].sort((a, b) => a.t - b.t)) {
     const rep = parseIdRow(r.detail)
     if (!rep || !r.bot) continue
@@ -344,8 +354,15 @@ export function readRows (rows = [], { cursor = 0, now = Date.now(), windowMs = 
     const n = rep.ids.done.length + rep.ids.gone.length
     if (n && now - r.t <= windowMs) s.closed += n
     if (n) s.lastProgressAt = Math.max(s.lastProgressAt ?? 0, r.t)
-    if (r.t > cursor) { reports.push({ bot: r.bot, rep }); top = Math.max(top, r.t) }
+    const k = rowKey(r)
+    if (!had.has(k)) { had.set(k, r.t); reports.push({ bot: r.bot, rep }) }
   }
   for (const s of Object.values(stats)) s.rate = s.closed / (windowMs / 3_600_000)
-  return { reports, stats, cursor: top }
+  return { reports, stats, seen: [...had].filter(([, t]) => now - t <= keepMs).map(([k]) => k) }
+}
+/** r6: the PUBLISHED lists (as read from disk) -> { jobId: bot } for every list not past its `expires`. Pure. */
+export function publishedIds (docs = [], now = Date.now()) {
+  const out = {}
+  for (const d of docs) if (d && d.kind === 'worklist' && Number.isFinite(d.expires) && now <= d.expires && Array.isArray(d.jobs)) for (const j of d.jobs) if (j?.id) out[j.id] = String(d.bot)
+  return out
 }

@@ -163,7 +163,7 @@ await t('listDoc: worklist-01show v1 shape, top-first pillar with after', async 
   const d = O.listDoc(book, 'A', { home: { x: 0.5, y: 64, z: 0.5 }, now: NOW })
   assert.deepStrictEqual([d.v, d.kind, d.project, d.bot, d.home], [1, 'worklist', 'tidy', 'A', [0, 64, 0]])
   assert.deepStrictEqual(d.jobs.map(j => j.id), ['r:2,66,2', 'r:2,65,2']); assert.deepStrictEqual(d.jobs[1].after, ['r:2,66,2'])
-  assert.ok(d.expires > NOW); assert.strictEqual(O.listLease('Comet'), 'seg-clear-wlComet')
+  assert.strictEqual(d.expires, NOW + 60 * 60_000, 'r6: a list lives 60 min (one skipped slot is harmless)'); assert.strictEqual(O.listLease('Comet'), 'seg-clear-wlComet')
 })
 
 // ---------------------------------------------------------------- overseer-01show phase 1
@@ -203,18 +203,23 @@ await t('id rows: one codec both ways, reasons kept, <= 300 a row, blocked/unrea
 await mutant('rows past 300', "if (cur.length && head.length + cur.join(';').length + 1 + e.length > rowMax) { out.push(head + cur.join(';')); cur = [] }", '', wireScenario)
 await mutant('blocked counted as an attempt', 'if (why && NOT_AN_ATTEMPT.has(why)) continue', '', wireScenario)
 
-// reports are ingested once (the cursor); rate and progress are measured from every row in the window
+// reports are ingested once (by identity); rate and progress are measured from every row in the window
 const rowsScenario = async M => {
   const r = (bot, t, d) => ({ bot, t, detail: d })
   const rows = [r('A', NOW - 90 * 60_000, 'op=ids list=1 ids=d:r:1,2,3;d:r:1,3,3'), r('A', NOW - 10 * 60_000, 'op=ids list=2 ids=g:r:4,4,4;r:r:5,5,5=water'),
     r('B', NOW - 5 * 60_000, 'op=ids list=2 ids=r:r:6,6,6=footing'), r('B', NOW - 4 * 60_000, 'op=visit list=2 n=1 done=0')]
-  const a = M.readRows(rows, { cursor: NOW - 60 * 60_000, now: NOW })
-  assert.deepStrictEqual(a.reports.map(x => x.bot), ['A', 'B'], 'the row before the cursor is not ingested again')
-  assert.strictEqual(a.cursor, NOW - 5 * 60_000)
+  const a = M.readRows(rows, { now: NOW })
+  assert.deepStrictEqual(a.reports.map(x => x.bot), ['A', 'A', 'B'])
   assert.strictEqual(a.stats.A.rate, 1.5); assert.strictEqual(a.stats.A.lastProgressAt, NOW - 10 * 60_000)
   assert.strictEqual(a.stats.B.lastProgressAt, null); assert.strictEqual(a.stats.B.rate, 0)
-  const b = M.readRows(rows, { cursor: a.cursor, now: NOW })
-  assert.strictEqual(b.reports.length, 0)
+  const b = M.readRows(rows, { seen: a.seen, now: NOW })
+  assert.strictEqual(b.reports.length, 0, 'a row is taken once')
+  // r6: a LATE row (written after the last read, stamped earlier than rows already taken) and a row in the SAME millisecond as one
+  // already taken are each taken exactly once
+  const late = [...rows, r('C', NOW - 60 * 60_000, 'op=ids list=2 ids=d:r:9,9,9'), r('A', NOW - 10 * 60_000, 'op=ids list=2 ids=d:r:7,7,7')]
+  const c2 = M.readRows(late, { seen: b.seen, now: NOW })
+  assert.deepStrictEqual(c2.reports.map(x => [x.bot, x.rep.ids.done[0]]), [['C', 'r:9,9,9'], ['A', 'r:7,7,7']])
+  assert.strictEqual(M.readRows(late, { seen: c2.seen, now: NOW }).reports.length, 0)
   // through the cycle: a refusal's reason reaches the set-aside list
   let book = [job(M, 5, 5, 5)]
   const rep = why => ({ ids: { done: [], gone: [], refused: ['r:5,5,5'], unreachable: [] }, why: { 'r:5,5,5': why } })
@@ -223,7 +228,8 @@ const rowsScenario = async M => {
   assert.deepStrictEqual(c.setAside.map(j => [j.id, j.why]), [['r:5,5,5', 'water x3 by 2 bots']])
 }
 await t('rows: ingested once, rate per hour over 2 h, last progress; a refusal\'s reason reaches the set-aside list', () => rowsScenario(O))
-await mutant('rows ingested again', 'if (r.t > cursor) { reports.push', 'if (true) { reports.push', rowsScenario)
+await mutant('rows ingested again', "    if (!had.has(k)) { had.set(k, r.t); reports.push", "    if (true) { had.set(k, r.t); reports.push", rowsScenario)
+await mutant('a time cursor drops late rows', "    if (!had.has(k)) { had.set(k, r.t); reports.push", "    if (!had.has(k) && r.t > Math.max(0, ...[...had.values()])) { had.set(k, r.t); reports.push", rowsScenario)
 await mutant('the report\'s reason is dropped', "say.set(id, whyOf(id) ?? rep?.why?.[id] ?? 'refused')", "say.set(id, whyOf(id) ?? 'refused')", rowsScenario)
 
 // ---------------------------------------------------------------- review r1
@@ -287,6 +293,17 @@ const retireScenario = async M => {
 }
 await t('retired bot: its jobs are released with notBefore, no order', () => retireScenario(O))
 await mutant('a bot gone from the roster keeps its jobs', "  for (const [owner] of holds) if (!bots.some(b => b.name === owner)) drop.set(owner, 'gone')", '', retireScenario)
+
+const pubScenario = async M => {
+  const book = [job(M, 3, 65, 3, { owner: 'B' }), job(M, 4, 65, 4, { owner: 'B' })]
+  const onDisk = M.publishedIds([{ kind: 'worklist', bot: 'A', expires: NOW + 1, jobs: [{ id: 'r:3,65,3' }] }, { kind: 'worklist', bot: 'C', expires: NOW - 1, jobs: [{ id: 'r:4,65,4' }] }], NOW)
+  assert.deepStrictEqual(onDisk, { 'r:3,65,3': 'A' }, 'an expired list holds nothing')
+  assert.deepStrictEqual(M.listDoc(book, 'B', { home: { x: 0, y: 64, z: 0 }, now: NOW, onDisk }).jobs.map(j => j.id), ['r:4,65,4'])
+  assert.deepStrictEqual(M.listDoc(book, 'B', { home: { x: 0, y: 64, z: 0 }, now: NOW, onDisk: { 'r:3,65,3': 'B' } }).jobs.length, 2, 'its own published job stays')
+}
+await t('r6: a job on another bot\'s live published list is not listed', () => pubScenario(O))
+await mutant('r6: listed on two lists', ' && !(onDisk[j.id] && onDisk[j.id] !== bot))', ')', pubScenario)
+await mutant('r6: an expired list still holds', ' && now <= d.expires && Array.isArray(d.jobs))', ' && Array.isArray(d.jobs))', pubScenario)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

@@ -290,7 +290,7 @@ import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
-import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, listedCache, WORKLIST_FILE_RE } from './worklist.mjs'   // worklist-01: a bot's own list from the host
+import { WORKLIST, worklistOn, worklistFile, worklistPlot, listCheck, listWork, listRecordBody, visitReport, worklistDetail, reportSig, WORKLIST_PROJECTS, WORKLIST_OFF_FILE, worklistIdRows, unstickOf, listedCells, listedCache, ownIdsCache, WORKLIST_FILE_RE } from './worklist.mjs'   // worklist-01: a bot's own list from the host
 import { listLease as wlListLease } from './overseer.mjs'   // overseer-01show: the list is worked under buildrun.mjs's clear-part lease `seg-clear-wl<bot>`
 import { claimedAt as wlClaimedAt } from './tidy.mjs'   // worklist-01: a sited building's claim holds a listed cell
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -30022,17 +30022,22 @@ function worklistGuardStrict () {
  *  (cognitive.mjs) acts on it with the existing way up / home / grounds steer (minecrew.mjs crewSteer, forced). */
 /** r1 C1: the cells on any live list in the town's directory -> Set("x,y,z") (empty when WORKLIST is off or nothing is listed);
  *  an unreadable list file reads as no file. Read once per shared visit. */
+/** r6: every list file in the town -> [{ name, doc } | { name, err }]; [] while `worklist.OFF` stands (no list is worked, so none is
+ *  vetoed either). Throws when the directory cannot be listed (listedCache keeps its previous set). */
 function worklistDocsNow () {
-  const dir = townDir(), docs = []
-  for (const f of fs.readdirSync(dir)) if (WORKLIST_FILE_RE.test(f)) { try { docs.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))) } catch { /* torn: skipped */ } }
-  return docs
+  const dir = townDir()
+  if (fs.existsSync(path.join(dir, WORKLIST_OFF_FILE))) return []
+  const out = []
+  for (const f of fs.readdirSync(dir)) if (WORKLIST_FILE_RE.test(f)) { try { out.push({ name: f, doc: JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }) } catch (e) { out.push({ name: f, err: String(e?.code ?? 'parse') }) } }
+  return out
 }
 export function worklistListedNow (now = Date.now()) {
   if (!WL_ON) return new Set()
-  try { return listedCells(worklistDocsNow(), { home: planHomeP(), now }) } catch { return new Set() }
+  try { return listedCells(worklistDocsNow().filter(f => !f.err).map(f => f.doc), { home: planHomeP(), now }) } catch { return new Set() }
 }
-/** r2: the listed cells for one shared visit, re-read at most every 5 s (worklist.mjs listedCache) -- asked again before each cut. */
-const worklistListedFresh = () => (WL_ON ? listedCache(worklistDocsNow, { home: planHomeP() }) : () => new Set())
+/** r2/r6: the listed cells for one shared visit, re-read at most every 5 s (worklist.mjs listedCache) -- asked again before each cut;
+ *  an unreadable list file keeps its last cells (one row the first time). */
+const worklistListedFresh = () => (WL_ON ? listedCache(worklistDocsNow, { home: planHomeP(), onError: name => { try { logEvent({ kind: 'worklist', status: 'no_effect', detail: `op=veto_unread file=${name}` }) } catch { /* telemetry */ } } }) : () => new Set())
 export function worklistUnstickNow (bot, { done = () => false, now = Date.now() } = {}) {
   if (!WL_ON) return null
   try {
@@ -30096,6 +30101,8 @@ async function worklistVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_
   if (!slot.ok) return no('slots_full')
   const slotRef = { gen: slot.gen }
   const waited = new Map()   // "x,y,z" -> why: the dig's own refusals this visit
+  // r6: the bot's own list re-read before each job (<= 5 s old): a job the host moved off it is not taken
+  const ownIds = ownIdsCache(() => (fs.existsSync(path.join(dir, WORKLIST_OFF_FILE)) ? null : JSON.parse(fs.readFileSync(path.join(dir, worklistFile(me)), 'utf8'))), { bot: me, home })
   // AT THE DIG (runVisit asks before the walk and again after it): the guard FRESH, the zones, the claims, water beside the cell, a
   // body on it, this bot's own footing -- the tidy's checks (buildTidyVisit `tidyOk`) and the water walk's guard
   const tidyOk = (q, rd) => {
@@ -30118,7 +30125,7 @@ async function worklistVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_
     bot.shopUnknown ??= new Set()
     r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: rh.head.rec, tidy: w.cuts, tidyKeepOrder: true, recordGen: rh.head.gen, palette: {}, res: null, resFailed: false,
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wlStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
-      domain: () => true, walkR: WORKLIST.walkR, blockLayer: false, clearMax: WORKLIST.cutsPerVisit, stuckStalledOnly: true, tidyOk, clearPart: { lease: wlListLease(me) } },
+      domain: () => true, walkR: WORKLIST.walkR, blockLayer: false, clearMax: WORKLIST.cutsPerVisit, stuckStalledOnly: true, tidyOk, clearPart: { lease: wlListLease(me) }, tidyVeto: q => !ownIds().has(q.id) },
     effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
     const rep = report(r, waited)
     // a job evaluated with its block still standing counts toward this bot passing it over (never for an interrupted visit)

@@ -274,7 +274,7 @@ const raceScenario = async M => {
   const srv = stand({ ...col(5, 0, 1), ...col(8, 0, 1) })
   const docs = []
   let clock = NOW
-  const fresh = M.listedCache(() => docs, { home: HOME, clock: () => (clock += 6_000) })
+  const fresh = M.listedCache(() => docs.map((doc, i) => ({ name: `f${i}`, doc })), { home: HOME, clock: () => (clock += 6_000) })
   const key = PJ.projKey(HOME, 'tidy')
   const cuts = [rm(5, G + 1, 0), rm(8, G + 1, 0)]
   const a = visitP(dir, 'A', cuts, srv, { key, extra: { tidyVeto: q => fresh().has(q.at.join(',')) } })
@@ -287,7 +287,42 @@ const raceScenario = async M => {
   assert.strictEqual(srv.read(8, G + 1, 0).name, 'dirt')
 }
 await t('C1 race: a cell listed after the shared visit began is skipped by its next cut (re-read within 5 s)', () => raceScenario(W))
-await mutant('C1 race: the listed cells are read once for the whole visit', '    if (now - at > ttlMs) { at = now;', '    if (at === -Infinity) { at = now;', raceScenario)
+await mutant('C1 race: the listed cells are read once for the whole visit', '    if (now - at <= ttlMs) return set\n    at = now\n    let files', '    if (at !== -Infinity) return set\n    at = now\n    let files', raceScenario)
+// r6 (review 1): the shared visit's veto fails CLOSED -- a read error keeps the last set; one unreadable file keeps its last cells
+const vetoScenario = async M => {
+  const a = DOC([rm(5, G + 1, 0)], { bot: 'A' }), b = DOC([rm(8, G + 1, 0)], { bot: 'B' })
+  let files = [{ name: 'worklist-A.json', doc: a }, { name: 'worklist-B.json', doc: b }], clock = NOW
+  const told = []
+  const fresh = M.listedCache(() => { if (files === 'throw') throw new Error('EIO'); return files }, { home: HOME, clock: () => (clock += 6_000), onError: n => told.push(n) })
+  assert.deepStrictEqual([...fresh()].sort(), [`5,${G + 1},0`, `8,${G + 1},0`])
+  files = 'throw'
+  assert.strictEqual(fresh().size, 2, 'a read that throws keeps the previous set')
+  files = [{ name: 'worklist-A.json', err: 'parse' }, { name: 'worklist-B.json', doc: b }]
+  assert.deepStrictEqual([...fresh()].sort(), [`5,${G + 1},0`, `8,${G + 1},0`], 'a torn file keeps its last cells')
+  files = [{ name: 'worklist-C.json', err: 'parse' }, { name: 'worklist-B.json', doc: b }]
+  fresh(); fresh()
+  assert.deepStrictEqual(told, ['worklist-C.json'], 'a file never read is skipped and named once')
+  // review 3: the switch off -> the reader returns no files -> no veto at all
+  files = []
+  assert.strictEqual(fresh().size, 0)
+}
+await t('r6 veto: fails closed on a read error or a torn file; nothing vetoed while the town switch is off', () => vetoScenario(W))
+await mutant('r6 veto: a read error empties the set', '    try { files = readFiles() ?? [] } catch { return set }', '    try { files = readFiles() ?? [] } catch { files = [] }', vetoScenario)
+await mutant('r6 veto: a torn file loses its cells', '        cells = byFile.get(f.name) ?? null\n', '        cells = null\n', vetoScenario)
+// r6 (Codex A, bot side): the bot's own list re-read before each job -- a job the host moved off it is not taken
+const ownScenario = async M => {
+  let doc = DOC([rm(5, G + 1, 0), rm(8, G + 1, 0)]), clock = NOW
+  const own = M.ownIdsCache(() => doc, { bot: 'A', home: HOME, clock: () => (clock += 6_000) })
+  assert.strictEqual(own().size, 2)
+  doc = DOC([rm(8, G + 1, 0)])
+  assert.deepStrictEqual([...own()], [`r:8,${G + 1},0`])
+  doc = null
+  assert.strictEqual(own().size, 0, 'a file gone: no further job')
+  doc = DOC([rm(8, G + 1, 0)], { expires: NOW - 1 })
+  assert.strictEqual(own().size, 0, 'an expired file: no further job')
+}
+await t('r6 own list: re-read before each job; a moved, gone or expired list takes no further job', () => ownScenario(W))
+await mutant('r6 own list read once', "  return () => {\n    const now = clock()\n    if (now - at <= ttlMs) return set\n    at = now\n    let doc = null", "  return () => {\n    const now = clock()\n    if (at !== -Infinity) return set\n    at = now\n    let doc = null", ownScenario)
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 const strip = s => s.split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
 const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
@@ -321,12 +356,13 @@ await t('overseer-01show wiring: the town switch file before the list, the list 
   const one = (hay, needle, what) => assert.strictEqual(hay.split(needle).length, 2, what)
   one(v, "  if (fs.existsSync(path.join(dir, WORKLIST_OFF_FILE))) return no('off_file')", 'the town switch')
   assert.ok(v.indexOf("return no('off_file')") < v.indexOf('fs.readFileSync(path.join(dir, worklistFile(me))'), 'the switch is read before the list')
-  one(v, 'tidyOk, clearPart: { lease: wlListLease(me) } },', 'the visit holds the list lease seg-clear-wl<bot>')
+  one(v, 'tidyOk, clearPart: { lease: wlListLease(me) }, tidyVeto: q => !ownIds().has(q.id) },', 'the visit holds the list lease seg-clear-wl<bot> and re-reads its own list before each job')
   assert.strictEqual(v.split('idRowsOut(rep, chk.issued)').length, 3, 'id rows after the nothing row and after the visit row')
   const CG = strip(fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
   one(CG, '    if (!order && this.#wlUnstick()) this.crewForce = true\n    if (MINECREW.on) { if (order) this.crewForce = false;', 'the unstick forces the steer, just before it')
   one(CG, 'worklistUnstickNow(this.bot, { done: id => id === this.wlUnstickDone, now })', 'one order, once')
   one(SK, '    const wlListed = worklistListedNow()', 'the shared visit reads the listed cells once')
+  one(SK, '  if (fs.existsSync(path.join(dir, WORKLIST_OFF_FILE))) return []', 'the town switch off: no list file is read for the veto (nothing vetoed)')
   one(SK, "      ...(WL_ON ? { tidyVeto: q => wlFresh().has(q.at.join(',')) } : {}), ...tempStandOf(bot, c, TIDY_PLOT), ", 'each shared cut re-reads the listed cells (no lists, WORKLIST off: no veto at all)')
   const BR = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
   one(BR, "        if (c.kind === 'tidy' && typeof p.tidyVeto === 'function' && p.tidyVeto(c)) continue", 'runVisit asks the veto before each cut')

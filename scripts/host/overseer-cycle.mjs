@@ -12,11 +12,14 @@
 // LIVE (input.live): `worklist-<bot>.json` into the town's directory, atomically; a bot with no list now has its old file removed.
 // DRY: the lists go to `scratch`; the town's directory is never touched, except once when the switch goes off (stopLive: the
 // lists the live book says it published are removed and the stop is recorded). Zones are required (no file: no cycle). The book is kept per mode (state/book.live.json, state/book.dry.json): a dry run's stalls never reach a live book.
+// r6: the book is read with what is PUBLISHED on disk (publishedIds): a job on one bot's live list is listed to no other until
+// that list is rewritten without it or expires (60 min) -- whatever crashed between the book and the lists. Reports are taken
+// once by identity (readRows `seen`), never by a time cursor. Install conditions: overseer.py's header.
 // Phase 1 is removals only within `radius` of home. Nothing here reads the world: the bot reads every block again before it digs.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { overseerCycle, readRows, listLease } from '../../bots/src/overseer.mjs'
+import { overseerCycle, readRows, listLease, publishedIds } from '../../bots/src/overseer.mjs'
 import { recordHead, projKey, leaseState } from '../../bots/src/buildproj.mjs'
 
 const REC_KEY_RE = /^(project-[^.]+\.[^.]+)\.g\d+\.json$/   // a record generation (a lease or a slot has more dots)
@@ -70,7 +73,7 @@ export function runCycle (inp, { write = true } = {}) {
   const home = { x: inp.home[0], y: inp.home[1], z: inp.home[2] }
   const mode = inp.live ? 'live' : 'dry'
   const bookFile = path.join(inp.state, `book.${mode}.json`)
-  const st = readJ(bookFile, { v: 1, book: [], cursor: 0, givenAt: {}, unstuckAt: {} })
+  const st = readJ(bookFile, { v: 1, book: [], seen: [], givenAt: {}, unstuckAt: {} })
   // r1 C4: the zones are REQUIRED -- no file, an unreadable one or one without a zone list is no cycle (protection never fails open)
   if (!inp.zones) throw new Error('zones: no --zones given')
   let zdoc = null
@@ -78,13 +81,21 @@ export function runCycle (inp, { write = true } = {}) {
   if (!zdoc || !Array.isArray(zdoc.zones)) throw new Error(`zones unreadable: ${inp.zones}`)
   const zones = zdoc.zones
   const { cells, guard } = townReadings(inp.pool, home)
-  const rr = readRows(inp.rows ?? [], { cursor: st.cursor ?? 0, now })
+  const rr = readRows(inp.rows ?? [], { seen: st.seen ?? [], now })
   const holds = new Map()
   for (const j of st.book) if (j.state === 'open' && j.owner) holds.set(j.owner, true)
   const bots = (inp.bots ?? []).map(b => ({ name: b.name, online: b.online !== false, pos: b.pos ?? null, rate: rr.stats[b.name]?.rate ?? 0,
     lastProgressAt: rr.stats[b.name]?.lastProgressAt ?? null, givenAt: st.givenAt?.[b.name] ?? now, unstuckAt: st.unstuckAt?.[b.name] ?? null }))
   const leased = bot => { try { return leaseState(inp.pool, projKey(home, listPlot(bot)), listLease(bot))?.holdsUntil ?? 0 } catch { return 0 } }
-  const c = overseerCycle({ book: st.book, reports: rr.reports, cells, bots, zones, guard: k => guard.has(k), leased, home, radius: Number(inp.radius) || 128, now })
+  // r6: what is PUBLISHED now, read from disk (the truth after any crash) -- a job on one bot's live list is listed to no other
+  const pubDir = inp.live ? inp.pool : inp.scratch
+  const pubDocs = []
+  for (const f of fs.existsSync(pubDir) ? fs.readdirSync(pubDir) : []) {
+    if (!LIST_RE.test(f)) continue
+    try { pubDocs.push(JSON.parse(fs.readFileSync(path.join(pubDir, f), 'utf8'))) } catch (e) { if (e?.code !== 'ENOENT') throw new Error(`published list unreadable: ${f}`) }
+  }
+  const onDisk = publishedIds(pubDocs, now)
+  const c = overseerCycle({ onDisk, book: st.book, reports: rr.reports, cells, bots, zones, guard: k => guard.has(k), leased, home, radius: Number(inp.radius) || 128, now })
   // the clocks the next cycle needs: when a bot was first given work (since it last held none), when it was last sent `unstick`
   const givenAt = {}, unstuckAt = { ...(st.unstuckAt ?? {}) }
   for (const j of c.book) if (j.state === 'open' && j.owner) givenAt[j.owner] = holds.has(j.owner) ? (st.givenAt?.[j.owner] ?? now) : now
@@ -94,7 +105,7 @@ export function runCycle (inp, { write = true } = {}) {
   if (!write) return { summary, cycle: c }
   // r5: THE BOOK FIRST. A crash after it and before the lists leaves the old lists, which expire (listDoc: 30 min) -- and the
   // book's notBefore already guards every move; the other order could leave lists the book never knew it gave out.
-  writeAtomic(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, cursor: rr.cursor, givenAt, unstuckAt, at: now })
+  writeAtomic(bookFile, { ...(inp.live ? { published: Object.keys(c.lists).length > 0 || !!st.published } : {}), v: 1, book: c.book, seen: rr.seen, givenAt, unstuckAt, at: now })
   if (inp.live) {
     for (const [b, d] of Object.entries(c.lists)) writeAtomic(path.join(inp.pool, listFile(b)), d)
     // a list file this cycle did not write is removed: a bot with no list now
