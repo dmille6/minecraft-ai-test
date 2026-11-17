@@ -884,7 +884,8 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
     for (let x = b[0]; x <= b[2]; x++) for (let z = b[1]; z <= b[3]; z++) { const c = col(x, z); if (ground(c)) ys.push(c.y) }
     if (!ys.length) { skip('plot_unread'); continue }
     ys.sort((p, q) => p - q)
-    const floor = ys[Math.floor(ys.length / 2)]
+    // whsite-01 (`plot.floor`): a plot levelled to a GIVEN floor (the storehouse's site: the owner's level), else its median ground
+    const floor = Number.isInteger(plot.floor) ? plot.floor : ys[Math.floor(ys.length / 2)]
     const summary = { id: plot.id, box: [...b], floor, trees: 0, stands: 0, cut: 0, fill: 0, kept: 0 }
     const used = new Set()   // columns a tree, a stand or a landing takes (no levelling there)
     // ---- THE TREES ----

@@ -275,10 +275,12 @@ export const CLERK_LEASE_MS = 12 * 60_000
  *   a plant at or over its PLANTS cap (`plantsHeld`: the PLANTS chests' count of it) -> 'stay';
  *   everything else -> 'hall', its section (an unknown item: 'unsorted').
  */
-export function clerkRoute (name, { well = true, isJunk = () => true, plantsHeld = 0 } = {}) {
+export function clerkRoute (name, { well = true, isJunk = () => true, plantsHeld = 0, sectionOf = null } = {}) {
   if (hubThrowable(name, isJunk)) return well ? { to: 'well', section: null, why: 'junk' } : { to: 'hall', section: 'unsorted', why: 'junk_well_off' }
-  const section = hubSectionOf(name)
-  const cap = section === 'plants' ? plantCap(name) : null
+  // warehouse-01 (`sectionOf(name, section)`): the columns' kinds are the homes (warehouse.mjs whSectionOf); the plants' cap is the item's
+  const hs = hubSectionOf(name)
+  const section = sectionOf ? sectionOf(name, hs) : hs
+  const cap = hs === 'plants' ? plantCap(name) : null
   if (cap != null && (Number(plantsHeld) || 0) >= cap) return { to: 'stay', section, why: 'plant_cap' }
   return { to: 'hall', section, why: section === 'unsorted' ? 'unknown' : 'sorted' }
 }
@@ -304,7 +306,7 @@ export function clerkTargets (homes, section) {
  * free slot in its entry after the moves planned (an unknown hall chest -- no entry yet -- is taken as empty: the hall is new and
  * the put verifies against the server).
  */
-export function clerkMoves (homes, entries = {}, { hubKeys = new Set(), sources = null, held = {}, stackable = () => true, maxSlots = CLERK_STACKS, skip = () => false, well = true, isJunk = () => true } = {}) {
+export function clerkMoves (homes, entries = {}, { hubKeys = new Set(), sources = null, held = {}, stackable = () => true, maxSlots = CLERK_STACKS, skip = () => false, well = true, isJunk = () => true, sectionOf = null, stage = false, stackOf = () => 64 } = {}) {
   if (!homes || !(maxSlots > 0)) return null
   const free = new Map()
   for (const k of homes.byKey.keys()) {
@@ -312,7 +314,7 @@ export function clerkMoves (homes, entries = {}, { hubKeys = new Set(), sources 
     free.set(k, Number.isFinite(e?.size) && Number.isFinite(e?.used) ? Math.max(0, e.size - e.used) : 27)
   }
   const plants = {}
-  for (const k of homes.homeOf.get('plants') ?? []) for (const [n, v] of Object.entries(entries?.[k]?.names ?? {})) plants[n] = (plants[n] ?? 0) + (Number(v?.[0]) || 0)
+  for (const k of homes.homeOf.get(sectionOf ? sectionOf('oak_sapling', 'plants') : 'plants') ?? []) for (const [n, v] of Object.entries(entries?.[k]?.names ?? {})) plants[n] = (plants[n] ?? 0) + (Number(v?.[0]) || 0)
   const skipped = {}
   const cands = []
   for (const [from, e] of Object.entries(entries ?? {})) {
@@ -329,7 +331,7 @@ export function clerkMoves (homes, entries = {}, { hubKeys = new Set(), sources 
       // NO MERGE (Codex review blocker 3): a stackable kind the bag holds is never taken; a tool the bag holds neither (the put's
       // count floor could bank the bot's own copy and keep the town's: sortstore's sortHeldUnstackable rule)
       if ((Number(held?.[name]) || 0) > 0) { skipped.held = (skipped.held ?? 0) + 1; continue }
-      const r = clerkRoute(name, { well, isJunk, plantsHeld: plants[name] ?? 0 })
+      const r = clerkRoute(name, { well, isJunk, plantsHeld: plants[name] ?? 0, sectionOf })
       if (r.to === 'stay') { skipped[r.why] = (skipped[r.why] ?? 0) + 1; continue }
       let only = null
       if (own) {
@@ -369,6 +371,32 @@ export function clerkMoves (homes, entries = {}, { hubKeys = new Set(), sources 
       out.push({ name: m.name, slots, count, to, section: m.section, why: m.why })
     }
     if (out.length) return { from: c.from, moves: out, skipped }
+  }
+  // warehouse-01 (`stage`; Codex r1 on dba279290, blocker 4): A FULL MIXED HALL -- tools in the valuables' full column, valuables in the
+  // tools' full column, the overflow full: neither stack has a target, the plan was empty for good and both kinds' deposits failed
+  // for good. THE STAGE: with no ordinary move, ONE misplaced stack is moved out of a hall chest A into any hall chest with a free slot
+  // -- only when another chest holds a stack that BELONGS in A's kind (the slot freed in A is what that stack was waiting for: the
+  // next plan is an ordinary move, and the staged stack follows once its own home has the slot the same way). Never a stack already
+  // where it belongs; one stack a visit.
+  if (stage) {
+    const owner = k => homes.byKey.get(k)?.section ?? null
+    const wanted = new Set()   // the kinds some misplaced stack elsewhere belongs to, by the chest it sits in
+    const waits = new Map()    // kind -> the chests holding a stack that belongs to it and sits elsewhere
+    for (const c of cands) if (c.hall) for (const m of c.moves) if (m.to !== 'well' && m.section !== owner(c.from)) { wanted.add(m.section); if (!waits.has(m.section)) waits.set(m.section, new Set()); waits.get(m.section).add(c.from) }
+    for (const c of cands) {
+      if (!c.hall) continue
+      const kindA = owner(c.from)
+      if (!kindA || ![...(waits.get(kindA) ?? [])].some(k => k !== c.from)) continue
+      const m = c.moves.filter(x => x.to !== 'well' && x.section !== kindA).sort((a, b) => a.slots - b.slots || (a.name < b.name ? -1 : 1))[0]
+      if (!m) continue
+      const to = [...free.entries()].filter(([k, n]) => k !== c.from && n > 0 && owner(k) !== kindA).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null
+      if (!to) continue
+      // Codex r2 blocker E: ONE WHOLE STACK'S WORTH (never the average: 32 of a 64 and a 1 freed no slot and took the hall's last
+      // empty one) -- a take of a full stack's count empties at least one source slot (the take goes stack by stack) and fills one
+      const count = Math.min(m.count, Math.max(1, Number(stackOf(m.name)) || 64))
+      if (!(count > 0)) continue
+      return { from: c.from, moves: [{ name: m.name, slots: 1, count, to, section: m.section, why: 'stage' }], skipped }
+    }
   }
   return null
 }

@@ -300,10 +300,10 @@ export function rowSteps (bag = [], names = {}, keeps = {}, halves = () => []) {
  * latest observation of the chest ({ names: { name: [count, slots] }, used, size }): an empty slot, or a stack of the kind that is
  * not full.
  */
-export function rowChestRoom (obs, kind, stackOf = () => 64) {
+export function rowChestRoom (obs, kind, stackOf = () => 64, kindOf = rowKindOf) {
   if (!obs || !Number.isFinite(obs.size)) return null
   if ((Number(obs.used) || 0) < obs.size) return true
-  for (const [name, v] of Object.entries(obs.names ?? {})) if (rowKindOf(name) === kind && (Number(v?.[0]) || 0) < (Number(v?.[1]) || 0) * (Number(stackOf(name)) || 64)) return true
+  for (const [name, v] of Object.entries(obs.names ?? {})) if (kindOf(name) === kind && (Number(v?.[0]) || 0) < (Number(v?.[1]) || 0) * (Number(stackOf(name)) || 64)) return true
   return false
 }
 /**
@@ -313,12 +313,12 @@ export function rowChestRoom (obs, kind, stackOf = () => 64) {
  * where it has none.
  */
 export const ROW_FULL_MS = 30 * 60_000   // how long a bot's own "it took nothing" stands (skills.mjs yardRowBank)
-export function rowFullKeys (rows = [], { obsOf = () => null, remembered = new Map(), now = Date.now(), stackOf = () => 64 } = {}) {
+export function rowFullKeys (rows = [], { obsOf = () => null, remembered = new Map(), now = Date.now(), stackOf = () => 64, kindOf = rowKindOf } = {}) {   // warehouse-01 (`kindOf`): the hall's columns are judged by the same rule
   const out = new Set()
   for (const r of rows) {
     const k = r.at.join(',')
     const obs = obsOf(k)
-    const room = rowChestRoom(obs, r.kind, stackOf)
+    const room = rowChestRoom(obs, r.kind, stackOf, kindOf)
     const until = remembered.get(k) ?? 0
     // Codex r3: this bot's own failure is the NEWER word when no observation has been made since it (a chest of one sapling species
     // with a partial stack reads as "room" to a bot carrying another species: it failed there, and nothing changed since). An

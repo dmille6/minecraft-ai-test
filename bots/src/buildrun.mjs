@@ -541,6 +541,15 @@ const byColumn = keys => {
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
  *        attempts_spent | unknown.
  */
+/**
+ * WHSITE-01 (`p.clearPart` = { lease, has(c) }): A PROJECT'S CLEARS IN PARTS -- one lease a part (`seg-clear-<part>`), each part's
+ * own clear entries, so several builders clear one record at once (the storehouse's ground: ~350 trees in four quadrants). Without
+ * it -- every other project -- the one lease `seg-clear` and the whole list, exactly as before. Pure.
+ */
+export const clearLeaseOf = p => (typeof p?.clearPart?.lease === 'string' && /^seg-clear-[A-Za-z0-9]+$/.test(p.clearPart.lease) ? p.clearPart.lease : 'seg-clear')
+/** ...and the segment name a click under that lease is checked against (the lease without its `seg-`): `clear` for every other project. */
+export const clearSegOf = p => clearLeaseOf(p).slice(4)
+export const clearPartHas = (p, c) => typeof p?.clearPart?.has !== 'function' || !!p.clearPart.has(c)
 export async function runVisit (p, e, opts = {}) {
   const r = await visitInner(p, e, opts)
   // LEAVING THE SITE (monument-01, `p.leaveIf(feet)` / `p.leaveTo`): a builder whose visit ends standing on the build walks off it,
@@ -1394,10 +1403,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const step = stepZ(rd, home, r.cell, nodes, rpDom)
     if (!step || step.support[1] !== r.cell[1] - 1) { const o = remedy(r, nodes, 'no_step'); if (o) return o; continue }
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
-    const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
+    const seg = PJ.takeLease(dir, key, clearLeaseOf(p), me, { now: now() })
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
-    const v = await click(r.cell, r.sapling, step, 'clear', seg.gen, { want: b => SAPLING.test(nm(b)), dom: rpDom })
-    PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen)
+    const v = await click(r.cell, r.sapling, step, clearSegOf(p), seg.gen, { want: b => SAPLING.test(nm(b)), dom: rpDom })   // Codex r2 blocker F: the lease it HOLDS
+    PJ.releaseLease(dir, key, clearLeaseOf(p), me, seg.gen)
     // a silent replant click is counted (Claude read r3 P3-1: its late acknowledgement may have planted the sapling untallied, so
     // the bag row must not read as a clean exit)
     if (v === 'silent') out.silent++
@@ -1430,14 +1439,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // cells): dug after the record's own clears, highest first, under the same lease and the same per-call bound
     // reroof-04 r6: a listed jump-apex leaf (`apex: 1`, reroof.mjs reroofApexLeaves) is never dug by this pass -- low before high it walked a
     // builder down into the pit beside the workshop (Paper 11-08) -- only by the walk, before a jump-up it plans needs it (buildbot apexDig)
-    const todo = [...(record.clear ?? []).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c)))).sort((a, b) => a.at[1] - b.at[1]),
+    const todo = [...(record.clear ?? []).filter(c => clearPartHas(p, c)).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c)))).sort((a, b) => a.at[1] - b.at[1]),
       ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => (p.tidyKeepOrder ? 0 : b.at[1] - a.at[1]))]
     // groundskeeper-01 (`p.tidyKeepOrder`): the caller's order is kept -- the town tidy's cuts chained column by column from the
     // bot (tidy.mjs chainCuts: top first within a column), not highest first across the town (a walk across it between two digs)
     if (!todo.length) return null
-    const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
+    const seg = PJ.takeLease(dir, key, clearLeaseOf(p), me, { now: now() })
     if (!seg.ok) return null                                       // another builder is clearing: its segments wait for it
-    const held = () => PJ.holdsLease(dir, key, 'seg-clear', me, seg.gen, now())
+    const held = () => PJ.holdsLease(dir, key, clearLeaseOf(p), me, seg.gen, now())
     // the walk's nodes are re-planned only after a dig that LANDED (a skipped or failed one changed nothing): a long clear list
     // (monument-01: a forest site's leaves and logs) is not one walk plan per entry
     let nodes = null, tried = 0
@@ -1498,7 +1507,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       }
       return null
     } finally {
-      PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen)
+      PJ.releaseLease(dir, key, clearLeaseOf(p), me, seg.gen)
       // leaffell-01show: ONE row for the clears this pass set aside (a later pass of the visit adds none; the same cells again within
       // LEAF_ROW_MS on a later visit: no row)
       if (zonedNew.length) {

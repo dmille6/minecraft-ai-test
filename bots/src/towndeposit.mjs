@@ -39,7 +39,7 @@ import { remaining, FLOOR, tier, isPickaxe } from './toolfor.mjs'
 import { TRIGGER_SLOTS, NEVER_KEEP } from './hygiene.mjs'
 // THE SLIM BAG ALLOWANCE (junkout-01, bagallowance.mjs): the rows' surplus leaves at the town deposit, at any bag size
 import { ALLOWANCE, BAG_ALLOWANCE, allowanceSteps, visitId, visitLatchIssue, visitArmed, allowanceRow } from './bagallowance.mjs'
-import { roomBankSteps } from './bagroom.mjs'   // bagfull-01: the room bank's steps
+import { roomBankSteps, roomKitAlways } from './bagroom.mjs'   // bagfull-01: the room bank's steps
 import { BAGFIX, chestHalves, trimBankable } from './bagfix.mjs'   // bagfix-01show D: the carried chests' halves
 // junk never enters a chest (owner 10-04): the well's list and the composter's own judgement, not a copy of them
 import { WELL_JUNK } from './well.mjs'
@@ -239,7 +239,20 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
+// WAREHOUSE-01 r3 (Paper rig 11-17, defect A): THE COLUMN LAYER. A kind whose warehouse column has room is kept off the piles and off
+// the well -- so the deposit MUST plan it, or the two guards make a dead end (1,088 dirt, gravel and andesite sat in a bag through four
+// deposits and a yard visit: the base plan never banks a kind the town's targets do not hold). `columns(name)` -> the name has a column
+// with room: its whole stacks above the bag's keeps are planned (`column: true`), whatever the older layers say of the name.
+// columnBankable: the names this layer may plan (never the kit: tools, food, armour, buckets, beds -- their own rules bank them); the
+// column's "room" counts for a name only when this is true (skills.mjs whRoomNow), so the hold and the plan can never disagree.
+/** The two names the base plan already banks under the town's cobble cap (cobblecap.mjs): never the column layer's. The rest of the
+ *  stone family (stone, andesite, diorite, granite, tuff: the stockpile keeps a stack) IS the layer's above that keep. */
+export const CAP_COBBLE = Object.freeze(['cobblestone', 'cobbled_deepslate'])
+let columnsHook = null
+/** The deposit's column reader for this process (skills.mjs installs it with the layout; none: no column layer). */
+export const setDepositColumns = fn => { columnsHook = typeof fn === 'function' ? fn : null }
+export const columnBankable = name => typeof name === 'string' && !!name && !roomKitAlways(name)
+export function townDepositPlan (items = [], { columns = columnsHook, wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
                                                tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on,
                                                room = false, roomExclude = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
@@ -360,6 +373,19 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       steps.push({ slot: st.slot, name: st.name, count: st.count, room: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count
       why[st.name] = 'room'
+    }
+  }
+  // warehouse-01 r3: THE COLUMN LAYER (above): after every other layer, never a tail run's, never cobblestone or cobbled deepslate (their cap and the base plan's),
+  // a withdraw hold or a drawn share's name
+  if (typeof columns === 'function' && baseOn && !tail) {
+    const taken = new Set(steps.map(st => st.slot))
+    const shared = roomExclude instanceof Set ? roomExclude : new Set()
+    const eligible = n => { try { return columnBankable(n) && !CAP_COBBLE.includes(n) && !((holds[n] ?? 0) > 0) && !shared.has(n) && !!columns(n) } catch { return false } }
+    const hardKeep = n => ['wanted', 'scaffold_reserve'].includes(why[n])   // the goal's want and the scaffold reserve, as the room layer's
+    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: hardKeep, stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
+      steps.push({ slot: st.slot, name: st.name, count: st.count, column: true })
+      banked[st.name] = (banked[st.name] ?? 0) + st.count
+      why[st.name] = 'column'
     }
   }
   // the batch22 fold (Codex BLOCKER 2): a ROOM visit never banks a drawn share's name through ANY part (the base plan banks a

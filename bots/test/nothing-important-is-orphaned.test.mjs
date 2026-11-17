@@ -285,6 +285,12 @@ const REQUIRED = [
   'bots/test/compact.test.mjs',
   'bots/src/useledger.mjs',  // useledger-01 (bagfix-02show, 11-16): the town's use ledger and the week's table
   'bots/test/useledger.test.mjs',
+  'bots/src/warehouse.mjs',  // warehouse-01 (bagfix-03show, 11-17): the columns per kind over an abstract layout, the access proof
+  'bots/src/whsitefile.mjs',  // whsite-01 rc2: the storehouse's site from the town's site file
+  'bots/test/whsitefile.test.mjs',
+  'bots/test/warehouse.test.mjs',
+  'bots/src/whsite.mjs',  // whsite-01 (bagfix-03show, 11-17): the new storehouse's ground -- the site switch, the record, the quadrants
+  'bots/test/whsite.test.mjs',
   'scripts/host/useledger.py',
   'bots/src/refill.mjs',  // refill-01 (bagfix-02show, 11-16): no gathering for stock -- a refill is a job raised on evidence of use
   'bots/test/refill.test.mjs',
