@@ -213,7 +213,7 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
 import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
-import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols, setGradeSource, gradeFirst, dropStaleGrade, gradeStamp } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
+import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols, setGradeSource, gradeFirst, dropStaleGrade, gradeStamp, retopKeepOff, gradeCutsHeld } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30117,7 +30117,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     if (relG.released.length || stale.dropped) res = { ...res, skipped: { ...(res.skipped ?? {}), ...(relG.released.length ? { grade_released: relG.released.length } : {}), ...(stale.dropped ? { grade_dropped: stale.dropped } : {}) } }
     try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
     // TIDYTOP-01show (tidytop.mjs retopCells): the grey top fills already laid beside grass go back on the work list (cut, then dirt)
-    if (tidyTopOn()) { try { const rt = retopCells(res.rec ?? cur, read, { guard, keepOff: fcKeepOff ?? (() => 'closed'), now, done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) }); if (rt.n) { res = { ...res, rec: rt.rec, skipped: { ...(res.skipped ?? {}), retop: rt.n } } } } catch { /* the record as merged */ } }
+    if (tidyTopOn()) { try { const rt = retopCells(res.rec ?? cur, read, { guard, keepOff: retopKeepOff(gNow?.t ?? null, fcKeepOff ?? (() => 'closed')), now, done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) }); if (rt.n) { res = { ...res, rec: rt.rec, skipped: { ...(res.skipped ?? {}), retop: rt.n } } } } catch { /* the record as merged */ } }
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
@@ -30753,7 +30753,10 @@ async function buildTidyVisit (ctx, args, signal) {
     const retopPass = tidyTopOn() ? retopHeld(visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived, open: q => !buildCellDone(read(...q.at), palette, q.role) }) : new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
+    // control 11-18 (gradetidy.mjs gradeCutsHeld): a grade cut that would expose stone waits while its column's earth cap is held
+    const capHeld = new Set([...retopPass].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+    const cutHeld = gradeOn() ? gradeCutsHeld(tidyCuts(rec, read, mem), read, capHeld) : new Set()
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))) && !cutHeld.has(q.at.join(',')))   // tidyrefresh-01 (b): never a cut the town gave up
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open

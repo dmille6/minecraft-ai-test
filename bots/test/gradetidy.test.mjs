@@ -286,6 +286,53 @@ await t('Codex T11 r3: a re-top already dug out (air now) is owed by a withdrawn
   const r = GT.dropStaleGrade(rec, null, { done: () => false, standing: () => true, empty: q => q.at[0] === 0 })
   assert.deepStrictEqual(r.rec.cells.map(c => c.at[0]), [0])
 })
+console.log('CONTROL 11-18 DECISION 2')
+await t('the re-top pass works only inside the gate and its banks while a gate is set; with none, town-wide as before', () => {
+  const t0 = GT.gradeTarget(plan({ over: { '8,5': { c: 'b' }, '9,5': { c: 'b' } }, gate: [[5, 5], [6, 5], [7, 5]] })).t
+  const ko = GT.retopKeepOff(t0, () => null)
+  assert.strictEqual(ko(6, 5), null); assert.strictEqual(ko(8, 5), null, 'a bank beside the gate')
+  assert.strictEqual(ko(9, 5), 'outside_gate', 'a bank not beside it'); assert.strictEqual(ko(0, 0), 'outside_gate')
+  assert.strictEqual(GT.retopKeepOff(null, () => 'zone')(0, 0), 'zone')
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /&& !cutHeld\.has\(q\.at\.join\(','\)\)\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
+  assert.ok(/retopCells\(res\.rec \?\? cur, read, \{ guard, keepOff: retopKeepOff\(gNow\?\.t \?\? null, fcKeepOff \?\? \(\(\) => 'closed'\)\),/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
+})
+const capVisit = async (dirt) => {
+  // a column cut down to its target: dirt at G+1 over cobblestone AT the target (the cut exposes stone)
+  const srv = server({ [`5,${G + 1},5`]: 'dirt', [`5,${G},5`]: 'cobblestone' })
+  const g = GT.gradeTarget(plan({ gate: [[5, 5]] }))
+  const { rec } = site(srv, { t: g.t })
+  const inv = { stone_pickaxe: 1, ...(dirt ? { dirt } : {}) }
+  const digDrops = async (c, expect) => { const n = srv.read(...c)?.name; if (expect && n !== expect) return 'refused'; srv.set(c, 'air'); const d = n === 'grass_block' ? 'dirt' : n; inv[d] = (inv[d] ?? 0) + 1; return 'confirmed' }
+  const e = bot(srv, 'A', { inv, feet: [6, G + 1, 3], dig: digDrops })
+  // the visit's own rules: retopHeld on the bag's dirt (no keep in the fake), gradeCutsHeld on the held caps
+  const held = TT.retopHeld(rec.cells, srv.read, dirt, { open: q => !cellDone(srv.read(...q.at), T.TIDY_PALETTE, q.role) })
+  const capHeld = new Set([...held].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+  const cutHeld = GT.gradeCutsHeld(rec.cut, srv.read, capHeld)
+  const { p } = project(rec)
+  await R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, tidy: rec.cut.filter(c => !cutHeld.has(c.at.join(','))), alsoDone: q => T.soilSkip(q, e.has) || held.has(q.at.join(',')), blockLayer: false, domain: () => true, walkR: 30 }, e, { maxSteps: 200 })
+  return { top: [G + 1, G].map(y => srv.read(5, y, 5).name), cutHeld }
+}
+await t('a cut that would expose stone waits without the dirt to cap it (no grey top made); with the dirt it cuts and caps in one visit', async () => {
+  const none = await capVisit(0)
+  assert.strictEqual(none.cutHeld.size, 1)
+  assert.deepStrictEqual(none.top, ['dirt', 'cobblestone'], 'nothing cut: the earth top stays')
+  const one = await capVisit(1)
+  assert.strictEqual(one.cutHeld.size, 0)
+  assert.deepStrictEqual(one.top, ['air', 'dirt'], 'cut to the target and capped with earth')
+})
+await t('gradeCutsHeld: the earth above the first stone-exposing cut is still cut; that cut and every one below it wait', () => {
+  const srv = server({ [`0,${G + 3},0`]: 'dirt', [`0,${G + 2},0`]: 'dirt', [`0,${G + 1},0`]: 'cobblestone', [`0,${G},0`]: 'stone' })
+  const cuts = [G + 3, G + 2, G + 1].map(y => ({ at: [0, y, 0], grade: true }))
+  assert.deepStrictEqual([...GT.gradeCutsHeld(cuts, srv.read, new Set(['0,0']))].sort(), [`0,${G + 1},0`, `0,${G + 2},0`].sort())
+  assert.strictEqual(GT.gradeCutsHeld(cuts, srv.read, new Set()).size, 0, 'a cap the visit can lay holds nothing')
+})
+await t('MUTANT: without the hold the cut exposes cobblestone with no dirt to cap it (a grey top)', async () => {
+  await withMutant(P('gradetidy.mjs'), "      if (hold) held.add(c.at.join(','))\n", '', async M => {
+    const srv = server({ [`5,${G + 1},5`]: 'dirt', [`5,${G},5`]: 'cobblestone' })
+    assert.strictEqual(M.gradeCutsHeld([{ at: [5, G + 1, 5], grade: true }], srv.read, new Set(['5,5'])).size, 0)
+  })
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

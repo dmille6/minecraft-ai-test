@@ -254,3 +254,42 @@ export function dropStaleGrade (rec, stamp, { done = () => false, standing = () 
   if (stamp == null) delete out.grade_v; else out.grade_v = stamp
   return { rec: out, dropped: gone.size }
 }
+
+/** THE GATE AND ITS BANKS -> Set of 'x,z': the gated columns and every bank (`b`) column 4-beside one. Pure. */
+export function gateWithBanks (t) {
+  const out = new Set(t?.gate ?? [])
+  if (!t) return out
+  for (const k of t.gate) {
+    const [x, z] = k.split(',').map(Number)
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const tg = targetAt(t, x + dx, z + dz); if (tg.cls === 'b') out.add(k2(x + dx, z + dz)) }
+  }
+  return out
+}
+/** Control 11-18 decision 2: WHILE A GATE IS SET, tidytop's re-top pass works only inside it (and its banks) -> the pass's keepOff.
+ *  Pure. No target: `keepOff` as it was (the town-wide pass). */
+export const retopKeepOff = (t, keepOff = () => null) => {
+  if (!t) return keepOff
+  const inG = gateWithBanks(t)
+  return (x, z) => keepOff(x, z) ?? (inG.has(k2(x, z)) ? null : 'outside_gate')
+}
+/**
+ * Control 11-18 decision 2: A CUT NEVER EXPOSES STONE IT CANNOT CAP. -> the grade cuts this visit HOLDS (Set of 'x,y,z'). Pure over
+ * `read`. In each column whose earth cap this visit cannot lay (`capHeld`: its re-top cell is held for want of dirt -- tidytop.mjs
+ * retopHeld, the same budget), the grade cuts are walked top-down: the first whose removal would leave a non-earth, non-air block on
+ * top (the block under it), and every cut below it, wait for the dirt. The earth above it is still cut (its spoil is dirt).
+ */
+export function gradeCutsHeld (cuts, read, capHeld) {
+  const held = new Set()
+  if (!capHeld?.size) return held
+  const byCol = new Map()
+  for (const c of cuts ?? []) { if (!c?.grade) continue; const k = k2(c.at[0], c.at[2]); if (!capHeld.has(k)) continue; if (!byCol.has(k)) byCol.set(k, []); byCol.get(k).push(c) }
+  for (const list of byCol.values()) {
+    list.sort((a, b) => b.at[1] - a.at[1])
+    let hold = false
+    for (const c of list) {
+      if (!hold) { const n = nm(read(c.at[0], c.at[1] - 1, c.at[2])); if (!EARTH_TOP.test(n) && !/^(air|cave_air|void_air)$/.test(n)) hold = true }
+      if (hold) held.add(c.at.join(','))
+    }
+  }
+  return held
+}
