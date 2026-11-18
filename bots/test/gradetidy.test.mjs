@@ -396,6 +396,14 @@ await t('the live check at the dig: a grade cut that would leave stone on top is
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/&& gradeCutOk\(q, rd, n => !!effects\?\.has\?\.\(n\)\) && handedBare\(q, rd\) \} : \{\}\),/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'wired into tidyOk')
 })
+await t('Codex T11 delta r5: an air gap under the cut is looked through -- the block left on top is the first solid below it', () => {
+  const srv = server({ [`0,${G + 3},0`]: 'grass_block', [`0,${G + 2},0`]: 'air', [`0,${G + 1},0`]: 'stone' })
+  const q = { at: [0, G + 3, 0], grade: true }
+  assert.strictEqual(GT.topUnder(srv.read, q.at), 'stone')
+  assert.strictEqual(GT.gradeCutOk(q, srv.read, () => false), false)
+  assert.ok(GT.capHeldCols([q], srv.read, Object.assign(new Set(), { left: 0 })).has('0,0'))
+  assert.strictEqual(GT.gradeCutsHeld([q], srv.read, new Set(['0,0'])).size, 1)
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

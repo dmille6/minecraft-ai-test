@@ -27,6 +27,12 @@ const k2 = (x, z) => `${x},${z}`
 const nm = b => String(b?.name ?? '').replace(/^minecraft:/, '').replace(/\[.*\]$/, '')
 /** What the visit's foreign pass digs out of an open record cell (buildrun.mjs FOREIGN_CLEAR, the same list; a test holds them equal). */
 export const RETOP_DIGGABLE = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel|snow)$/
+/** Codex T11 delta r5: THE BLOCK LEFT ON TOP once the block at `at` is gone -> its name: the first non-air block below it (an air
+ *  gap under floating spoil is skipped; at most GRADE.above deep, else 'air'). Pure over `read`. */
+export function topUnder (read, at) {
+  for (let y = at[1] - 1; y >= at[1] - 16; y--) { const n = nm(read(at[0], y, at[2])); if (!/^(air|cave_air|void_air)$/.test(n)) return n }
+  return 'air'
+}
 /** The classes with a target (ground). */
 export const GRADE_CLASSES = Object.freeze({ t: 'terrace', b: 'bank', a: 'apron', e: 'edge' })
 /** The classes the plan names that mean "leave it" (no opinion). */
@@ -287,7 +293,7 @@ export function gradeCutsHeld (cuts, read, capHeld) {
     list.sort((a, b) => b.at[1] - a.at[1])
     let hold = false
     for (const c of list) {
-      if (!hold) { const n = nm(read(c.at[0], c.at[1] - 1, c.at[2])); if (!EARTH_TOP.test(n) && !/^(air|cave_air|void_air)$/.test(n)) hold = true }
+      if (!hold) { const n = topUnder(read, c.at); if (!EARTH_TOP.test(n) && !/^(air|cave_air|void_air)$/.test(n)) hold = true }
       if (hold) held.add(c.at.join(','))
     }
   }
@@ -314,7 +320,7 @@ export function capHeldCols (cuts, read, held, cells = [], waived = null) {
     if (!c?.grade) continue
     const k = k2(c.at[0], c.at[2])
     if (out.has(k) || seen.has(k) || capped.has(k)) continue
-    const n = nm(read(c.at[0], c.at[1] - 1, c.at[2]))
+    const n = topUnder(read, c.at)
     if (EARTH_TOP.test(n) || /^(air|cave_air|void_air)$/.test(n)) continue
     seen.add(k)
     if (left > 0) { left--; continue }
@@ -345,7 +351,7 @@ export const exposeDirtNeed = (cuts, read, cells = [], waived = null) => capHeld
  *  the visit from walking to cuts it will refuse here. */
 export function gradeCutOk (q, read, has = () => false) {
   if (!q?.grade) return true
-  const n = nm(read(q.at[0], q.at[1] - 1, q.at[2]))
+  const n = topUnder(read, q.at)
   if (EARTH_TOP.test(n) || /^(air|cave_air|void_air)$/.test(n)) return true
   return !!has('dirt')
 }
