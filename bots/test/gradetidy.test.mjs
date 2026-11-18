@@ -190,6 +190,25 @@ await t('a core cell takes cobblestone first; the spoil a visit digs above the b
   assert.strictEqual(spare('cobblestone'), 6)
 })
 
+console.log('A COLUMN THE RECORD ALREADY NAMES')
+await t('releaseGradeCols: a gated column whose named work is all done or waived is released; any open work keeps the whole column', () => {
+  const rec = { cells: [{ at: [1, G, 1], role: 'earth' }, { at: [2, G, 1], role: 'earth' }, { at: [3, G, 1], role: 'earth' }, { at: [9, G, 9], role: 'earth' }],
+    cut: [{ at: [2, G + 1, 1], name: 'dirt' }, { at: [4, G + 1, 1], name: 'dirt' }], clear: [], waived: { [`3,${G},1`]: { why: 'x' } } }
+  const cols = new Set(['1,1', '2,1', '3,1', '4,1', '9,9'])
+  const done = q => q.at[0] === 1 || q.at[0] === 9   // (1) done, (2) open, (3) waived, (9) done
+  const standing = q => q.at[0] === 2                // (2)'s cut stands, (4)'s is down
+  const { rec: r2, released } = GT.releaseGradeCols(rec, cols, { done, standing })
+  assert.deepStrictEqual(released.sort(), ['1,1', '3,1', '4,1', '9,9'])
+  assert.deepStrictEqual(r2.cells.map(c => c.at[0]), [2]); assert.deepStrictEqual(r2.cut.map(c => c.at[0]), [2])
+  assert.deepStrictEqual(r2.waived, {})
+  // an ungated column is never touched
+  assert.strictEqual(GT.releaseGradeCols(rec, new Set(['7,7']), { done, standing }).released.length, 0)
+})
+await t('WIRED (comments stripped): the refresh releases the finished gated columns before its merge', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
+  assert.ok(/const relG = gNow\?\.t \? releaseGradeCols\(cur, gNow\.t\.gate,[^\n]*\n[^\n]*\n\s*const busy = openColumns\(relG\.rec, read,[^\n]*\n\s*res = refreshMerge\(relG\.rec, fresh,/.test(sk))
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

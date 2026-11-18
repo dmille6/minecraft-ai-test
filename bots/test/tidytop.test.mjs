@@ -116,7 +116,7 @@ await t('WIRED: the keeper\'s refresh runs retopCells inside its publish; coreFi
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
   const i = sk.indexOf('async function tidyRefresh'), j = sk.indexOf('refreshClaimed(refreshStamp(', i)
   assert.ok(i > 0 && j > i)
-  assert.ok(/retopCells\(res\.rec \?\? cur, read,/.test(sk.slice(i, j)), 'retopCells is not called in tidyRefresh before the stamp')
+  assert.ok(/retopCells\(res\.rec \?\? relG\.rec, read,/.test(sk.slice(i, j)), 'retopCells is not called in tidyRefresh before the stamp')
   const td = strip(readFileSync(P('tidy.mjs'), 'utf8'))
   assert.ok(/return tidyTopOn\(\) \? surfaceFills\(cored\) : cored/.test(td))
 })

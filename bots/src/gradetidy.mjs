@@ -162,3 +162,29 @@ export function gradeAdded (rec, now) {
   const isNew = q => q?.grade && q.added === now
   return { cut: (rec?.cut ?? []).filter(isNew).length, fill: (rec?.cells ?? []).filter(isNew).length }
 }
+
+/**
+ * THE GRADE TAKES OVER A FINISHED COLUMN (design (b): "a column already named but at the wrong height is re-named only when its
+ * record cell is complete or waived") -> { rec, released: [col keys] }. Pure over the tests. In each gated column `cols` where every
+ * entry the record names is finished -- every fill done (`done(cell)`) or carried (`prev`), every cut down (`!standing(cut)`), no
+ * clear -- or waived, those entries (and their waivers) leave the record, so the refresh's merge plans the column from the target.
+ * A column with any open work keeps it all (never two plans in one column).
+ */
+export function releaseGradeCols (rec, cols, { done = () => false, standing = () => true } = {}) {
+  if (!rec || !cols?.size) return { rec, released: [] }
+  const w = rec.waived ?? {}
+  const kOf = at => at.join(',')
+  const colK = at => k2(at[0], at[2])
+  const isW = at => Object.prototype.hasOwnProperty.call(w, kOf(at))
+  const open = new Set()
+  for (const c of rec.cells ?? []) if (cols.has(colK(c.at)) && !c.prev && !isW(c.at) && !done(c)) open.add(colK(c.at))
+  for (const c of rec.cut ?? []) if (cols.has(colK(c.at)) && !isW(c.at) && standing(c)) open.add(colK(c.at))
+  for (const c of rec.clear ?? []) if (cols.has(colK(c.at))) open.add(colK(c.at))
+  const named = new Set([...(rec.cells ?? []), ...(rec.cut ?? [])].map(c => colK(c.at)).filter(k => cols.has(k)))
+  for (const k of Object.keys(w)) { const [x, , z] = k.split(','); if (cols.has(k2(x, z))) named.add(k2(x, z)) }
+  const rel = new Set([...named].filter(k => !open.has(k)))
+  if (!rel.size) return { rec, released: [] }
+  const keep = q => !rel.has(colK(q.at))
+  const waived = Object.fromEntries(Object.entries(w).filter(([k]) => { const [x, , z] = k.split(','); return !rel.has(k2(x, z)) }))
+  return { rec: { ...rec, cells: (rec.cells ?? []).filter(keep), cut: (rec.cut ?? []).filter(keep), ...(rec.waived ? { waived } : {}) }, released: [...rel] }
+}

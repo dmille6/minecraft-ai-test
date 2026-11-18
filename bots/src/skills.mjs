@@ -213,7 +213,7 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
 import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
-import { GRADE, gradeOn, gradeTarget, gradeAdded } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
+import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30100,16 +30100,20 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   // ground under it dug since its survey: the merge above never touches a column the record has) gets its missing lower cells, or is
   // left out with a named reason -- never a cell in a column this refresh's survey keeps off (`fcKeepOff`: zones, the plan, wells,
   // every project's columns and box, reservations), in a protected zone, on a cell another record names; closed when unread
-  let fx = null
+  let fx = null, gradeReleased = 0
   const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fillReportNames(fcReport) })
   const pub = publishRecord(dir, key, cur => {
     if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
-    const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
-    res = refreshMerge(cur, fresh, { busy, guard, now })
-    try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
+    // gradetidy-01show (gradetidy.mjs releaseGradeCols): a gated column whose named work is all finished or waived is the grade's now
+    const gNow = s?.grade ? gradeNow(bot) : null
+    const relG = gNow?.t ? releaseGradeCols(cur, gNow.t.gate, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), standing: q => cutStanding(read, q, now) }) : { rec: cur, released: [] }
+    gradeReleased = relG.released.length
+    const busy = openColumns(relG.rec, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
+    res = refreshMerge(relG.rec, fresh, { busy, guard, now })
+    try { ({ res, fx } = refreshRepair(res, relG.rec, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
     // TIDYTOP-01show (tidytop.mjs retopCells): the grey top fills already laid beside grass go back on the work list (cut, then dirt)
-    if (tidyTopOn()) { try { const rt = retopCells(res.rec ?? cur, read, { guard, keepOff: fcKeepOff ?? (() => 'closed'), now, done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) }); if (rt.n) { res = { ...res, rec: rt.rec, skipped: { ...(res.skipped ?? {}), retop: rt.n } } } } catch { /* the record as merged */ } }
-    return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
+    if (tidyTopOn()) { try { const rt = retopCells(res.rec ?? relG.rec, read, { guard, keepOff: fcKeepOff ?? (() => 'closed'), now, done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) }); if (rt.n) { res = { ...res, rec: rt.rec, skipped: { ...(res.skipped ?? {}), retop: rt.n } } } } catch { /* the record as merged */ } }
+    return refreshClaimed(refreshStamp(res.rec ?? relG.rec, { now, added: res.added, skipped: { ...(res.skipped ?? {}), ...(gradeReleased ? { grade_released: gradeReleased } : {}) }, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
   try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}${s?.grade ? `/gcut${gradeAdded(res?.rec, now).cut}/gfill${gradeAdded(res?.rec, now).fill}` : ''}`, ...(s?.grade ? { grade_v: s.grade.v } : {}), ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: [...Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`), ...Object.entries(s?.grade?.skipped ?? {}).map(([a, b]) => `g.${a}:${b}`)].join(',').slice(0, 240) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
