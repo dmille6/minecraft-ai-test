@@ -1032,6 +1032,11 @@ class Agent:
             d = json.load(open(self.o.trip_last))
         except (OSError, ValueError):
             d = {}
+        if not isinstance(d, dict) or not d.get('verdict'):
+            # Codex r1: an unreadable or verdict-less file is NOT "clear": no level metric (the panel shows no value) and the
+            # collector fails, so the 'Dashboard collector failing' rule says so
+            self.put('trip', {'t': None, 'verdict': None, 'why': [], 'quarantine': [], 'quarantined': []})
+            raise RuntimeError(f'{self.o.trip_last}: unreadable or no verdict')
         lvl = {'TRIP': 2, 'REPORT': 1}.get(str(d.get('verdict') or '').upper(), 0)
         m.add('mcai_trip_level', lvl, {'verdict': str(d.get('verdict') or 'none')},
               'the showcase tripwire verdict: 0 WATCH/clear, 1 REPORT, 2 TRIP (bots stopped)')

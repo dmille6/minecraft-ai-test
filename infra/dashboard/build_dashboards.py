@@ -294,12 +294,20 @@ def merge():
 # of the showcase town, 14 bots on block2-bots, scope "testworld") soaks each release before the showcase gets it. The
 # dashboards lead with the showcase and the test world; every fleet-only panel moved into a collapsed "Fleet (stopped)"
 # row at the bottom, kept for its history. Elasticsearch panels read mcai-skill-agents + mcai-skill-showcase.
+SHOW_INDEX = '_index:.ds-mcai-skill-showcase*'
 PLACE = 'skill.name:_build AND skill.detail:"op=place"'
+FINISHED = 'skill.name:_structure_complete AND skill.detail:"op=complete" AND NOT skill.detail:tidy* AND NOT skill.detail:yard*'
 ON_BUILDINGS = PLACE + ' AND NOT skill.detail:"project=tidy" AND NOT skill.detail:"project=yard"'
 ON_CLEANUP = PLACE + ' AND (skill.detail:"project=tidy" OR skill.detail:"project=yard")'
 TRIP_MAP = [{'type': 'value', 'options': {'0': {'text': 'CLEAR / WATCH', 'color': GREEN, 'index': 0},
                                           '1': {'text': 'REPORT', 'color': ORANGE, 'index': 1},
                                           '2': {'text': 'TRIP (stopped)', 'color': RED, 'index': 2}}}]
+
+
+def es_show(query, **kw):
+    """An Elasticsearch target over the SHOWCASE's rows only (Codex r1: the datasource reads the fleet's index too, and its
+    15.6 M rows of the last week would count as showcase deaths and placements)."""
+    return es(f'{SHOW_INDEX} AND ({query})', **kw)
 
 
 def collapsed(title, y, panels):
@@ -321,8 +329,8 @@ def name_stat(title, pos, expr, desc=''):
 
 
 def building_split(title, pos, interval='1h'):
-    return timeseries(title, pos, [es(ON_BUILDINGS, buckets=[hist(interval)], ref='A', alias='on buildings'),
-                                   es(ON_CLEANUP, buckets=[hist(interval)], ref='B', alias='clean-up (tidy, yard)')],
+    return timeseries(title, pos, [es_show(ON_BUILDINGS, buckets=[hist(interval)], ref='A', alias='on buildings'),
+                                   es_show(ON_CLEANUP, buckets=[hist(interval)], ref='B', alias='clean-up (tidy, yard)')],
                       stack=True, bars=True,
                       desc='Blocks placed per hour, from _build op=place rows: on town buildings vs clean-up fills. '
                            'Until 11-18 every placed block went to clean-up (bags full; idle visits sent only to clean-up).',
@@ -343,7 +351,7 @@ def overview():
     p.append(stat('Open alarms', (12, 0, 3, 4),
                   [prom('sum(mcai_alarms_active{scope="showcase",severity!="acked"}) or vector(0)', instant=True)],
                   th=steps(GREEN, (ORANGE, 1))))
-    p.append(stat('Deaths 24h', (15, 0, 3, 4), [es('skill.name:_death', buckets=[hist('1h')])], calc='sum',
+    p.append(stat('Deaths 24h', (15, 0, 3, 4), [es_show('skill.name:_death', buckets=[hist('1h')])], calc='sum',
                   th=steps(GREEN, (ORANGE, 3), (RED, 6)), timeFrom='24h', hideTimeOverride=True))
     p.append(stat('Showcase TPS', (18, 0, 3, 4), [prom('min(mcai_world_tps_5m{kind="showcase"})', instant=True)],
                   decimals=1, th=steps(RED, (ORANGE, 15), (GREEN, 19))))
@@ -368,12 +376,12 @@ def overview():
                     col('Time', width(160)), col('Release', width(220)), col('Bots', width(60))], sort=('Time', True)))
 
     p.append(timeseries('Bot actions per hour', (0, 32, 12, 8),
-                        [es(NOT_INTERNAL, buckets=[terms('skill.status', 5), hist('1h')])], stack=True, bars=True,
+                        [es_show(NOT_INTERNAL, buckets=[terms('skill.status', 5), hist('1h')])], stack=True, bars=True,
                         desc='Every non-internal skill row, by status (showcase; the fleet before 11-18 13:00Z).',
                         overrides=[col('success', {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': 'green'}}),
                                    col('failure', {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': 'red'}})]))
     p.append(timeseries('Deaths by cause', (12, 32, 12, 8),
-                        [es('skill.name:_death', buckets=[terms('skill.fail_class', 10), hist('1h')])], stack=True, bars=True))
+                        [es_show('skill.name:_death', buckets=[terms('skill.fail_class', 10), hist('1h')])], stack=True, bars=True))
 
     p.append(bargauge('CPU', (0, 40, 8, 7), [prom('100 * (1 - avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[5m])))', '{{host}}', instant=True)]))
     p.append(bargauge('Memory used', (8, 40, 8, 7), [prom('100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)', '{{host}}', instant=True)]))
@@ -405,8 +413,8 @@ def bots():
     p.append(stat('Builds live (showcase)', (16, 0, 4, 4), [prom('max(mcai_builds_live{scope="showcase"})', instant=True)],
                   th=steps(GREEN, (ORANGE, 2)), desc='Distinct builds among showcase bots in the last hour: 1, or 2 just after a release.'))
     p.append(stat('Action success (24 h)', (20, 0, 4, 4),
-                  [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[hist('1h')], ref='A'),
-                   es(NOT_INTERNAL, buckets=[hist('1h')], ref='B'), reduce('$A', 'SA'), reduce('$B', 'SB'),
+                  [es_show(NOT_INTERNAL + ' AND skill.status:success', buckets=[hist('1h')], ref='A'),
+                   es_show(NOT_INTERNAL, buckets=[hist('1h')], ref='B'), reduce('$A', 'SA'), reduce('$B', 'SB'),
                    math('$SA / $SB * 100', 'C')],
                   unit='percent', decimals=1, th=steps(BLUE), timeFrom='24h', hideTimeOverride=True,
                   desc='Successful / all non-internal skill rows, last 24 h (showcase).'))
@@ -426,22 +434,22 @@ def bots():
                    desc='The test world on block2-bots (/srv/testworld): same names as the showcase, a different world.'))
 
     p.append(table('Top failing actions', (0, 37, 8, 9),
-                   [es(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.name', 15)])],
+                   [es_show(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.name', 15)])],
                    [col('Count', *gauge_cell(steps(ORANGE), 1000))], sort=('Count', True), desc='Failed skill rows by skill, current time range.'))
     p.append(table('Top failure reasons', (8, 37, 8, 9),
-                   [es(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.fail_class', 15)])],
+                   [es_show(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.fail_class', 15)])],
                    sort=('Count', True)))
     p.append(timeseries('Most-used actions (successes / h)', (16, 37, 8, 9),
-                        [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[terms('skill.name', 8), hist('1h')])],
+                        [es_show(NOT_INTERNAL + ' AND skill.status:success', buckets=[terms('skill.name', 8), hist('1h')])],
                         stack=True, bars=True))
     p.append(timeseries('Action success rate', (0, 46, 12, 8),
-                        [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[hist('1h')], ref='A'),
-                         es(NOT_INTERNAL, buckets=[hist('1h')], ref='B'), math('$A / $B * 100', 'C')],
+                        [es_show(NOT_INTERNAL + ' AND skill.status:success', buckets=[hist('1h')], ref='A'),
+                         es_show(NOT_INTERNAL, buckets=[hist('1h')], ref='B'), math('$A / $B * 100', 'C')],
                         unit='percent', min_=0, max_=100, desc='Hourly successful / all non-internal skill rows.'))
     p[-1]['targets'][0]['hide'] = True
     p[-1]['targets'][1]['hide'] = True
     p.append(timeseries('Town deposits', (12, 46, 12, 8),
-                        [es('skill.name:town_deposit', buckets=[terms('skill.status', 4), hist('1h')])], stack=True, bars=True,
+                        [es_show('skill.name:town_deposit', buckets=[terms('skill.status', 4), hist('1h')])], stack=True, bars=True,
                         desc='town_deposit rows by status: bots banking into town chests.'))
 
     fleet = [table('Fleet bots (last rows before the stop)', (0, 0, 24, 14), [inf(FLEET + '/bots-fleet.json', bot_cols)], bot_over,
@@ -559,14 +567,14 @@ def towns():
     p.append(stat('Open projects', (0, 0, 4, 4), [prom('sum(mcai_goals_open{scope="showcase"})', instant=True)], th=steps(BLUE)))
     p.append(stat('Stuck projects', (4, 0, 4, 4), [prom('sum(mcai_goals_stuck{scope="showcase"})', instant=True)],
                   th=steps(GREEN, (ORANGE, 1), (RED, 3)), desc='No progress for >= 3 h (goalwatch).'))
-    p.append(stat('Blocks on buildings (24 h)', (8, 0, 4, 4), [es(ON_BUILDINGS, buckets=[hist('1h')])], calc='sum',
+    p.append(stat('Blocks on buildings (24 h)', (8, 0, 4, 4), [es_show(ON_BUILDINGS, buckets=[hist('1h')])], calc='sum',
                   th=steps(RED, (ORANGE, 1), (GREEN, 50)), timeFrom='24h', hideTimeOverride=True,
                   desc='Blocks placed on town buildings (not clean-up), showcase, last 24 h.'))
-    p.append(stat('Buildings finished (7 d)', (12, 0, 4, 4), [es('skill.name:_structure_complete', buckets=[hist('1d')])],
+    p.append(stat('Buildings finished (7 d)', (12, 0, 4, 4), [es_show(FINISHED, buckets=[hist('1d')])],
                   calc='sum', th=steps(BLUE), timeFrom='7d', hideTimeOverride=True))
-    p.append(stat('Town deposits (24 h)', (16, 0, 4, 4), [es('skill.name:town_deposit AND skill.status:success', buckets=[hist('1h')])],
+    p.append(stat('Town deposits (24 h)', (16, 0, 4, 4), [es_show('skill.name:town_deposit AND skill.status:success', buckets=[hist('1h')])],
                   calc='sum', th=steps(BLUE), timeFrom='24h', hideTimeOverride=True))
-    p.append(stat('Stone to the well (24 h)', (20, 0, 4, 4), [es('skill.name:_room_well', buckets=[hist('1h')])],
+    p.append(stat('Stone to the well (24 h)', (20, 0, 4, 4), [es_show('skill.name:_room_well', buckets=[hist('1h')])],
                   calc='sum', th=steps(BLUE), timeFrom='24h', hideTimeOverride=True, no_value='0',
                   desc='Trips that threw surplus cobblestone into the junk well to make bag room (from the building-first release).'))
 
@@ -574,11 +582,11 @@ def towns():
                    desc='Open town projects from goalwatch: STUCK = no placement for >= 3 h.'))
     p.append(building_split('Blocks placed per hour', (0, 14, 12, 8)))
     p.append(timeseries('Build visits per hour', (12, 14, 12, 8),
-                        [es('skill.name:_build_visit', buckets=[terms('skill.status', 5), hist('1h')])], stack=True, bars=True,
+                        [es_show('skill.name:_build_visit', buckets=[terms('skill.status', 5), hist('1h')])], stack=True, bars=True,
                         desc='_build_visit rows (one per visit to a project), by how the visit ended.'))
     p.append(timeseries('Stuck projects over time', (0, 22, 12, 8), [prom('sum(mcai_goals_stuck{scope="showcase"})', 'showcase')],
                         fill=20))
-    p.append(timeseries('Buildings finished', (12, 22, 12, 8), [es('skill.name:_structure_complete', buckets=[hist('6h')])],
+    p.append(timeseries('Buildings finished', (12, 22, 12, 8), [es_show(FINISHED, buckets=[hist('6h')])],
                         bars=True, desc='_structure_complete rows (a project recorded complete).'))
 
     fleet = [table('Town projects (fleet)', (0, 0, 24, 12), [inf(FLEET + '/goals-fleet.json', goal_cols)], goal_over),
@@ -662,7 +670,7 @@ def alert_rules():
                   '{{ humanize $values.A.Value }} {{ $labels.scope }} bots are running with no log row for 10 min'),
             _rule('mcai-bags-full', 'Many bags full', 'sum(mcai_bots_bag_full{scope="showcase"})', 'gt', 9, '2h', 'warning',
                   '{{ humanize $values.A.Value }} showcase bots are at >= 34 of 36 slots: a building visit needs 8 free'),
-            _es_rule('mcai-death-spike', 'Death spike', 'skill.name:_death', 'gt', 2, '0s', 'warning',
+            _es_rule('mcai-death-spike', 'Death spike', f'{SHOW_INDEX} AND skill.name:_death', 'gt', 2, '0s', 'warning',
                      '{{ humanize $values.B.Value }} showcase deaths in the last hour (13 bots; a few a day is normal)'),
         ]),
         ('watchers', [

@@ -505,7 +505,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_death",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_death)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -743,7 +743,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\"",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\")",
      "alias": "on buildings",
      "timeField": "@timestamp",
      "metrics": [
@@ -771,7 +771,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_build AND skill.detail:\"op=place\" AND (skill.detail:\"project=tidy\" OR skill.detail:\"project=yard\")",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_build AND skill.detail:\"op=place\" AND (skill.detail:\"project=tidy\" OR skill.detail:\"project=yard\"))",
      "alias": "clean-up (tidy, yard)",
      "timeField": "@timestamp",
      "metrics": [
@@ -1632,7 +1632,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_*",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_*)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1757,7 +1757,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_death",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_death)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [

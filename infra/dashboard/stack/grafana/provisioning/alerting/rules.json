@@ -519,7 +519,7 @@
          "type": "elasticsearch",
          "uid": "mcai-es"
         },
-        "query": "skill.name:_death",
+        "query": "_index:.ds-mcai-skill-showcase* AND skill.name:_death",
         "alias": "",
         "timeField": "@timestamp",
         "metrics": [

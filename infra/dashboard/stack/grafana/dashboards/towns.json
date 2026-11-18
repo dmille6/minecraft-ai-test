@@ -246,7 +246,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\"",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\")",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -337,7 +337,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_structure_complete",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_structure_complete AND skill.detail:\"op=complete\" AND NOT skill.detail:tidy* AND NOT skill.detail:yard*)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -420,7 +420,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:town_deposit AND skill.status:success",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:town_deposit AND skill.status:success)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -503,7 +503,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_room_well",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_room_well)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -878,7 +878,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\"",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\")",
      "alias": "on buildings",
      "timeField": "@timestamp",
      "metrics": [
@@ -906,7 +906,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_build AND skill.detail:\"op=place\" AND (skill.detail:\"project=tidy\" OR skill.detail:\"project=yard\")",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_build AND skill.detail:\"op=place\" AND (skill.detail:\"project=tidy\" OR skill.detail:\"project=yard\"))",
      "alias": "clean-up (tidy, yard)",
      "timeField": "@timestamp",
      "metrics": [
@@ -1020,7 +1020,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_build_visit",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_build_visit)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1181,7 +1181,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_structure_complete",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:_structure_complete AND skill.detail:\"op=complete\" AND NOT skill.detail:tidy* AND NOT skill.detail:yard*)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [

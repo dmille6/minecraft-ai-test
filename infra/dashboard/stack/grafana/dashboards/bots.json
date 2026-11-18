@@ -467,7 +467,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_* AND skill.status:success",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_* AND skill.status:success)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -496,7 +496,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_*",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_*)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1685,7 +1685,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_* AND NOT skill.status:success",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_* AND NOT skill.status:success)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1816,7 +1816,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_* AND NOT skill.status:success",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_* AND NOT skill.status:success)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1904,7 +1904,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_* AND skill.status:success",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_* AND skill.status:success)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1998,7 +1998,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_* AND skill.status:success",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_* AND skill.status:success)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -2027,7 +2027,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "NOT skill.name:_*",
+     "query": "_index:.ds-mcai-skill-showcase* AND (NOT skill.name:_*)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -2122,7 +2122,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:town_deposit",
+     "query": "_index:.ds-mcai-skill-showcase* AND (skill.name:town_deposit)",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
