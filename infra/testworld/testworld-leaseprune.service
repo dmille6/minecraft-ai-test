@@ -1,0 +1,9 @@
+[Unit]
+Description=TEST WORLD lease prune (what the showcase VM's hourly leaseprune4h.py does to its pool)
+AssertHost=block2-bots
+
+[Service]
+Type=oneshot
+User=mcbot
+ExecStart=/usr/bin/python3 -I /srv/testworld/bin/leaseprune4h.py /srv/testworld/state/_pool-showcase --apply
+Nice=10

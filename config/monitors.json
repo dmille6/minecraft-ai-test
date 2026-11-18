@@ -679,6 +679,32 @@
    "consumer": "the control session: read at +1 h, +24 h and +48 h of each rehearsal run (infra/freshworld/rehearsal-0.json `reads_owed`); nobody is paged from it",
    "kind": "report",
    "note": "OWNER 11-14 fresh-world rehearsal. Hourly at :07 on VM 118 (user mike). Not watched by stallcheck (that host is not one it reads). Rollback: delete the '# rehearsalcard' cron line"
+  },
+  {
+   "id": "testworld-sample",
+   "host": "31",
+   "cron": null,
+   "timer": "testworld-sample.timer",
+   "outputs": [
+    "/srv/testworld/soak/samples.jsonl"
+   ],
+   "fresh_hours": null,
+   "consumer": "scripts/host/soakread.py (the test world's soak read: per-bot memory every 5 min) and testworld.py squeeze (the slice's CPU use)",
+   "kind": "monitor",
+   "note": "testworld (owner 11-18). systemd timer on block2-bots, every 5 min: one row per test bot (cgroup memory, peak, restarts) and one for the Paper server. Writes only under /srv/testworld; no alarm, no pager. fresh_hours is null on purpose: an idle or stopped test world is not a stall. Installed by infra/testworld/install.sh; runbook docs/runbooks/testworld.md."
+  },
+  {
+   "id": "testworld-leaseprune",
+   "host": "31",
+   "cron": null,
+   "timer": "testworld-leaseprune.timer",
+   "outputs": [
+    "/srv/testworld/state/_pool-showcase (superseded lease generations removed)"
+   ],
+   "fresh_hours": null,
+   "consumer": "the test bots themselves: the showcase VM prunes its pool hourly with the same script, and a pool nobody prunes changes how they behave",
+   "kind": "maintenance",
+   "note": "testworld (owner 11-18; control session: 'leaseprune is the one whose absence changes bot behaviour'). systemd timer on block2-bots, hourly at :19, user mcbot: infra/testworld/leaseprune4h.py /srv/testworld/state/_pool-showcase --apply (the script copied from this host's ~mike/leaseprune4h.py as it stood 11-18)."
   }
  ]
 }

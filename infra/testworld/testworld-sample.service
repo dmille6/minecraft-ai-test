@@ -1,0 +1,8 @@
+[Unit]
+Description=TEST WORLD memory sample (one row per bot into /srv/testworld/soak/samples.jsonl; read by soakread.py)
+AssertHost=block2-bots
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -B /srv/testworld/bin/testworld.py sample
+Nice=10

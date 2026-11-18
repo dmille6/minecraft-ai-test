@@ -1,0 +1,9 @@
+[Unit]
+Description=TEST WORLD lease prune, hourly (the fleet pool cleaner on this host runs at :19 too)
+
+[Timer]
+OnCalendar=*:19
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

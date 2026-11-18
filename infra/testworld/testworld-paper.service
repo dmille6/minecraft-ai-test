@@ -1,0 +1,22 @@
+[Unit]
+Description=TEST WORLD Paper server (a disposable copy of the showcase town; localhost only) -- docs/runbooks/testworld.md
+After=network-online.target
+# This unit runs on block2-bots only: a copy of it anywhere else refuses to start.
+AssertHost=block2-bots
+
+[Service]
+Type=simple
+User=minecraft
+WorkingDirectory=/srv/testworld/server
+# The showcase's options (infra/showcase/files/showcase-paper.service): same heap, same ceiling, 6 CPUs of the 10.
+ExecStart=/srv/testworld/jre/bin/java -Xms2G -Xmx8G -jar paper.jar nogui
+Restart=always
+RestartSec=15
+Slice=testworld.slice
+AllowedCPUs=14-19
+MemoryMax=12G
+Nice=-5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

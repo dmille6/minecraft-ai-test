@@ -1,0 +1,32 @@
+[Unit]
+Description=TEST WORLD bot (%i) -- runs only the release in /srv/testworld/harness; started only by testworld.py start
+After=network-online.target testworld-paper.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+Wants=network-online.target
+# The in-world names are the showcase's (showcase-Alpha ...), because the code switches features on the pool name and the
+# copied bags and records belong to those names. So this unit must never run anywhere it could reach the real town:
+# block2-bots only, and only against the test server on this host (the ExecStartPre below).
+AssertHost=block2-bots
+
+[Service]
+Type=simple
+User=mcbot
+Group=mcbot
+WorkingDirectory=/srv/testworld/harness
+EnvironmentFile=/srv/testworld/harness/env/%i.env
+ExecStartPre=/bin/sh -c 'test "$MINECRAFT_HOST" = 127.0.0.1 && test "$MINECRAFT_PORT" = 25560 || { echo "REFUSED: this env does not point at the test server on this host (MINECRAFT_HOST=$MINECRAFT_HOST MINECRAFT_PORT=$MINECRAFT_PORT)"; exit 1; }'
+# The same envelope as infra/showcase/files/mcshow@.service (owner 11-17: 1,152 MB heap under a 1,536M ceiling).
+ExecStart=/usr/bin/node --max-old-space-size=1152 --heapsnapshot-near-heap-limit=1 src/index.mjs
+Restart=always
+RestartSec=10
+MemoryMax=1536M
+Slice=testworld.slice
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/testworld/log /srv/testworld/state
+
+[Install]
+WantedBy=multi-user.target
