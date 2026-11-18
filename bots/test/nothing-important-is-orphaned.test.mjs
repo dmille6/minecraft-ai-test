@@ -34,6 +34,9 @@ const REQUIRED = [
   // minecrew-01show (owner 11-16): underground work is a crew of 2 with a purpose, an idle bot is steered to the town's grounds
   // (MINECREW=off|on, MINECREW_MAX)
   'bots/src/minecrew.mjs',
+  // buildfirst-01show (item 10, 11-18): idle bots go to a building first; a room refusal's well trip; the room hold
+  'bots/src/buildfirst.mjs',
+  'bots/test/buildfirst.test.mjs',
   'bots/src/minecrewio.mjs',
   'bots/test/minecrew.test.mjs',
   'bots/test/minecrew-off.test.mjs',

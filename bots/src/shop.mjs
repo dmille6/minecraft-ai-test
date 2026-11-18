@@ -39,6 +39,7 @@ import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUI
 import { decorOn } from './decorator.mjs'   // decorator-01: the decorator's switch
 import { BAGFIX } from './bagfix.mjs'   // bagfix-01show B: the room refusal's light work
 import { projTurnOn, turnPick } from './projturn.mjs'   // projturn-01: the projects take turns
+import { BUILDFIRST } from './buildfirst.mjs'   // buildfirst-01show: the room hold
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -345,6 +346,26 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   const idleDue = s => !!upk && s.idle === true
   // Codex r1 BLOCKER 4: a due record (dueFirst first) this bot may work still comes before the upkeep wherever the upkeep stands in
   const dueBefore = () => list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && s.dueFirst && !idleDue(s) }) ?? list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && !idleDue(s) }) ?? null
+  // BUILDFIRST-01SHOW (buildfirst.mjs; item 10, owner 11-18 "never making much project building"): an UNFINISHED BUILDING -- a sited
+  // record not structure_complete, taking turns (projturn's marks: `turn`), with a slot for this bot and not backed off (a project
+  // whose visits made no progress is not `free`: projturn.mjs turnBackoff), its `after` met -- goes ahead of the repairs and the
+  // upkeep of finished ones; among them the longest unvisited first (the aged pick). No marks (PROJTURN off) or BUILDFIRST=off: as before.
+  // Codex r14 BLOCKER 2: this bot's sink turn keeps its place (the sink tier is not starved by an always-open building)
+  // Codex r16 BLOCKER: the KEEPER's order (groundskeeper.mjs keeperOrderPure puts the grounds' lanes at the head of its list) keeps its
+  // place -- an open lane at the head of the list is the keeper's work, never overtaken by the building tier
+  const head = list.find(p => !p.sink && !p.upkeep) ?? null
+  const keeperHead = !!head && TURN_FIXED.has(head.plot) && !(st(head).exists && st(head).complete) && st(head).free !== false
+  if (BUILDFIRST.on && !(sinkTurn && sink) && !keeperHead) {
+    const bf = list.filter(p => {
+      if (p.sink || p.upkeep || p.planner || turnExempt(p.plot)) return false
+      const s = st(p)
+      if (!s.exists || s.complete || s.turn !== true || s.free === false || s.waiting === true || yields(s)) return false
+      const sa = st(list.find(q => q.plot === p.after) ?? { plot: p.after })
+      const civicChain = isCivicPlot(p.plot) && isCivicPlot(p.after)
+      return afterMet(p, sa.complete, { noWait, chainSkip: chainSkipOk(civicChain, sa, s) })
+    })
+    if (bf.length) return turnPick(bf, p => st(p).visitAt, bf.find(p => st(p).pin === true)?.plot ?? null) ?? bf[0]
+  }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged && !yields(s)) return p }
   // SINKTURN-01 (sinks.mjs SINK_TURN): this bot's sink turn -- after SINK_TURN.every finite visits in a row the sink a bot may work
   // now goes ahead of the open finite projects (the repairs and the service tier still first); no sink to work: the order as before
@@ -597,7 +618,9 @@ export const stuckWindowOf = plot => (plot === SHAFT_PLOT || plot === STORE_PLOT
  * wait on a leaf is bounded by leaffell.mjs LEAF_WAIT_MS), `zone_closed` SHOP_STUCK_RETRY_MS (nothing there changes by itself).
  */
 export const SHOP_LEAF_RETRY_MS = 5 * 60_000
-export const WAIT_STOPS = Object.freeze({ leaf_decay: SHOP_LEAF_RETRY_MS, zone_closed: SHOP_STUCK_RETRY_MS })
+// buildfirst-01show (buildfirst.mjs): `room` -- a pick no room remedy could serve steps aside for this bot BUILDFIRST.holdMs, so the
+// order's next pick is the next project (LIVE 11-18: house1, a repair refused for room, was every bot's pick every 10 minutes)
+export const WAIT_STOPS = Object.freeze({ leaf_decay: SHOP_LEAF_RETRY_MS, zone_closed: SHOP_STUCK_RETRY_MS, ...(BUILDFIRST.on ? { room: BUILDFIRST.holdMs } : {}) })
 /** A visit's result marks (a waiting stop) or ends (any other visit that happened) the hold of its plot. Pure over `mem` (mutated:
  *  Map plot -> { stop, until }). A visit that did not happen (IDLE_NOT_A_VISIT, an abort) neither marks nor ends it. */
 export function noteWait (mem, plot, result, now = Date.now()) {
@@ -614,10 +637,19 @@ export const waitHeld = (mem, plot, now = Date.now()) => { const e = mem?.get?.(
  *  alone still won the upkeep turn's pick). Pure. */
 export function waitBackoff (states = [], mem = null, now = Date.now()) {
   if (!mem?.size) return states
-  return states.map(st => (st?.exists && waitHeld(mem, st.plot, now) ? (st.complete ? { ...st, damaged: false, due: true, stuck: true, held: true } : { ...st, free: false, stuck: true, held: true }) : st))
+  return states.map(st => (st?.exists && waitHeld(mem, st.plot, now) ? (st.complete ? { ...st, damaged: false, due: true, stuck: true, held: true } : { ...st, free: false, stuck: true, held: true }) : st)).map(st => roomHeldUnsited(st, mem, now))   // buildfirst-01show (Codex r1 BLOCKER 1)
 }
+/** buildfirst-01show (Codex r1 BLOCKER 1): a ROOM hold steps an UNSITED pick aside too (else it wins again and is held again for
+ *  good): not `free`, `stuck`, `held` -- the open shape of waitBackoff. Pure. */
+const roomHeldUnsited = (st, mem, now) => (st && !st.exists && !st.held && waitHeld(mem, st.plot, now) === 'room' ? { ...st, free: false, stuck: true, held: true } : st)
 let waitOf = () => null
 export function setWaitNow (fn) { if (typeof fn === 'function') waitOf = fn }
+/** buildfirst-01show: the room hold's writer (skills.mjs: noteWait on this bot's holds with the stop `room`). Unset: no hold. */
+let roomHoldOf = null
+/** buildfirst-01show: is the room ask being asked by the idle steer's LOOK right now? (set around the ask in buildOrder) */
+let roomLook = false
+export const roomLookNow = () => roomLook
+export function setRoomHold (fn) { roomHoldOf = typeof fn === 'function' ? fn : null }
 /**
  * PROJTURN-01: the order's two readings of the turns (skills.mjs installs them; unset, or PROJTURN=off: the order exactly as before).
  *   stuckPlot() -> the plot this bot's last own visit ended `stuck_on_cell` on | null (unknown)
@@ -1039,6 +1071,8 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  */
 export function buildOrder (q = {}) {
   const r = buildOrderOwn(q)
+  // buildfirst-01show: the idle steer's LOOK (`fall: false`) is the order's own answer only -- never the grounds' stand-in
+  if (q.fall === false) return r
   // GROUNDS-03: the order has nothing for this bot (a skip, with its reason) -> the grounds are asked: an order for them, else the
   // skip exactly as before. The ask decides which skips it stands in for and checks the cooldown, the health and the bag's room
   // itself (the order answers `complete` before its cooldown, and its site and stuck back-offs before the health and the room).
@@ -1047,13 +1081,14 @@ export function buildOrder (q = {}) {
   try { g = groundsFallOf.ask({ skip: r.skip, now: q.now ?? 0, state: q.state ?? {}, health: q.health ?? 20, freeSlots: q.freeSlots ?? 36 }) } catch { g = null }
   return g?.order ? { order: g.order, skip: null } : r
 }
-function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
+function buildOrderOwn ({ cooldown = true, look = false, on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
   complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null, turn = PROJTURN.on } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
   // anvilapply-01 + enchant-01: a book a tool gains from, or a tool the table can enchant, with the block in reach -- first
-  if (enchantAskOf) {
+  // buildfirst-01show: the idle steer's LOOK (`look`) asks for the building order only -- none of the asks below (their stamps are theirs)
+  if (enchantAskOf && !look) {
     let ea = null
     try { ea = enchantAskOf({ now, health, freeSlots }) } catch { ea = null }
     if (ea?.order) return { order: ea.order, skip: null }
@@ -1085,7 +1120,8 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
-  if (now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
+  // buildfirst-01show: the idle steer's look asks without the clock (`cooldown: false`); every back-off below still holds
+  if (cooldown && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
   { let idle = false; try { idle = plot0 === TIDY_PLOT && !!idleOf(plot0) } catch { idle = false } if (idle) return { order: null, skip: 'idle' } }
   let failedSite = null
   try { failedSite = noSitePlotOf() } catch { failedSite = null }
@@ -1128,13 +1164,18 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
     // the town's chests, and the visit builds (skills.mjs roomAsk; bagroom.mjs roomBankAsk). No ask, or nothing to bank: the skip
     if (roomAskOf) {
       let ra = null
-      try { ra = roomAskOf({ now, freeSlots, plot, need }) } catch { ra = null }   // bagfull-01: the plot's own room (8, or 2 light)
+      roomLook = look   // buildfirst-01show: the room ask is told whether this is the idle look (roomLookNow)
+      try { ra = roomAskOf({ now, freeSlots, plot, need }) } catch { ra = null } finally { roomLook = false }   // bagfull-01: the plot's own room (8, or 2 light)
       if (ra?.order) return { order: ra.order, skip: null }
+      // buildfirst-01show (Codex r9): the remedy's own rate limit -- not now; no room hold (the trip is asked again when it ends)
+      if (ra?.cooldown === true) return { order: null, skip: 'room' }
     }
     // gkroom-01: the keeper whose forest is refused for room works the tidy (2 free slots) instead
     let fb = null
     try { const tw = tidyWorkOf() ?? {}; fb = roomFallback({ plot, freeSlots, need, keeper: !!tw.keeper, tidyWork: !!tw.tidyWork, tidyQuiet: !!idleOf(TIDY_PLOT), light: BAGFIX.light, tidyOpen: !!tw.tidyOpen }) } catch { fb = null }
     if (fb) return { order: { skill: 'build_shop', args: { plot: fb, why: 'room_fallback' } }, skip: null }
+    // buildfirst-01show: no remedy reaches the room -> this plot steps aside for this bot (the room hold), so the next pick is another
+    if (roomHoldOf && plot) { try { roomHoldOf(plot, now) } catch { /* bookkeeping */ } }
     return { order: null, skip: 'room' }
   }
   return { order: { skill: 'build_shop', args: {} }, skip: null }

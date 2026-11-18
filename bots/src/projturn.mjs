@@ -50,6 +50,7 @@
 // project in order, the bot-wide stuck hold, no file read or written.
 
 /** THE SWITCH -> bool. On unless PROJTURN says off. Pure. */
+import { BUILDFIRST } from './buildfirst.mjs'   // buildfirst-01show: the stuck repair's back-off (BUILDFIRST=off: as before)
 export const projTurnOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.PROJTURN ?? '').trim())
 /** baseMs: the first back-off; capMs: its cap; capDoneMs: the cap for a complete record; jitter: the per-bot share added on top;
  *  readMs: how long a reading of the pool's files stands; stickMs: how long a bot's pick stands while it is still a candidate (the
@@ -180,6 +181,9 @@ export function turnHold (last, now = Date.now(), { stuckMs = 6 * 60 * 60_000, s
  *            back-off is over; a throw reads as no)
  * A complete record whose state reads `damaged` AND `broken` (a cell read not done) is a REPAIR: gated by the repairs' own count.
  */
+/** buildfirst-01show: no-progress visits after which a repair backs off as a stuck project (shop.mjs REPAIR_TRIES and the F4 stuck
+ *  count use 3: three tries from different stands are the evidence the order already trusts). */
+export const REPAIR_STUCK_N = 3
 export function turnBackoff (states = [], view = null, { me = null, now = Date.now(), exempt = () => false, hold = null, pin = null, capOf = () => Infinity, ownNeed = () => false, service = null, leased = () => false, T = TURN } = {}) {
   return states.map(st => {
     if (!st || exempt(st.plot)) return st
@@ -194,7 +198,10 @@ export function turnBackoff (states = [], view = null, { me = null, now = Date.n
     const c = repair ? { n: e?.rn, noAt: e?.rnoAt } : e
     let cap = Infinity
     try { cap = capOf(st.plot) } catch { cap = Infinity }
-    let blocked = turnUntil(c, { me, plot: repair ? `${st.plot}#repair` : st.plot, cap: turnCap({ complete: done, stuckMs: cap, T }), T }) > now
+    // buildfirst-01show: a REPAIR with REPAIR_STUCK_N no-progress visits backs off like any stuck project (its stuck window, not the
+    // finished record's 60-minute cap: LIVE house1, a reroof no visit has advanced since 11-06, came back every hour)
+    const stuckRepair = BUILDFIRST.on && repair && Math.floor(Number(c?.n) || 0) >= REPAIR_STUCK_N
+    let blocked = turnUntil(c, { me, plot: repair ? `${st.plot}#repair` : st.plot, cap: turnCap({ complete: done && !stuckRepair, stuckMs: cap, T }), T }) > now
     if (!blocked && Math.floor(Number(c?.n) || 0) > 0 && Number.isFinite(c?.noAt)) { try { blocked = leased(st.plot) === true } catch { blocked = false } }
     if (!blocked) return seen
     return done ? { ...seen, damaged: false, due: false, dueFirst: false, backoff: true } : { ...seen, free: false, backoff: true }
