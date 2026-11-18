@@ -294,7 +294,7 @@ await t('the re-top pass works only inside the gate and its banks while a gate i
   assert.strictEqual(ko(9, 5), 'outside_gate', 'a bank not beside it'); assert.strictEqual(ko(0, 0), 'outside_gate')
   assert.strictEqual(GT.retopKeepOff(null, () => 'zone')(0, 0), 'zone')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  assert.ok(/const capHeld = capHeldCols\(tidyCuts\(rec, read, mem\), read, retopPass, visitRec\.cells, rec\.waived\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /filter\(q => !claimedQ\(q\) && !cutHeld\.has\(q\.at\.join\(','\)\) && !plotEntryRetired/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
+  assert.ok(/const capHeld = capHeldCols\(tidyCuts\(rec, read, mem\), read, retopPass, visitRec\.cells, rec\.waived\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /filter\(q => !claimedQ\(q\) && !plotEntryRetired\(q, plotsSited\) && !cutHeld\.has\(q\.at\.join\(','\)\) &&/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
   assert.ok(/retopCells\(res\.rec \?\? cur, read, \{ guard, keepOff: retopKeepOff\(gNow\?\.t \?\? null, fcKeepOff \?\? \(\(\) => 'closed'\)\),/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
 const capVisit = async (dirt) => {
