@@ -296,11 +296,13 @@ import { mineExt, standOf as stairStandOf } from './shaftgeom.mjs'   // townmine
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
-import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
+import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, setRoomHold, buildOrder, roomLookNow, buildIdle as shopBuildIdle } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
+import { BUILDFIRST, roomWellStacks, roomRoute, roomYardSlots, wellAlive, idleBuild, roomWellDetail, roomYardDetail, WELL_DEAD_STOPS, claySlotsSaved } from './buildfirst.mjs'
+import { ROOM_BANK_EVERY_MS } from './bagroom.mjs'   // buildfirst-01show: the room ask's rate limit (a turned-away well trip's retry)   // buildfirst-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -10079,10 +10081,13 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         const bagCobble = (bot.inventory?.items?.() ?? []).reduce((t, x) => t + (isWellCobble(x?.name) ? (x.count ?? 0) : 0), 0)
         const leftC = bagCobble - (it.count ?? 0)
         if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE) continue
+        // buildfirst-01show (Codex r2 BLOCKER 2): a room trip's stack is judged again at its click -- the yard's room, the 128 keep
+        // and the room still wanted, on the bag as it is now (another bot may have freed yard room meanwhile)
+        if (acc.roomCheck) { let ok = false; try { ok = acc.roomCheck(st.slot) } catch { ok = false } if (!ok) continue }
         // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
         // reading is what the row reports
         acc.capLast = cobbleWellCap(bot)
-        if (acc.capLast !== 'at_cap') continue
+        if (acc.capLast !== 'at_cap') continue   // buildfirst-01show (Codex r7): a room trip's stack too -- the town's cap, proven at the click
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
         // A PRUNED COBBLE STACK writes its _stock_prune row like every other group (Claude code r2 P3: prune clicks were
         // under-counted), with stonecap's own numbers: the available floor, the cap, the bot's 64
@@ -10209,7 +10214,7 @@ const wellRefused = (bot, order, reason, said) => {
  * releases the bag, then judges where the throws went, retakes misses and asks the server again.
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
-async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null, keepOf = null }) {
+async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null, keepOf = null, roomPlanOf = null }) {
   const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsKept: 0, swordsAllowed: false, cobble: 0, cobbleLeft: null, cobbleAllowed: false, pruned: pruned ? { ...pruned } : null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
@@ -10239,10 +10244,14 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       const cobbleReserve = wellCobbleReserveNow(bot)
       const bagNow = bot.inventory?.items?.() ?? []
       const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
+      // buildfirst-01show: a room trip throws its own plan (read from the bag AS THE SERVER HOLDS IT); the cap re-read at each click stands
+      if (roomPlanOf && !pit) { const rp = roomPlanOf(bagNow); plan.stacks = rp.stacks; plan.stone = null; plan.junkStacks = rp.junkStacks }
       if (out.cap === 'at_cap' && !yardDeferredNow(bot) && wellKeptForYard(bagNow, cobbleReserve)) { bot.yardDeferAt = Date.now(); out.yardKept = cobbleReserve }
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       out.acc.cobbleAllowed = out.cap === 'at_cap'
+      // Codex r4 BLOCKER 1: the click's judgement reads the yard's and the columns' room FRESH (their 15 s / 10 s memos dropped)
+      if (roomPlanOf && !pit) out.acc.roomCheck = slot => { bot.yardsMemo = null; try { bot.whRoomMemo?.clear?.() } catch { /* none */ } return roomPlanOf(bot.inventory?.items?.() ?? []).stacks.some(x => x.slot === slot) }
       out.acc.stockAllowed = !!out.stock
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       // THE SHAFT IS READ SEALED AGAIN IMMEDIATELY BEFORE THE FIRST THROW (wellsite-01, Codex r1 P1): the well was judged
@@ -10367,8 +10376,9 @@ async function disposeWell (ctx, _args, signal) {
     visitRowDone = true
     try { logEvent({ kind: 'junkout', status, snapshot: snapshot(bot), detail: junkoutVisitDetail({ phase: 'well', vid: _args?.vid ?? null, armed: _args?.armed ?? null, dh: _args?.dh ?? null, dy: _args?.dy ?? null, dw: _args?.dw ?? null, slotsBefore, slotsAfter: items().length, status, ...f }) }) } catch { /* telemetry */ }
   }
-  const skip = (reason, why) => { wellRefused(bot, 'dispose', reason, why); visitRow('no_effect', { stop: reason }); return { status: 'no_effect', detail: why } }
-  const fail = (failClass, reason, why) => { wellRefused(bot, 'dispose', reason, why); visitRow('failed', { stop: reason }); return { status: 'failed', failClass, detail: why } }
+  // buildfirst-01show: the refusal's reason rides on the result (`stop`): the well trip reads a dead or unreachable well from it
+  const skip = (reason, why) => { wellRefused(bot, 'dispose', reason, why); visitRow('no_effect', { stop: reason }); return { status: 'no_effect', stop: reason, detail: why } }
+  const fail = (failClass, reason, why) => { wellRefused(bot, 'dispose', reason, why); visitRow('failed', { stop: reason }); return { status: 'failed', failClass, stop: reason, detail: why } }
   const well = findTownWell(bot)
   if (!well) return skip('no_well', 'no junk well in town yet: the next town visit with 2 logs (or 6 planks) of one wood builds one')
   const { cap, facing } = well
@@ -10385,7 +10395,9 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
+  // buildfirst-01show: the room trip's own plan (the cobble family above the yard's keep, only what the room needs)
+  const roomPlanOf = _args?.roomPlan && BUILDFIRST.on && !visit && !clerk && !pruned ? bag => { const w = roomWellPlanNow(bot, { freeSlots: 36 - bag.length, need: Number(_args.roomPlan.need) || BUILD_ROOM_SLOTS }); return { stacks: w.stacks, stone: null, slots: bag.length, junkStacks: w.slots } } : null
+  const entryPlan = roomPlanOf ? roomPlanOf(items()) : visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -10431,7 +10443,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep, keepOf: only ? keepOf : null })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep, keepOf: only ? keepOf : null, roomPlanOf })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true
@@ -18529,6 +18541,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // draw, the bag) names the tidy too -- the same mark and the same bound as the room fallback's (a crash-left mark outlives no visit)
     const g2Pick = roomFallbackPick(b?.groundsPick ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
     if (g2Pick) return g2Pick
+    // buildfirst-01show: while a room trip's YARD visit runs, the visit's pick and every read of the active project name the yard
+    const ryPick = roomFallbackPick(b?.roomYardMark ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === YARD_PLOT) ?? null : null
+    if (ryPick) return ryPick
     // projturn-01 (review r2, Codex BLOCKER 2): under PROJTURN the repair attempt is counted where the visit's start is stamped (turnBegin:
     // only a pick the probe's claim ACCEPTED) -- a pick stepped aside from tried nothing and must not spend one. PROJTURN=off: here, as before
     if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }
@@ -19386,6 +19401,7 @@ function heldShares (bot) {
 const stackSizeOf = bot => n => { try { return bot?.registry?.itemsByName?.[n]?.stackSize ?? 64 } catch { return 64 } }
 /** shop.mjs buildOrder's room ask -> { order } | null. Never throws. */
 function shareBankAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
+  if (roomLookNow()) return null   // buildfirst-01show (Codex r3 BLOCKER): the idle look asks no share bank (its stamp would hold the real one)
   try {
     const bot = sbBot
     if (!bot || !SHOP.on) return null
@@ -19401,6 +19417,8 @@ function shareBankAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
 export function bagRoomInstall (bot) {
   sbBot = bot
   if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)
+  // buildfirst-01show: a pick no room remedy serves steps aside for this bot (shop.mjs WAIT_STOPS `room`); one `_room_hold` row a hold
+  if (BUILDFIRST.on) setRoomHold((plot, now) => roomHoldNote(sbBot, plot, now))
   try { logEvent({ kind: 'bagroom_mode', status: 'success', snapshot: snapshot(bot), detail: bagRoomModeDetail(BAGROOM) }) } catch { /* telemetry */ }
   try { logEvent({ kind: 'bagfix', status: 'success', snapshot: snapshot(bot), detail: bagfixModeDetail(BAGFIX) }) } catch { /* telemetry */ }
   try { yardLanesInstall(bot) } catch { /* the yard as before */ }   // yardlanes-01: with the bag's install (features.mjs calls this once per spawn)
@@ -19460,21 +19478,241 @@ function roomBankPlanSteps (bot) {
   } catch { return [] }
 }
 /** shop.mjs buildOrder's room ask (bagroom-01 + bagfull-01) -> { order } | null. Never throws. */
-function roomAsk ({ now = Date.now(), freeSlots = 36, plot = null, need = BUILD_ROOM_SLOTS } = {}) {
+function roomAsk ({ now = Date.now(), freeSlots = 36, plot = null, need = BUILD_ROOM_SLOTS, look = roomLookNow() } = {}) {
   if (BAGROOM.share) { const sb = shareBankAsk({ now, freeSlots }); if (sb) return sb }
   try {
     const bot = sbBot
     if (!bot || !SHOP.on || !BAGROOM.bank) return null
     // the cheap gates first (switch, room, rate limit): the plan is read only when a bank could be asked
-    if (!roomBankAsk({ freeSlots, need, slots: 1, now, lastAt: bot.roomBankAt ?? null }).ok) return null
+    // buildfirst-01show (Codex r9): inside the rate limit the answer is "not now" (`cooldown`), never "no remedy" -- shop.mjs then
+    // skips without the room hold (a hold written during a trip's short retry would outlast the retry by 9 minutes)
+    { const g = roomBankAsk({ freeSlots, need, slots: 1, now, lastAt: bot.roomBankAt ?? null }); if (!g.ok) return BUILDFIRST.on && g.why === 'recent' ? { cooldown: true } : null }
+    // BUILDFIRST-01SHOW (buildfirst.mjs roomRoute): the bank only when it alone reaches the room; else the WELL TRIP (the cobble family
+    // above the yard's bag keep) when the well is alive for this bot and the two reach it; else no remedy (shop.mjs holds the plot)
+    if (BUILDFIRST.on) {
+      const bankSlots = roomBankSlots(bot)
+      const r = roomRouteNow(bot, { now, freeSlots, need, bankSlots })
+      if (r.route === null) return null
+      if (r.route === 'yard') {
+        if (!look) roomStamp(bot, now)
+        return { order: { skill: 'build_shop', args: { roomYard: true, plot: plot ?? null, need }, why: `the build needs ${need} free slots: the yard's piles take the stone above the bag's keep, then build` } }
+      }
+      if (r.route === 'well') {
+        if (!look) roomStamp(bot, now)   // Codex r2 BLOCKER 1: the idle look (and a dry probe of it) stamps nothing; the visit does
+        return { order: { skill: 'build_shop', args: { roomWell: true, plot: plot ?? null, need }, why: `the build needs ${need} free slots: ${r.wellSlots} whole stack(s) of the cobble family above the yard's keep go down the town well (the yard has no room for them), then build` } }
+      }
+    }
     const a = roomBankAsk({ freeSlots, need, slots: roomBankSlots(bot), now, lastAt: bot.roomBankAt ?? null })
     if (!a.ok) return null
     // bagfix-01 A: no ask without a chest the deposit would accept (in reach, or one to walk to) -- the refusal goes on (shop.mjs roomFallback)
     if (BAGFIX.reach && !roomAskTarget({ inReach: townContainers(bot, 1).length > 0, target: roomTargetNow(bot, now) })) return null
-    bot.roomBankAt = now
+    if (!look) bot.roomBankAt = now
     return { order: { skill: 'build_shop', args: { roomBank: true, plot: plot ?? null, need }, why: `the build needs ${need} free slots and ${a.slots} whole stack(s) in the bag are not the kit's: bank them in the town's chests, then build` } }
   } catch { return null }
 }
+// ---- BUILDFIRST-01SHOW (buildfirst.mjs): the room route, the well trip, the room hold, the idle look ------------------------------------
+/** The room trip's well stacks for this bag now -> { stacks, slots }. THE OWNER'S over_cap RULE (11-16: "Cobblestone: keep 64, the rest
+ *  to the yard if it takes it, else the well without needing the chest cap proven"): only kinds the yard cannot take a stack of
+ *  (yardKindNow: the lanes' and the columns' room), the bag keeping 128. Without the lanes: never (no room read). Never throws. */
+function roomWellPlanNow (bot, { now = Date.now(), freeSlots = 0, need = BUILD_ROOM_SLOTS, plus = 0 } = {}) {
+  try {
+    if (!LANES.on) return { stacks: [], slots: 0, why: 'no_lanes' }
+    // Codex r7 BLOCKER: and only at the town's proven cobble cap (the well's own rule for the family, re-read at every click)
+    { const cap = cobbleWellCap(bot); if (cap !== 'at_cap') return { stacks: [], slots: 0, why: `cap_${cap}` } }
+    // Codex r4 BLOCKER 2: entrusted cargo (a hall clerk's owed stock: hubCargoKeeps) is never a room trip's -- planned, thrown or judged
+    const kept = new Set(hubCargoKeeps(bot) ?? [])
+    // control 11-18: the clay balls compacted into clay blocks (the trip's first step once a slot is free) count toward the room
+    const bag = bot.inventory?.items?.() ?? []
+    // Codex r14 BLOCKER 1: the clay's room is what bagCompact would really craft (COMPACT on, the row's keeps, one product slot)
+    const clay = roomClaySlots(bot, bag)
+    const yr = n => (LANES.on ? yardKindNow(bot, n, now).room : Infinity)
+    const first = roomWellStacks(bag.filter(it => !kept.has(it?.name)), { need, freeSlots, plus: plus + (freeSlots + plus > 0 ? clay : 0), yardRoom: yr })
+    const withClay = clay && freeSlots + plus === 0 && first.slots > 0 ? roomWellStacks(bag.filter(it => !kept.has(it?.name)), { need, freeSlots, plus: plus + clay, yardRoom: yr }) : first
+    if (withClay.slots || first.slots) { const w = withClay.slots ? withClay : first; return { ...w, clay: w === withClay || freeSlots + plus > 0 ? clay : 0, why: 'ok' } }
+    const r = roomWellStacks((bot.inventory?.items?.() ?? []).filter(it => !kept.has(it?.name)), { need, freeSlots, plus, yardRoom: n => (LANES.on ? yardKindNow(bot, n, now).room : Infinity) })   // Codex r1 BLOCKER 2: no lanes, no room read -- never a trip
+    return { ...r, why: r.slots ? 'ok' : 'none' }
+  } catch { return { stacks: [], slots: 0, why: 'unreadable' } }
+}
+/** The route for a room refusal now -> { route: 'bank' | 'well' | null, wellSlots, wellOk }. Never throws (null). */
+function roomRouteNow (bot, { now = Date.now(), freeSlots = 0, need = BUILD_ROOM_SLOTS, bankSlots = 0 } = {}) {
+  try {
+    let near = false
+    try { near = roomInReach(bot) } catch { near = false }
+    const plus = near ? bankSlots : 0
+    const w = roomWellPlanNow(bot, { now, freeSlots, need, plus })
+    let wellOk = wellAlive(bot.bfWellDead ?? null, now)
+    if (wellOk) { try { wellOk = !!findTownWell(bot) } catch { wellOk = false } }
+    // the bank alone (it walks to a chest) as before; the well trip counts only the bank it does from here (`plus`)
+    const bank = roomRoute({ need, freeSlots, bankSlots, wellOk: false })
+    // the yard first (the owner's order: the piles take the stone they have room for); a yard that rested this bot is not asked
+    let ySlots = 0
+    try { ySlots = LANES.on && !(Number(bot.yardRestUntil) > now) ? roomYardSlots((bot.inventory?.items?.() ?? []).filter(it => !(hubCargoKeeps(bot) ?? []).includes(it?.name)), { yardRoom: n => roomYardRoomNow(bot, n, now), visitMax: LANES.visitMax }) : 0 } catch { ySlots = 0 }
+    let yr = '-'
+    try { yr = LANES.on ? ['cobblestone', 'cobbled_deepslate'].map(n => yardKindNow(bot, n, now).room).join('/') : '-' } catch { yr = '?' }
+    bot.bfRoute = { bank: bankSlots, plus, well: w.slots, wellWhy: w.why, wellOk, yard: yr }   // the `_room_hold` row says why no remedy
+    if (bank) return { route: bank, wellSlots: w.slots, wellOk }
+    // the clay the trip compacts counts toward the room (Codex r14 BLOCKER 1): its slots ride with the well's
+    return { route: roomRoute({ need, freeSlots, bankSlots: plus, yardSlots: ySlots, wellSlots: w.slots + (w.slots ? (w.clay ?? 0) : 0), wellOk: wellOk && w.slots > 0 }), wellSlots: w.slots, wellOk, yardSlots: ySlots }
+  } catch { return { route: null, wellSlots: 0, wellOk: false } }
+}
+/** THE ROOM HOLD (shop.mjs setRoomHold): the plot steps aside for this bot BUILDFIRST.holdMs; one `_room_hold` row. Never throws. */
+function roomHoldNote (bot, plot, now = Date.now()) {
+  if (!bot || !plot) return
+  try { noteWait((bot.shopWait ??= new Map()), plot, { stop: 'room' }, now) } catch { /* bookkeeping */ }
+  try { logEvent({ kind: 'room_hold', status: 'no_effect', snapshot: snapshot(bot), detail: `plot=${plot} free=${36 - (bot.inventory?.items?.() ?? []).length} min=${Math.round(BUILDFIRST.holdMs / 60_000)} bank=${bot.bfRoute?.bank ?? '-'} plus=${bot.bfRoute?.plus ?? '-'} well=${bot.bfRoute?.well ?? '-'}:${bot.bfRoute?.wellWhy ?? '-'} well_ok=${bot.bfRoute ? (bot.bfRoute.wellOk ? 1 : 0) : '-'} yard_room=${bot.bfRoute?.yard ?? '-'}` }) } catch { /* telemetry */ }
+}
+/**
+ * THE WELL TRIP (build_shop { roomWell }): the stacks the room bank moves from here (a chest in reach), then the cobble family above the
+ * yard's keep down the town well (disposeWell with the room's plan), then the build in the same visit when the room is there; else the
+ * plot is held (the room hold) and the order moves on. A well this bot could not use is not asked again for BUILDFIRST.wellRestMs.
+ * One `_room_well` row (what went down, by kind: the read's stone thrown an hour).
+ */
+async function roomWellVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  bot.roomBankAt = t0   // the room ask's rate limit, stamped where the trip begins (the look stamps nothing)
+  const need = Number.isFinite(Number(args?.need)) ? Number(args.need) : BUILD_ROOM_SLOTS
+  const plot = args?.plot ?? null
+  const used = () => (bot.inventory?.items?.() ?? []).length
+  const slotsBefore = used()
+  const before = heldMap(bot)
+  let then = 'stop', stop = null, planned = 0, r = null
+  try {
+    try { if (roomBankSlots(bot) > 0 && roomInReach(bot)) await townDeposit(ctx, { room: true }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    // control 11-18: the clay balls into clay blocks first, once a slot is free (compact.mjs: the product needs one)
+    if (36 - used() > 0) { try { await bagCompactNow(ctx, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    const plan = roomWellPlanNow(bot, { freeSlots: 36 - used(), need })
+    planned = plan.slots
+    if (!planned) stop = plan.why
+    else {
+      r = await disposeWell(ctx, { roomPlan: { need } }, signal)
+      if (r?.status !== 'success') stop = String(r?.stop ?? r?.failClass ?? 'not_thrown')
+      // ...and once the well has freed a slot (the plan counted the clay's room)
+      if (36 - used() > 0 && 36 - used() < need) { try { await bagCompactNow(ctx, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    }
+  } finally {
+    const after = heldMap(bot)
+    const thrown = {}
+    for (const n of ['cobblestone', 'cobbled_deepslate']) if ((after[n] ?? 0) < (before[n] ?? 0)) thrown[n] = before[n] - (after[n] ?? 0)
+    then = 36 - used() >= need && !signal?.aborted ? 'build' : 'stop'
+    if (then === 'stop' && !stop) stop = 'short'
+    if (stop && WELL_DEAD_STOPS.includes(stop)) bot.bfWellDead = { stop, at: Date.now() }
+    try { logEvent({ kind: 'room_well', status: Object.keys(thrown).length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: roomWellDetail({ plot: plot ?? '-', need, planned, slotsBefore, slotsAfter: used(), thrown, then, stop }) }) } catch { /* telemetry */ }
+  }
+  if (then === 'build') { return buildShop(ctx, {}, signal, t0) }   // the room is there: the build, in the same visit
+  // another bot at the well (it opens only with nobody within 5): no hold, the trip is asked again in a minute (the rate limit's
+  // stamp moved back), never at once -- LIVE rig 11-18: three bots reached the well together and all three stood aside 10 minutes
+  if (stop === 'player_near') { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS; return { status: 'no_effect', stop: 'room_short', detail: `another bot was at the town well; the trip is asked again in ${Math.round(ROOM_WELL_NEAR_RETRY_MS / 1000)} s` } }
+  if (plot) roomHoldNote(bot, plot)
+  return { status: 'no_effect', stop: 'room_short', detail: `the well trip left ${36 - used()} free slot(s) of the build's ${need} (${stop}); ${plot ?? 'the pick'} waits ${Math.round(BUILDFIRST.holdMs / 60_000)} min for this bot and the order moves on` }
+}
+/** THE SLOTS THE ROOM TRIP'S CLAY COMPACTION REALLY FREES -> n. bagCompact's own plan (COMPACT on, the row's keeps, the product's slot
+ *  given) for the clay balls; 0 when it plans none. Never throws (0). */
+function roomClaySlots (bot, bag = bot?.inventory?.items?.() ?? []) {
+  try {
+    const held = heldMap(bot)
+    const c = bagCompact(held, { keeps: yardRowKeepsNow(bot), free: 1 }).find(x => x.from === 'clay_ball')
+    if (!c) return 0
+    const total = Number(held.clay_ball) || 0, left = total - c.uses
+    // Codex r15 BLOCKER: the product's NEW slots -- the clay blocks after the craft, less the slots the blocks already fill
+    const blocks0 = Number(held.clay) || 0
+    return Math.max(0, Math.ceil(total / 64) - Math.ceil(left / 64) - (Math.ceil((blocks0 + c.crafts) / 64) - Math.ceil(blocks0 / 64)))
+  } catch { return 0 }
+}
+/** The yard visits one room trip may make (each stocks at most the lanes' visit_max). */
+const ROOM_YARD_LEGS = 4
+/** The room ask's rate-limit stamp (buildfirst-01show's routes). */
+const roomStamp = (bot, at) => { bot.roomBankAt = at }
+/** A well trip turned away by another bot at the well is asked again after this long (never at once). */
+const ROOM_WELL_NEAR_RETRY_MS = 60_000
+/** The yard's "another bot is there" stops: a short retry, never a hold. */
+const ROOM_BUSY_STOPS = Object.freeze(['slots_full', 'lane_held'])
+/** Codex r6 BLOCKER 1: the room the YARD TRIP can use -> blocks: the first yard's own lanes (the yard the trip visits), never the
+ *  other yards' or the warehouse columns'. Never throws (0). */
+function roomYardRoomNow (bot, name, now = Date.now()) {
+  try { const y = yardsNow(bot, now).find(v => v.plot === YARD_PLOT); return y ? Math.max(0, Number(kindRoom([y.states], name).room) || 0) : 0 } catch { return 0 }
+}
+/**
+ * THE YARD TRIP (build_shop { roomYard }): one yard visit (the stock: the bag's surplus onto the piles, yard.mjs yardWork), then the
+ * build in the same visit when the room is there; else the plot is held (the room hold) and the next room ask goes on (the yard
+ * again while it has room, then the well). One `_room_yard` row.
+ */
+async function roomYardVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  bot.roomBankAt = t0
+  const need = Number.isFinite(Number(args?.need)) ? Number(args.need) : BUILD_ROOM_SLOTS
+  const plot = args?.plot ?? null
+  const used = () => (bot.inventory?.items?.() ?? []).length
+  const slotsBefore = used(), before = heldMap(bot)
+  let r = null, then = 'stop', stop = null
+  try {
+    bot.roomYardMark = { at: t0 }
+    // Codex r6 BLOCKER 2: the yard leg's outcome is booked as buildShop books a visit's (the idle and waiting marks, the turn's note),
+    // an interruption included
+    const book = res => { try { noteIdle((bot.shopIdle ??= new Map()), bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } try { noteWait((bot.shopWait ??= new Map()), bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } if (PROJTURN.on) turnNote(bot, res, {}) }
+    try {
+      bot.shopVisitBusy = true
+      // up to ROOM_YARD_LEGS yard visits in one trip (one visit stocks at most the lanes' visit_max, ~2 slots): on while the room is
+      // short, the last leg freed a slot, and the yard still has room for a stack of what the bag holds above its keep
+      for (let leg = 0; leg < ROOM_YARD_LEGS; leg++) {
+        if (36 - used() > 0 && 36 - used() < need) { try { await bagCompactNow(ctx, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }   // control 11-18: clay first
+        if (36 - used() >= need) break
+        const u0 = used()
+        bot.roomYardMark = { at: Date.now() }
+        try { r = await buildShopVisit(ctx, {}, signal) } catch (e) { if (e?.aborted || signal?.aborted) book({ status: 'aborted', stop: 'aborted' }); throw e }
+        book(r)
+        check(signal)
+        if (36 - used() >= need || used() >= u0) break
+        bot.yardsMemo = null
+        let more = 0
+        try { more = roomYardSlots(bot.inventory?.items?.() ?? [], { yardRoom: n => roomYardRoomNow(bot, n), visitMax: LANES.visitMax }) } catch { more = 0 }
+        if (!more) break
+      }
+    } finally { bot.shopVisitBusy = false; bot.roomYardMark = null }
+    stop = r?.stop ?? null
+  } finally {
+    const after = heldMap(bot), stocked = {}
+    for (const n of ['cobblestone', 'cobbled_deepslate']) if ((after[n] ?? 0) < (before[n] ?? 0)) stocked[n] = before[n] - (after[n] ?? 0)
+    then = 36 - used() >= need && !signal?.aborted ? 'build' : 'stop'
+    try { logEvent({ kind: 'room_yard', status: Object.keys(stocked).length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: roomYardDetail({ plot: plot ?? '-', need, slotsBefore, slotsAfter: used(), stocked, then, stop }) }) } catch { /* telemetry */ }
+  }
+  if (then === 'build') { return buildShop(ctx, {}, signal, t0) }   // the room is there: the build, in the same visit
+  // another bot at the yard (its lane, its one slot while no progress): no hold, asked again in a minute (rig 11-18: three bots met there)
+  if (ROOM_BUSY_STOPS.includes(String(stop)) && used() >= slotsBefore) { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS; return { status: 'no_effect', stop: 'room_short', detail: `another bot was at the yard (${stop}); the trip is asked again in ${Math.round(ROOM_WELL_NEAR_RETRY_MS / 1000)} s` } }
+  if (plot) roomHoldNote(bot, plot)
+  return { status: used() < slotsBefore ? 'success' : 'no_effect', stop: 'room_short', detail: `the yard trip left ${36 - used()} free slot(s) of the build's ${need} (${stop ?? '-'}); ${plot ?? 'the pick'} waits ${Math.round(BUILDFIRST.holdMs / 60_000)} min for this bot` }
+}
+/**
+ * THE IDLE STEER'S BUILDING LOOK (minecrew.mjs crewSteer through groundsIdleAsk) -> the build order's own order for this bot now,
+ * its clock aside (every back-off, hold, turn, slot and the room route as the order reads them), or null. Never throws (null).
+ */
+function idleBuildLook (bot, now = Date.now()) {
+  try {
+    bot.bfLookWhy = 'off'
+    if (!SHOP.on || !bot?.entity?.position) return null
+    const p = bot.entity.position
+    if (Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) > EX_TOWN_R) { bot.bfLookWhy = 'away'; return null }   // the order's own atTown (cognitive TOWN_RADIUS 48)
+    const h = shopRecordHead()
+    const rec = h.ok ? (h.head?.rec ?? null) : null
+    // a BUILDING only: a pick that takes no turn (the grounds' lanes, the upkeep, the sinks: shop.mjs turnExempt) is not the look's
+    const plot = rec?.plot ?? activeProjectPlotSafe(bot)
+    if (!plot || turnExempt(plot)) { bot.bfLookWhy = `exempt:${plot ?? '-'}`; return null }
+    const st = bot.bfShopState ?? {}
+    // a pick the projects cannot use this bot for (complete, or its last stop no_material / keeper_held): the order's other asks are
+    // the order's own -- the look asks none of them (their stamps are theirs)
+    const complete = !!rec?.structure_complete && !shopDamaged(bot, rec)
+    if (shopBuildIdle({ complete, record: rec, lastStop: st.lastStop })) { bot.bfLookWhy = `idle:${plot}:${st.lastStop ?? (complete ? 'complete' : '-')}`; return null }
+    const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown: true, holds: false, now, state: st, record: rec,
+      complete, slotsFree: shopSlotsFree(bot), health: bot.health ?? 20,
+      freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt,
+      feet: [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], groundY: config.world.homeY, cooldown: false, fall: false, look: true })
+    bot.bfLookWhy = r.order ? `order:${plot}` : `skip:${plot}:${r.skip ?? '-'}`
+    return r.order ?? null
+  } catch { return null }
+}
+const activeProjectPlotSafe = bot => { try { return shopActive(bot, Date.now())?.plot ?? null } catch { return null } }
 /** The base's scan radius (bagfull-01). */
 const ROOM_WALK_R = 48
 /** BAGFIX-01 A: THE ROOM BANK'S TARGET NOW (bagfix.mjs roomTarget) -> { at, d, inBox, extra, status, lid } | null. The box's containers
@@ -19519,6 +19757,7 @@ const ROOM_BUILD_AFTER_MS = 90_000
 async function roomBankVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
+  if (BUILDFIRST.on) bot.roomBankAt = t0   // buildfirst-01show: a bank the idle look ordered is stamped where it begins
   const need = Number.isFinite(Number(args?.need)) ? Number(args.need) : BUILD_ROOM_SLOTS
   const used = () => (bot.inventory?.items?.() ?? []).length
   const slotsBefore = used()
@@ -24067,13 +24306,18 @@ async function buildShop (ctx, args, signal, t00 = null) {
   if (args?.shareBank === true) return shareBankVisit(ctx, args, signal)
   // bagfull-01: the room-bank visit the room refusal asked for (bagroom.mjs roomBankAsk), then the build when the bag has room
   if (args?.roomBank === true) return roomBankVisit(ctx, args, signal)
+  // buildfirst-01show: the well trip the room route ordered (cobble family above the yard's keep), then the build
+  if (args?.roomWell === true && BUILDFIRST.on) return roomWellVisit(ctx, args, signal)
+  if (args?.roomYard === true && BUILDFIRST.on) return roomYardVisit(ctx, args, signal)
   // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
   // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
   // yield only to a wanted sink, for IDLE_MS
   // leaffell-01show r1: ...and a visit that ended WAITING (leaf_decay, zone_closed) holds its plot for this bot (shop.mjs noteWait)
   // projturn-01: ...and every visit's result is the turns' evidence (turnNote: the project's no-progress back-off, this bot's last stop)
-  const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } try { noteWait((ctx.bot.shopWait ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } if (PROJTURN.on) turnNote(ctx.bot, res, args) }
+  // buildfirst-01show: this bot's last OWN-project stop and when (the idle look's back-offs read it as the order's state does)
+  const bfNote = res => { if (BUILDFIRST.on && !g3Only(args) && res?.stop) ctx.bot.bfShopState = { lastStop: String(res.stop), lastAt: Date.now() } }
+  const note = res => { bfNote(res); try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } try { noteWait((ctx.bot.shopWait ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } if (PROJTURN.on) turnNote(ctx.bot, res, args) }
   let r
   // gklease-01 (release fold, Codex BLOCKER): a visit IN PROGRESS is marked, so the footprint timer's keeperOrder never releases the
   // grounds lease under a running tidy/forest visit (a replacement keeper would work beside the old one)
@@ -28920,6 +29164,14 @@ export const _grounds2 = Object.freeze({ G2, G3, groundsBegin, groundsEnd, groun
 export function groundsIdleAsk (bot, now = Date.now()) {
   try {
     if (!G3.on || !bot) return { ok: false, why: 'grounds_off' }
+    // BUILDFIRST-01SHOW (buildfirst.mjs idleBuild): a building the order would send this bot to now goes first -- the order's own
+    // order (`order`: minecrew.mjs crewSteer issues it as is); after BUILDFIRST.run of them in a row the grounds take one turn
+    if (BUILDFIRST.on) {
+      const d = idleBuild({ run: bot.bfRun ?? 0, look: () => idleBuildLook(bot, now) })
+      bot.bfRun = d.run
+      try { logEvent({ kind: 'build_first', status: d.order ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `why=${d.why} run=${d.run} look=${bot.bfLookWhy ?? '-'} free=${36 - (bot.inventory?.items?.() ?? []).length}${d.order ? ` args=${Object.keys(d.order.args ?? {}).join('+') || '-'} plot=${d.order.args?.plot ?? (activeProjectPlotSafe(bot) ?? '-')}` : ''}` }) } catch { /* telemetry */ }
+      if (d.order) return { ok: true, why: 'building', order: d.order }
+    }
     const dry = crewGroundsWork({ on: true, record: 'open', emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), now })
     if (!dry.ok) return dry
     if (bot.crewIdleNo && now - bot.crewIdleNo.at < 30_000 && now >= bot.crewIdleNo.at) return { ok: false, why: bot.crewIdleNo.why }

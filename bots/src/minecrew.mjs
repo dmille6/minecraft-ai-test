@@ -389,6 +389,8 @@ export function crewSteer ({ on = MINECREW.on, holds = false, tripOpen = false, 
   }
   if (!g?.ok) return none(String(g?.why ?? 'unknown'))
   s.idleAt = now
+  // BUILDFIRST-01SHOW (skills.mjs groundsIdleAsk: buildfirst.mjs idleBuild): the build order's own building order goes first, as is
+  if (g.order?.skill === 'build_shop' && g.order.args?.grounds !== true) return { order: { skill: 'build_shop', args: { ...(g.order.args ?? {}) }, why: 'mine crew: idle at the surface -- a town building with work for this bot first' }, kind: 'build', why: how, state: s }
   return { order: { skill: 'build_shop', args: { grounds: true, why: 'idle' }, why: 'mine crew: idle at the surface -- the town\'s grounds (clean-up, levelling, planting)' }, kind: 'grounds', why: how, state: s }
 }
 /**

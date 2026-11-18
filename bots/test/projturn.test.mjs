@@ -18,6 +18,9 @@ import path from 'node:path'
 process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-projturn-logs-'))
 process.env.BOT_NAME = 'ProjTurnBot'
 process.env.LOG_LEVEL = 'error'
+// buildfirst-01show: these tests pin projturn's own order (repairs ahead of open projects, the finished record's 60-minute cap); with
+// BUILDFIRST on, an unfinished building goes first and a 3-times-failed repair backs off as stuck -- buildfirst.test.mjs tests that
+process.env.BUILDFIRST = 'off'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 // a named pool that is not the showcase: the workshop, the house, the ziggurat, the paths and the wall -- two open projects, no more
@@ -1090,7 +1093,8 @@ await t('THE AGING (real files): another bot\'s visit to the ziggurat sends this
   for (const line of ['if (PROJTURN.on) marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))', 'if (PROJTURN.on && b) b.shopTurnSvc = svc?.plot ?? null', 'if (PROJTURN.on && b && visit) b.shopTurnInfo = {', 'if (PROJTURN.on && !turnBegin(bot, proj.plot, Date.now(), aside > 0)) return aside >= TURN.asideMax ? turnAside(bot, proj.plot, t0) : buildShopVisitRun(ctx, args, signal, aside + 1)', 'if (PROJTURN.on) turnNote(ctx.bot, res, args)', 'if (PROJTURN.on) setTurnNow({'])
     assert.equal(src.split(line).length, 2, `WIRING MISSING OR NOT UNIQUE: ${line}`)
   assert.equal(src.split('turnBegin(').length, 2, 'turnBegin: the visit\'s one call')
-  assert.equal(src.split('turnNote(').length, 3, 'turnNote: the call every visit\'s result passes (buildShop `note`) and the one for a visit that threw (buildShopVisit)')
+  // buildfirst-01show: + the room trip's yard leg books its visits the same way (skills.mjs roomYardVisit `book`)
+  assert.equal(src.split('turnNote(').length, 4, 'turnNote: the call every visit\'s result passes (buildShop `note`), the one for a visit that threw (buildShopVisit) and the room yard leg\'s (roomYardVisit)')
   assert.equal(src.split('const proj = shopActive(bot, Date.now(), { visit: true })').length, 2, 'the visit\'s pick: one line, as it was')
   assert.equal(strip(fs.readFileSync(SRC('shop.mjs'), 'utf8')).split('turn = PROJTURN.on } = {}) {').length, 2, 'the order\'s switch defaults to PROJTURN')
 })
