@@ -294,7 +294,7 @@ await t('the re-top pass works only inside the gate and its banks while a gate i
   assert.strictEqual(ko(9, 5), 'outside_gate', 'a bank not beside it'); assert.strictEqual(ko(0, 0), 'outside_gate')
   assert.strictEqual(GT.retopKeepOff(null, () => 'zone')(0, 0), 'zone')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  assert.ok(/const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /&& !cutHeld\.has\(q\.at\.join\(','\)\)\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
+  assert.ok(/const capHeld = capHeldCols\(tidyCuts\(rec, read, mem\), read, retopPass, visitRec\.cells\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /&& !cutHeld\.has\(q\.at\.join\(','\)\)\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
   assert.ok(/retopCells\(res\.rec \?\? cur, read, \{ guard, keepOff: retopKeepOff\(gNow\?\.t \?\? null, fcKeepOff \?\? \(\(\) => 'closed'\)\),/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
 const capVisit = async (dirt) => {
@@ -307,7 +307,7 @@ const capVisit = async (dirt) => {
   const e = bot(srv, 'A', { inv, feet: [6, G + 1, 3], dig: digDrops })
   // the visit's own rules: retopHeld on the bag's dirt (no keep in the fake), gradeCutsHeld on the held caps
   const held = TT.retopHeld(rec.cells, srv.read, dirt, { open: q => !cellDone(srv.read(...q.at), T.TIDY_PALETTE, q.role) })
-  const capHeld = new Set([...held].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+  const capHeld = GT.capHeldCols(rec.cut, srv.read, held, rec.cells)
   const cutHeld = GT.gradeCutsHeld(rec.cut, srv.read, capHeld)
   const { p } = project(rec)
   await R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, tidy: rec.cut.filter(c => !cutHeld.has(c.at.join(','))), alsoDone: q => T.soilSkip(q, e.has) || held.has(q.at.join(',')), blockLayer: false, domain: () => true, walkR: 30 }, e, { maxSteps: 200 })
@@ -332,6 +332,21 @@ await t('MUTANT: without the hold the cut exposes cobblestone with no dirt to ca
     const srv = server({ [`5,${G + 1},5`]: 'dirt', [`5,${G},5`]: 'cobblestone' })
     assert.strictEqual(M.gradeCutsHeld([{ at: [5, G + 1, 5], grade: true }], srv.read, new Set(['5,5'])).size, 0)
   })
+})
+console.log('CODEX T11 DELTA r1')
+await t('BLOCKER 1: stone between earth layers (no cap planned) is not cut into without dirt; with a dirt unit it is', () => {
+  const srv = server({ [`0,${G + 3},0`]: 'dirt', [`0,${G + 2},0`]: 'stone', [`0,${G + 1},0`]: 'stone' })   // target G: dirt (earth)
+  const cuts = [G + 3, G + 2, G + 1].map(y => ({ at: [0, y, 0], grade: true }))
+  const none = Object.assign(new Set(), { left: 0 })
+  assert.deepStrictEqual([...GT.capHeldCols(cuts, srv.read, none)], ['0,0'])
+  assert.deepStrictEqual([...GT.gradeCutsHeld(cuts, srv.read, GT.capHeldCols(cuts, srv.read, none))].sort(), [G + 1, G + 2, G + 3].map(y => `0,${y},0`).sort())
+  assert.strictEqual(GT.capHeldCols(cuts, srv.read, Object.assign(new Set(), { left: 1 })).size, 0)
+})
+await t('BLOCKER 2: a waived cap is never held, so its column\'s cuts are never held for good', () => {
+  const srv = server({ [`0,${G},0`]: 'cobblestone' })
+  const cells = [{ at: [0, G, 0], role: 'topsoil', retop: 1, grade: true }]
+  assert.strictEqual(TT.retopHeld(cells, srv.read, 0).size, 1)
+  assert.strictEqual(TT.retopHeld(cells, srv.read, 0, { waived: { [`0,${G},0`]: {} } }).size, 0)
 })
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {

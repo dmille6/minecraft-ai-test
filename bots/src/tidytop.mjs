@@ -134,11 +134,13 @@ export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFi
   const out = new Set()
   for (const c of cells ?? []) {
     if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at)) continue
+    if (hasOwn(waived, kOf(c.at))) continue   // Codex T11 delta r1 BLOCKER 2: a waived cap is never held (it would hold its column's cuts for good)
     const n = nm(read(...c.at))
     if (!n || AIRY.test(n) || SOIL_NEAR.test(n)) continue
     if (left > 0) { left--; continue }
     out.add(kOf(c.at))
   }
+  out.left = left   // the bag's dirt still unclaimed (gradetidy.mjs capHeldCols)
   return out
 }
 /** Codex r1 BLOCKER: a topsoil cell passed for want of dirt (tidy.mjs soilSkip) reads done for the COMPLETION only while it is not a

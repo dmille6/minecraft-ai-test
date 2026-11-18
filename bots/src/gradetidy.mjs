@@ -293,3 +293,27 @@ export function gradeCutsHeld (cuts, read, capHeld) {
   }
   return held
 }
+
+/**
+ * THE COLUMNS WHOSE STONE-EXPOSING CUTS WAIT -> Set of 'x,z'. Pure over `read`. Control 11-18: "if the bot doesn't hold the dirt,
+ * don't cut below the last earth layer until it does". The columns whose earth cap is held (`held`: retopHeld's set), and -- Codex
+ * T11 delta r1 BLOCKER 1 -- every other grade column with a cut that would leave a non-earth block on top (stone between earth
+ * layers: no cap is planned there) beyond the bag's unclaimed dirt (`held.left`), one a column, nearest first in cut order.
+ */
+export function capHeldCols (cuts, read, held, cells = []) {
+  const out = new Set([...(held ?? [])].map(k => { const [x, , z] = k.split(','); return k2(x, z) }))
+  const capped = new Set((cells ?? []).filter(c => c?.retop && c.role === 'topsoil').map(c => k2(c.at[0], c.at[2])))   // a column with its own cap granted
+  let left = Math.max(0, Number(held?.left) || 0)
+  const seen = new Set()
+  for (const c of cuts ?? []) {
+    if (!c?.grade) continue
+    const k = k2(c.at[0], c.at[2])
+    if (out.has(k) || seen.has(k) || capped.has(k)) continue
+    const n = nm(read(c.at[0], c.at[1] - 1, c.at[2]))
+    if (EARTH_TOP.test(n) || /^(air|cave_air|void_air)$/.test(n)) continue
+    seen.add(k)
+    if (left > 0) { left--; continue }
+    out.add(k)
+  }
+  return out
+}
