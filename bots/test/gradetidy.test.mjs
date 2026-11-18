@@ -258,6 +258,11 @@ await t('BLOCKER 3: a changed or withdrawn target takes the open grade work off;
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/const stale = dropStaleGrade\(cur, gradeStamp\(gNow\?\.t \?\? null\),[^\n]*\n\s*cur = stale\.rec/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the refresh drops it before the release and the merge')
 })
+await t('chainCuts: the grade\'s cuts first, then the rest from where they end (the visit digs the terrace before the town)', () => {
+  const cuts = [{ at: [1, G + 1, 0] }, { at: [20, G + 1, 0], grade: true }, { at: [21, G + 2, 0], grade: true }, { at: [22, G + 1, 0] }]
+  assert.deepStrictEqual(T.chainCuts(cuts, [0, 0]).map(c => c.at[0]), [20, 21, 22, 1])
+  assert.deepStrictEqual(T.chainCuts(cuts.map(c => ({ at: c.at })), [0, 0]).map(c => c.at[0]), [1, 20, 21, 22], 'control: without the grade, nearest first')
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

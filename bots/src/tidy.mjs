@@ -1795,6 +1795,9 @@ export function coreFills (rec) {
  * ([x, z]). Pure.
  */
 export function chainCuts (cuts, start) {
+  // gradetidy-01show: the gated terrace's cuts first (their own walk), then the rest from where they end
+  const gc = cuts.filter(c => c?.grade)
+  if (gc.length && gc.length < cuts.length) { const a = chainCuts(gc, start); const e = a[a.length - 1].at; return [...a, ...chainCuts(cuts.filter(c => !c?.grade), [e[0], e[2]])] }
   const byCol = new Map()
   for (const c of cuts) { const k = k2(c.at[0], c.at[2]); if (!byCol.has(k)) byCol.set(k, []); byCol.get(k).push(c) }
   for (const v of byCol.values()) v.sort((a, b) => b.at[1] - a.at[1])
