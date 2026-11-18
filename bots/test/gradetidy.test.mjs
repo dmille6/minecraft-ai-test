@@ -95,6 +95,18 @@ await t('gradeColumn: never half a column -- a tree, a built block, water beside
   assert.deepStrictEqual(GT.gradeColumn(srv.read, 4, 0, G, deps(srv.read)).cut.map(c => c.at[1]), [G + 3])
 })
 
+await t('gradeColumn: a crust over a hollow -> the crust cut, the hollow filled from its floor; too deep -> left; a canopy is no tree', () => {
+  // grass at G+1 over air at G and G-1, stone at G-2 (the bots' layered spoil; replay of T11 11-18: 30 such columns)
+  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air', [`0,${G - 1},0`]: 'air' })
+  const w = GT.gradeColumn(srv.read, 0, 0, G, deps(srv.read))
+  assert.deepStrictEqual(w.cut.map(c => c.at[1]), [G + 1])
+  assert.deepStrictEqual(w.fill, [{ at: [0, G - 1, 0], role: 'earth' }, { at: [0, G, 0], role: 'topsoil' }])
+  for (let y = G - 6; y <= G; y++) srv.set([1, y, 0], 'air'); srv.set([1, G + 1, 0], 'dirt')
+  assert.strictEqual(GT.gradeColumn(srv.read, 1, 0, G, deps(srv.read)).why, 'hollow_deep')
+  // leaves over the column are not a trunk: the cobblestone top under them is re-topped
+  srv.set([2, G, 0], 'cobblestone'); srv.set([2, G + 3, 0], 'spruce_leaves'); srv.set([2, G + 4, 0], 'spruce_leaves')
+  assert.deepStrictEqual(GT.gradeColumn(srv.read, 2, 0, G, deps(srv.read)).fill, [{ at: [2, G, 0], role: 'topsoil', retop: true }])
+})
 console.log('THE SURVEY')
 await t('gradeSurvey: only gated columns; unknown and no-opinion classes counted, never planned; avoid and other records honoured', () => {
   const srv = server({ [`5,${G + 1},5`]: 'dirt', [`6,${G + 1},5`]: 'dirt', [`7,${G + 1},5`]: 'dirt', [`9,${G + 1},9`]: 'dirt' })

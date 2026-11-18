@@ -15,7 +15,7 @@
 // pits, pillars, rough ground, regrade -- stay out of it, `cols`). GRADE=off: no grade (the survey as before).
 // A LEAF but for tidy.mjs's column reader and cut rule (passed in: no import cycle).
 
-export const GRADE = Object.freeze({ file: 'grade-target.json', above: 16, below: 16 })
+export const GRADE = Object.freeze({ file: 'grade-target.json', above: 16, below: 16, hollow: 4 })
 export const gradeOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.GRADE ?? '').trim())
 
 const k2 = (x, z) => `${x},${z}`
@@ -69,28 +69,49 @@ export function targetAt (t, x, z) {
  */
 export function gradeColumn (read, x, z, y, { col, cuttable, liquid }) {
   const g = col(x, z, y)
-  if (g.tree) return { why: 'tree' }
   if (g.y == null) return { why: g.why === 'water' ? 'water' : g.why === 'built' || g.why === 'furniture' ? 'built' : 'no_ground' }
   const h = g.y
+  const empty = b => !b || /^(air|cave_air|void_air)$/.test(nm(b)) || b.boundingBox === 'empty'
+  // a TRUNK in the column is a tree (its felling is the tree rules'); a canopy's leaves over the ground are not in the way
+  for (let yy = Math.min(h, y) + 1; yy <= Math.max(h, y) + GRADE.above; yy++) if (/_(log|wood|stem)$/.test(nm(read(x, yy, z)))) return { why: 'tree' }
   const wet = yy => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => liquid(read(x + dx, yy, z + dz)))
   const cut = [], fill = []
   const lo = Math.min(h, y), hi = Math.max(h, y)
   for (let yy = lo; yy <= hi; yy++) if (wet(yy)) return { why: 'water_beside' }
+  // the cell AT the target once everything above it is gone: earth stays; a block to swap is a re-top; a HOLLOW (air under a crust,
+  // the bots' layered spoil) is filled from its floor up -- at most GRADE.hollow deep, else the column is left
+  const atTarget = () => {
+    const b = read(x, y, z)
+    if (empty(b)) {
+      let yy = y - 1
+      while (yy >= y - GRADE.hollow && empty(read(x, yy, z))) yy--
+      if (yy < y - GRADE.hollow) return 'hollow_deep'
+      for (let k = yy + 1; k < y; k++) fill.push({ at: [x, k, z], role: 'earth' })
+      fill.push({ at: [x, y, z], role: 'topsoil' })
+      return null
+    }
+    const n = nm(b)
+    if (EARTH_TOP.test(n)) return null
+    if (!cuttable(n)) return 'not_cuttable'
+    fill.push({ at: [x, y, z], role: 'topsoil', retop: true })
+    return null
+  }
   if (h > y) {
     for (let yy = h; yy > y; yy--) {
-      const n = nm(read(x, yy, z))
-      if (/^(air|cave_air|void_air)$/.test(n) || /^(short_grass|tall_grass|fern|large_fern|dandelion|poppy|snow)$/.test(n)) continue   // a gap under floating spoil, a plant: nothing to dig
+      const b = read(x, yy, z)
+      if (empty(b)) continue   // a gap under floating spoil, a plant: nothing to dig
+      const n = nm(b)
       if (!cuttable(n)) return { why: 'not_cuttable' }
       cut.push({ at: [x, yy, z], name: n })
     }
-    const n = nm(read(x, y, z))
-    if (!EARTH_TOP.test(n)) { if (!cuttable(n)) return { why: 'not_cuttable' }; fill.push({ at: [x, y, z], role: 'topsoil', retop: true }) }
+    const w = atTarget()
+    if (w) return { why: w }
   } else if (h < y) {
     for (let yy = h + 1; yy < y; yy++) fill.push({ at: [x, yy, z], role: 'earth' })
     fill.push({ at: [x, y, z], role: 'topsoil' })
   } else {
-    const n = g.name ?? nm(read(x, y, z))
-    if (!EARTH_TOP.test(n)) { if (!cuttable(n)) return { why: 'not_cuttable' }; fill.push({ at: [x, y, z], role: 'topsoil', retop: true }) }
+    const w = atTarget()
+    if (w) return { why: w }
   }
   return { cut, fill, why: null, h }
 }
