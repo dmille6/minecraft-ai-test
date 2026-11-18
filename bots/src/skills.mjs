@@ -212,6 +212,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
+import { retopCells, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30088,6 +30089,8 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     res = refreshMerge(cur, fresh, { busy, guard, now })
     try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
+    // TIDYTOP-01show (tidytop.mjs retopCells): the grey top fills already laid beside grass go back on the work list (cut, then dirt)
+    if (tidyTopOn()) { try { const rt = retopCells(res.rec ?? cur, read, { guard, keepOff: fcKeepOff ?? (() => 'closed'), now, done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) }); if (rt.n) { res = { ...res, rec: rt.rec, skipped: { ...(res.skipped ?? {}), retop: rt.n } } } } catch { /* the record as merged */ } }
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null

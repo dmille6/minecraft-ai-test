@@ -31,6 +31,7 @@ import { hubEntranceCols } from './storehub.mjs'   // the showcase gkaccess fold
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
+import { surfaceFills, tidyTopOn } from './tidytop.mjs'   // tidytop-01show
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut expires
@@ -1765,7 +1766,9 @@ export function coreFills (rec) {
   if (!rec?.cells?.length) return rec
   const top = new Map()
   for (const c of rec.cells) if (c.role === 'earth') { const k = k2(c.at[0], c.at[2]); top.set(k, Math.max(top.get(k) ?? -Infinity, c.at[1])) }
-  return { ...rec, cells: rec.cells.map(c => (c.role === 'earth' && c.at[1] < top.get(k2(c.at[0], c.at[2])) ? { ...c, role: 'core' } : c)) }
+  const cored = { ...rec, cells: rec.cells.map(c => (c.role === 'earth' && c.at[1] < top.get(k2(c.at[0], c.at[2])) ? { ...c, role: 'core' } : c)) }
+  // tidytop-01show: the top is `topsoil` (dirt or grass only, never stone at the surface: tidytop.mjs surfaceFills)
+  return tidyTopOn() ? surfaceFills(cored) : cored
 }
 
 /**
