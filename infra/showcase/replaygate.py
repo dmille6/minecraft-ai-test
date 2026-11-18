@@ -177,7 +177,18 @@ def trip_dir(trip_home, reader_path):
     return d
 
 
-def run_items(d, extra_rows=None, timeout=900):
+ITEMS_TIMEOUT_S = 2700   # one pass over the whole town epoch. It was 900 s; by 11-17 the history had grown until a pass no
+# longer finished in that on the loaded VM, and three stagings of an unchanged reader were refused as "reader is broken".
+
+
+def one_pass(installed_reader_bytes, candidate_reader_bytes, extra_rows):
+    """PURE. True when the installed pass would repeat the candidate pass: the SAME reader, byte for byte, over the same
+    rows (no candidate-only rows). Then R2 has nothing to compare (new_defects(x, x) is {}), and the one pass that runs
+    still proves R3 (the reader runs over the live history). A different reader, or extra rows, always takes two."""
+    return not extra_rows and installed_reader_bytes == candidate_reader_bytes
+
+
+def run_items(d, extra_rows=None, timeout=ITEMS_TIMEOUT_S):
     """`showcase_trip.py items` in d -> {gate: [item]} (raises with the tail on failure)."""
     cmd = [sys.executable, '-B', 'showcase_trip.py', 'items'] + (['--extra-rows', extra_rows] if extra_rows else [])
     p = subprocess.run(['nice', '-n', '19'] + cmd, cwd=d, capture_output=True, text=True, timeout=timeout)
@@ -212,7 +223,8 @@ def gate(repo, old_sha, new_sha, installed_reader, candidate_reader, trip_home, 
         if not broken:
             try:
                 cand = run_items(dc, extra_rows)
-                inst = run_items(di, None)
+                rec['one_pass'] = one_pass(open(installed_reader, 'rb').read(), open(candidate_reader, 'rb').read(), extra_rows)
+                inst = cand if rec['one_pass'] else run_items(di, None)
                 defects = new_defects(inst, cand)
                 n_items = {'installed': sum(len(v) for v in inst.values()), 'candidate': sum(len(v) for v in cand.values())}
             except Exception as e:
@@ -246,6 +258,10 @@ def selftest():
     assert new_defects({'H1': ['a', 'b']}, {'H1': ['a']}) == {}, 'a defect that disappears is fine'
     assert new_defects({'H1': ['a']}, {'H1': ['x']}) == {'H1': ['x']}, 'equal counts, a different item: new'
     assert admission([], {}, None) == (True, [])
+    assert one_pass(b'r', b'r', None) and one_pass(b'r', b'r', ''), 'the same reader over the same rows: one pass'
+    assert not one_pass(b'r', b'r2', None), 'a changed reader always takes both passes'
+    assert not one_pass(b'r', b'r', '/tmp/rows.jsonl'), 'candidate-only rows always take both passes'
+    assert ITEMS_TIMEOUT_S >= 1800, 'a pass over the town epoch does not finish in 15 min on the loaded VM (11-17)'
     assert not admission(['_build:first'], {}, None)[0] and not admission([], {'H1': ['x']}, None)[0]
     assert not admission([], {}, 'selftest rc 1')[0]
     print('replaygate selftest ok')
