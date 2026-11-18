@@ -178,6 +178,15 @@ def main():
     check('a missing file fails the collector', raises(lambda: ag2._trip(mC)))
     check('and exports no level', 'mcai_trip_level' not in mC.rows)
     check('and drops the cached level', 'mcai_trip_level' not in getattr(ag2, 'slow_metrics', {}))
+
+    # A FAILING SLOW COLLECTOR STAYS FAILING between its runs (Codex r3).
+    o3 = type('O', (), {'trip_last': os.path.join(d2, 'nope.json'), 'every': 60, 'slow_every': 3600})()
+    ag3 = A.Agent('showcase', o3)
+    ag3.showcase_jobs = lambda slow: [('fast', lambda m: None)] + ([('trip', ag3._trip)] if slow else [])
+    ag3.cycle()
+    ag3.cycle()   # a fast cycle: trip does not run
+    trip_ok = [l for l in ag3.metrics_text.splitlines() if l.startswith('mcai_agent_collector_ok') and 'collector="trip"' in l]
+    check('a failed slow collector is still reported failing on the next fast cycle', trip_ok and trip_ok[0].endswith(' 0.0'), trip_ok)
     print(f'\n{len(FAILS)} failed' if FAILS else '\nall passed')
     return 1 if FAILS else 0
 

@@ -811,6 +811,13 @@ class Agent:
         jobs = {'fleet': self.fleet_jobs, 'worlds': self.world_jobs, 'showcase': self.showcase_jobs}[self.role](slow)
         for name, fn in jobs:
             self._run(name, fn, m)
+        # a slow collector's health holds between its runs (Codex r3 on dashfix-01: a failing slow collector showed 0 for one
+        # cycle and vanished the next, so 'Dashboard collector failing' could never hold its 15 minutes)
+        ran = {name for name, _ in jobs}
+        for name, h in self.health.items():
+            if name not in ran:
+                m.add('mcai_agent_collector_ok', 1 if h['ok'] else 0, {'collector': name, 'role': self.role},
+                      '1 when the collector succeeded on its last run')
         if slow:
             self.slow_at = time.time()
         # carry the last good slow-collector metrics forward between slow cycles
