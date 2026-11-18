@@ -212,7 +212,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
-import { retopCells, retopHeld, soilPassDone, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
+import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30723,7 +30723,7 @@ async function buildTidyVisit (ctx, args, signal) {
     })
     bot.shopUnknown ??= new Set()
     // tidytop-01show (Codex r1 BLOCKER): a re-topped cell's grey block is dug only with dirt in the bag to lay in its place (tidytop.mjs retopHeld)
-    const retopPass = tidyTopOn() ? retopHeld(visitRec.cells, read, spare('dirt') + (took.dirt ?? 0)) : new Set()
+    const retopPass = tidyTopOn() ? retopHeld(visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived }) : new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
     const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
@@ -30914,7 +30914,11 @@ async function buildTidyVisit (ctx, args, signal) {
     if (GKW_ON && GROUNDS.on && (r.stop === 'complete' || caps.waive)) {
       try {
         const left = tidyLeftKeys(rw, read2, progOpts)
-        const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
+        // (the count's own line is as it was -- gkleft.test pins it -- inside `strikes`, whose `left` is the list it is handed)
+        const strikes = left => { const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' }); return town }
+        // tidytop-01show (Codex r2 BLOCKER 2): a topsoil cell waiting for dirt (passed: no dirt in the bag, or a re-top held for the
+        // dirt) is open work but no strike against the cell -- it is never waived for an empty bag (the town's dirt is the remedy)
+        const town = strikes(tidyTopOn() ? tidyLeftKeys(rw, read2, { ...progOpts, fillDone: q => !!progOpts.fillDone(q) || dirtWait(noSoil(q), retopPass.has(q.at.join(','))) }) : left)
         openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
         const due = caps.waive ? leftWaiveDue(rw, town, left) : []
         // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)

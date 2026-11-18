@@ -115,8 +115,14 @@ export function retopCells (rec, read, { guard = new Set(), keepOff = () => null
  *  foreign block is dug before it is laid). -> the keys of the re-topped cells this visit PASSES (read done by its alsoDone, so never
  *  dug): every grey one past the first `dirt` (the dirt the bag holds for them now), in record order. A visit never digs a surface
  *  block it has no dirt to put back; the completion still reads the passed ones open (a grey block is not topsoil). Pure over `read`. */
-export function retopHeld (cells, read, dirt = 0) {
+export function retopHeld (cells, read, dirt = 0, { waived = null } = {}) {
   let left = Math.max(0, Math.floor(Number(dirt) || 0))
+  // Codex r2 BLOCKER 1: the visit's OTHER open earth cells (air, not waived: topsoil or earth, dirt first) spend the bag's dirt too, and
+  // the foreign pass digs before any placement -- the re-tops get only the dirt left after them
+  for (const c of cells ?? []) {
+    if (!Array.isArray(c?.at) || c.prev || c.retop || (c.role !== 'topsoil' && c.role !== 'earth') || hasOwn(waived, kOf(c.at))) continue
+    if (AIRY.test(nm(read(...c.at)))) left--
+  }
   const out = new Set()
   for (const c of cells ?? []) {
     if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at)) continue
@@ -130,4 +136,7 @@ export function retopHeld (cells, read, dirt = 0) {
 /** Codex r1 BLOCKER: a topsoil cell passed for want of dirt (tidy.mjs soilSkip) reads done for the COMPLETION only while it is not a
  *  hole and not grey -> bool. Pure. `b` the block on the cell now. An air (or unread) cell, or one still holding the grey fill a re-top
  *  is for, stays open: the record never closes over a hole or a grey top; the next visit's dirt draw fills it. */
+/** Codex r2 BLOCKER 2: a topsoil cell WAITING FOR DIRT (passed for want of it, or a re-top held for it) -> bool. Pure. Such a cell is
+ *  open work but never a strike toward a waiver (gkwork.mjs leftWaiveDue): an empty bag is not "nobody can lay it". */
+export const dirtWait = (passed, held) => !!passed || !!held
 export const soilPassDone = (passed, b) => !!passed && !!b && !AIRY.test(nm(b)) && !GREY_FILL.test(nm(b))

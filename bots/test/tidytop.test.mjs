@@ -163,9 +163,35 @@ await t('MUTANT: re-tops not held by the dirt budget -> one dirt digs both greys
 await t('WIRED: the visit holds re-tops by dirt in its alsoDone and the completion uses soilPassDone (comments stripped)', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/retopHeld\(visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\)\)/.test(sk))
+  assert.ok(/retopHeld\(visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\), \{ waived: rec\.waived \}\)/.test(sk))
   assert.ok(/alsoDone: q => [^\n]*retopPass\.has\(q\.at\.join\(','\)\)/.test(sk))
   assert.ok(/soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\)\)/.test(sk))
+})
+await t('Codex r2 BLOCKER 1: one dirt, an open topsoil hole and a grey re-top -> the hole gets the dirt, the grey is never dug', async () => {
+  const B = await import('./helpers/buildfake.mjs')
+  const srv = B.server({ [`2,${B.G},0`]: 'air', [`4,${B.G},0`]: 'cobblestone' })
+  const rec = { cells: [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }], segments: [{ seg: 'T', after: [] }], cut: [], clear: [], replant: [] }
+  const held = TT.retopHeld(rec.cells, srv.read, 1)
+  assert.deepStrictEqual([...held], [`4,${B.G},0`])
+  const { p } = B.project(rec)
+  const e = B.bot(srv, 'A', { inv: { dirt: 1, cobblestone: 64 } })
+  await B.R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, alsoDone: q => T.soilSkip(q, e.has) || held.has(q.at.join(',')), blockLayer: false, domain: () => true, walkR: 20 }, e, { maxSteps: 100 })
+  assert.deepStrictEqual(rec.cells.map(q => srv.read(...q.at).name), ['dirt', 'cobblestone'])
+  // with dirt for both, both are laid; a waived hole spends no dirt
+  assert.strictEqual(TT.retopHeld(rec.cells, B.server({ [`4,${B.G},0`]: 'cobblestone', [`2,${B.G},0`]: 'air' }).read, 2).size, 0)
+  assert.strictEqual(TT.retopHeld(rec.cells, srv.read, 1, { waived: { [`2,${B.G},0`]: {} } }).size, 0)
+})
+await t('Codex r2 BLOCKER 2: a cell waiting for dirt is never a strike toward a waiver (dirtWait) and the visit wires it (comments stripped)', () => {
+  assert.strictEqual(TT.dirtWait(true, false), true); assert.strictEqual(TT.dirtWait(false, true), true); assert.strictEqual(TT.dirtWait(false, false), false)
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
+  assert.ok(/const town = strikes\(tidyTopOn\(\) \? tidyLeftKeys\(rw, read2, \{ \.\.\.progOpts, fillDone: leftDone\(flowFd, q => dirtWait\(noSoil\(q\), retopPass\.has\(q\.at\.join\(','\)\)\)\) \}\)/.test(sk))
+})
+await t('MUTANT: re-tops not charged for the other holes -> the grey is dug with the hole\'s dirt', async () => {
+  const B = await import('./helpers/buildfake.mjs')
+  const srv = B.server({ [`2,${B.G},0`]: 'air', [`4,${B.G},0`]: 'cobblestone' })
+  const cells = [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
+  await withMutant(P('tidytop.mjs'), '    if (AIRY.test(nm(read(...c.at)))) left--\n', '', M => assert.strictEqual(M.retopHeld(cells, srv.read, 1).size, 0))
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
