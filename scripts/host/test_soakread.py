@@ -146,6 +146,40 @@ check(any('could not see' in f for f in SR.build_report(i)['flags']), 'a blind s
 i = run(per_reconnect=18); i['rows_by_bot']['showcase-Comet'] = 0
 check(SR.build_report(i)['verdict'] == 'FAIL', 'a failure outranks a blind spot')
 
+# ---- the showcase stopped on purpose: the guard is off, and the read says so
+i = run(); i['guard_off'] = {'why': 'tripwire S4 at 15:13Z; control session 11-18', 'armed_at': None}
+i['guards'] = [{'t': z(T0 + 600 * k), 'verdict': 'BLIND', 'p95_ms': None, 'calls': 0} for k in range(1, 18)]; i['guard_before'] = {'verdict': 'BLIND', 'p95_ms': None, 'calls': 0}
+r = SR.build_report(i)
+check(r['verdict'] == 'PASS' and any('GUARD WAS OFF' in f and 'tripwire S4' in f and 'never came back' in f for f in r['flags']), 'guard off because the showcase is stopped: named in the read, and 17 blind checks are not a blind read')
+check('GUARD WAS OFF' in SR.render(r) and 'not read in the 30 min before' in SR.render(r), 'and the page says it')
+i['guard_off']['armed_at'] = T0 + 3600
+check(any('re-armed at 15:00Z' in f for f in SR.build_report(i)['flags']), 'if the showcase came back mid-run the read says when the guard re-armed')
+
+# ---- saplings and the protected village (the 11-18 tripwire stop), on rows in the bots' own shapes
+SAP = [(T0 + 10, 'showcase-Frost', '_plant_spot', {}, 'found at=65,70,-2 item=spruce_sapling sap=8 kinds=1 ordered=0', 'success'),
+       (T0 + 20, 'showcase-Onyx', '_plant_spot', {}, 'none at=- item=spruce_sapling sap=8 kinds=1 ordered=0', 'success'),
+       (T0 + 30, 'showcase-Onyx', '_plant_spot', {}, 'found at=-88,64,-19 item=spruce_sapling sap=8 kinds=1 ordered=0', 'success'),
+       (T0 + 40, 'showcase-Maple', '_work_order', {}, 'place {"item":"spruce_sapling","x":121,"y":67,"z":-8} \u2014 holding 12 spruce_sapling on plantable ground', 'success'),
+       (T0 + 41, 'showcase-Maple', '_work_order', {}, 'place {"item":"spruce_sapling","x":-54,"y":65,"z":-102} \u2014 holding 12', 'success'),
+       (T0 + 42, 'showcase-Maple', '_work_order', {}, 'place {"item":"cobblestone","x":121,"y":67,"z":-8} \u2014 a wall', 'success'),
+       (T0 + 43, 'showcase-Maple', '_work_order', {}, 'build_shop {"grounds":true,"why":"idle"} \u2014 the town\'s grounds (planting)', 'success'),
+       (T0 + 50, 'showcase-Maple', 'place', {'item': 'spruce_sapling', 'x': 121, 'y': 67, 'z': -8}, 'placed spruce_sapling at (121, 67, -8)', 'success'),
+       (T0 + 51, 'showcase-Maple', 'place', {'item': 'spruce_sapling', 'x': 120, 'y': 67, 'z': -8}, 'no reach', 'failed'),
+       (T0 + 52, 'showcase-Maple', 'place', {'item': 'spruce_sapling', 'x': -13, 'y': 63, 'z': 110}, 'placed', 'success'),
+       (T0 + 53, 'showcase-Maple', 'place', {'item': 'dirt', 'x': 121, 'y': 66, 'z': -8}, 'placed', 'success')]
+sp = SR.sapling_rows(SAP)
+check(sp['spots']['n'] == 2 and sp['spots']['in_zone'] == [(T0 + 10, 'showcase-Frost', 65, 70, -2)], 'plant spots: 2 found, 1 inside the village (a "none" row is not a spot)')
+check(sp['orders']['n'] == 2 and sp['orders']['in_zone'] == [(T0 + 40, 'showcase-Maple', 121, 67, -8)], 'orders to plant: 2 sapling orders, 1 inside (a cobblestone order and a build order are not)')
+check(sp['placed']['n'] == 2 and sp['placed']['in_zone'] == [(T0 + 50, 'showcase-Maple', 121, 67, -8)], 'planted: 2 succeeded, 1 inside (a failed place and a dirt block are not)')
+check(SR.in_zone(49, -59) and SR.in_zone(157, 45) and not SR.in_zone(48, 0) and not SR.in_zone(100, 46), 'the zone is x 49..157, z -59..45, edges included')
+i = run(); i['sapling_rows'] = SAP; i['sapling_places'] = [(T0 + 50, 'showcase-Maple', 121, 67, -8), (T0 + 52, 'showcase-Maple', -13, 63, 110)]
+r = SR.build_report(i)
+check(r['verdict'] == 'PASS' and any('protected village' in f and '1 plant spot' in f and '1 by the block history' in f for f in r['flags']), 'saplings in the village are named with all four counts, and are not part of the verdict')
+md = SR.render(r)
+check('## Saplings and the protected village' in md and '2 in all, **1 inside the village**: 14:00Z Maple at 121,67,-8' in md, 'the page lists each one with its time, bot and block')
+r = SR.build_report(run())
+check(not any('protected village' in f for f in r['flags']) and '**0 inside the village**' in SR.render(r), 'POSITIVE CONTROL: no sapling rows, no flag, and the page still shows the zeros with their totals')
+
 # ---- the page
 md = SR.render(leaky)
 check('**FAIL**' in md and '| Onyx |' in md and '17 -> 125 MB' in md and '18.0' in md, 'the page puts each bot\'s memory beside its reconnect count')

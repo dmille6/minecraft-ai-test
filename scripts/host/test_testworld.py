@@ -121,6 +121,21 @@ check(TW.guard_verdict(59, 1000)[0] == 'BLIND' and TW.guard_verdict(60, 1000)[0]
 check(TW.guard_verdict(None, None)[0] == 'BLIND' and TW.guard_verdict(400, None)[0] == 'BLIND', 'no reading is blind')
 check(TW.guard_verdict(10, 9000)[0] == 'BLIND', 'ten slow calls are not a verdict on the showcase either')
 
+# ---- the guard during a soak, and the showcase stopped on purpose
+G = TW.guard_step
+check(G(True, 0, 'OK') == (True, 0, False) and G(True, 0, 'TRIP') == (True, 0, True), 'armed: OK goes on, a TRIP stops the bots')
+check(G(True, 1, 'BLIND') == (True, 2, False) and G(True, 2, 'BLIND') == (True, 3, True), 'armed: the third blind check in a row stops the bots')
+check(G(True, 2, 'OK') == (True, 0, False), 'armed: seeing the showcase again resets the blind count')
+check(G(False, 0, 'BLIND') == (False, 0, False), 'showcase stopped on purpose: a blind check is expected and stops nothing')
+st = (False, 0, False)
+for _ in range(20):
+    st = G(st[0], st[1], 'BLIND')
+check(st == (False, 0, False), '... however many in a row')
+check(G(False, 0, 'OK') == (True, 0, False), 'the first check that SEES the showcase arms the guard from that moment')
+check(G(False, 0, 'TRIP') == (True, 0, True), 'and if what it sees is past the limit, the bots stop at once')
+st = G(False, 0, 'OK'); st = G(st[0], st[1], 'BLIND'); st = G(st[0], st[1], 'BLIND'); st = G(st[0], st[1], 'BLIND')
+check(st == (True, 3, True), 'once armed, three blind checks stop the bots as usual')
+
 # ---- the unit files (structure only: what behaviour cannot reach)
 def unit(path):
     text = '\n'.join(l for l in open(os.path.join(REPO, path)).read().splitlines() if not l.lstrip().startswith('#'))
@@ -176,6 +191,10 @@ with tempfile.TemporaryDirectory() as td:
     m = mutant("    text = open(path).read()\n    out = fn(text)\n    with open(path + '.tmp', 'w') as f:\n", "    with open(path, 'w') as f0:\n        pass\n    text = open(path).read()\n    out = fn(text)\n    with open(path + '.tmp', 'w') as f:\n")
     m['rewrite'](f, lambda t: m['server_properties'](t, 'X'))
     killed('the file is truncated before it is read', 'view-distance=8' not in open(f).read())
+m = mutant("        if verdict == 'BLIND':\n            return False, 0, False\n        armed = True\n", "        return False, 0, False\n")
+killed('a guard switched off never re-arms', m['guard_step'](False, 0, 'TRIP') == (False, 0, False))
+m = mutant("    return armed, blind, verdict == 'TRIP' or blind >= GUARD_BLIND_MAX\n", "    return armed, blind, verdict == 'TRIP'\n")
+killed('an armed guard never stops on blindness', m['guard_step'](True, 5, 'BLIND')[2] is False)
 m = mutant("        return round(int(v) / 1048576, 1) if str(v).isdigit() else None\n", "        return round(int(v) / 1048576, 1) if str(v).isdigit() else 0\n")
 killed('a stopped unit reads 0 MB', m['sample_row']('t', 'b', {'MemoryCurrent': '[not set]'})['mem_mb'] == 0)
 

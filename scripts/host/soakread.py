@@ -35,6 +35,12 @@ JOIN = re.compile(r'^\[\d\d:\d\d:\d\d INFO\]: (\S+) joined the game$')
 LOST = re.compile(r'^\[\d\d:\d\d:\d\d INFO\]: (\S+) lost connection: (.*)$')
 MEM = re.compile(r'^\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d+Z\] \w+\s+memory rss_mb=(\d+) heap_used_mb=(\d+) .*?array_buffers_mb=(\d+)')
 OOM = re.compile(r'(?i)out of memory|oom-kill')
+# The showcase's protected village (tripwire S4, zone village-taiga-6_1). 11-18 15:13Z: a spruce sapling a bot planted at
+# 121,67,-8 grew into a tree inside it and the tripwire stopped the town. The copy runs the same code on the same ground,
+# so the read counts every sapling aimed at or put inside it (reported, not part of the verdict).
+VILLAGE = {'name': 'village-taiga-6_1', 'x': (49, 157), 'z': (-59, 45)}
+AT = re.compile(r'\bfound at=(-?\d+),(-?\d+),(-?\d+)')
+ORDER = re.compile(r'^place (\{.*?\}) ')
 
 
 # ------------------------------------------------------------------------------------------------ pure
@@ -151,6 +157,39 @@ def death_delta(start, end):
     return {b: (end[b] - start[b]) if b in start and b in end else None for b in sorted(set(start) | set(end))}
 
 
+def in_zone(x, z, zone=VILLAGE):
+    return zone['x'][0] <= x <= zone['x'][1] and zone['z'][0] <= z <= zone['z'][1]
+
+
+def sapling_rows(rows, zone=VILLAGE):
+    """[(epoch, bot, skill name, args, detail, status)] -> per kind {'n', 'in_zone': [(epoch, bot, x, y, z)]}:
+    spots (`_plant_spot ... found at=x,y,z`: where the bot decided to plant), orders (`_work_order place {"item":
+    "*_sapling", x, y, z}`), placed (`place` rows of a sapling that succeeded). Pure."""
+    out = {k: {'n': 0, 'in_zone': []} for k in ('spots', 'orders', 'placed')}
+    def add(kind, t, bot, x, y, z):
+        out[kind]['n'] += 1
+        if in_zone(x, z, zone):
+            out[kind]['in_zone'].append((t, bot, x, y, z))
+    for t, bot, name, args, detail, status in rows:
+        if name == '_plant_spot':
+            m = AT.search(detail or '')
+            if m:
+                add('spots', t, bot, *map(int, m.groups()))
+        elif name == '_work_order':
+            m = ORDER.match(detail or '')
+            if m:
+                try:
+                    a = json.loads(m.group(1))
+                except ValueError:
+                    continue
+                if str(a.get('item', '')).endswith('_sapling') and all(isinstance(a.get(k), (int, float)) for k in 'xyz'):
+                    add('orders', t, bot, int(a['x']), int(a['y']), int(a['z']))
+        elif name == 'place' and status == 'success' and str((args or {}).get('item', '')).endswith('_sapling') \
+                and all(isinstance((args or {}).get(k), (int, float)) for k in 'xyz'):
+            add('placed', t, bot, int(args['x']), int(args['y']), int(args['z']))
+    return out
+
+
 def build_report(inp):
     """The whole read from collected inputs -> dict with 'verdict', 'fails', 'blind', 'flags' and every table. Pure.
     inp: run, expected_version, bots, t0, quiet_end, t1, load {'start','end','pauses_start','last_continue'} or None,
@@ -256,8 +295,23 @@ def build_report(inp):
     # ---- the showcase beside it
     trips = [g for g in inp['guards'] if g.get('verdict') == 'TRIP']
     blinds = [g for g in inp['guards'] if g.get('verdict') == 'BLIND']
-    if blinds:
+    off = inp.get('guard_off')
+    if off:
+        flags.append(f'THE SHOWCASE GUARD WAS OFF for this run (the showcase was stopped: {off["why"]})'
+                     + (f'; it re-armed at {hm(off["armed_at"])}Z when the showcase\'s rows came back' if off.get('armed_at') else
+                        '; the showcase\'s rows never came back, so nothing was beside the test world on the model'))
+    elif blinds:
         flags.append(f'the showcase guard could not see for {len(blinds)} of {len(inp["guards"])} checks')
+
+    # ---- saplings and the protected village (reported, never part of the verdict)
+    sap = sapling_rows(inp.get('sapling_rows') or [])
+    sap['history'] = {'n': len(inp.get('sapling_places') or []),
+                      'in_zone': [p for p in (inp.get('sapling_places') or []) if in_zone(p[2], p[4])]}
+    n_in = len(sap['placed']['in_zone']) + len(sap['history']['in_zone'])
+    if n_in or sap['spots']['in_zone'] or sap['orders']['in_zone']:
+        flags.append(f'saplings and the protected village {VILLAGE["name"]}: {len(sap["spots"]["in_zone"])} plant spot(s) chosen inside it, '
+                     f'{len(sap["orders"]["in_zone"])} order(s) to plant there, {len(sap["placed"]["in_zone"])} planted by the bots\' rows, '
+                     f'{len(sap["history"]["in_zone"])} by the block history')
 
     verdict = 'FAIL' if fails else ('INCONCLUSIVE' if blind else 'PASS')
     return {'run': inp['run'], 'verdict': verdict, 'fails': fails, 'blind': blind, 'flags': flags,
@@ -265,7 +319,7 @@ def build_report(inp):
             'bots': bots, 'memory': per_bot, 'restarts': rs, 'oom_lines': len(ooms),
             'reconnects_quiet': rq, 'reconnects_load': rl, 'leak': leak, 'back_minutes': back,
             'deaths': {'server': n_stat, 'rows': n_rows, 'per_bot': {b: dd.get(b) for b in bots}},
-            'blocks': inp['blocks'], 'llm': inp['llm'], 'rows_by_bot': inp['rows_by_bot'], 'versions': inp['versions'],
+            'saplings': sap, 'guard_off': off, 'blocks': inp['blocks'], 'llm': inp['llm'], 'rows_by_bot': inp['rows_by_bot'], 'versions': inp['versions'],
             'samples_expected': want, 'paper_lines': len(inp['paper']), 'memory_lines': len(mem),
             'guards': {'checks': len(inp['guards']), 'trips': len(trips), 'blind': len(blinds),
                        'p95_max_ms': max((g['p95_ms'] for g in inp['guards'] if g.get('p95_ms')), default=None),
@@ -340,6 +394,16 @@ def render(r):
           + '; '.join(f'{hm(h)}Z {p:,} placed / {c:,} cleared' for h, p, c in r['blocks']))
     else:
         w('- blocks by hour: no row read from the block-history database')
+    sp = r.get('saplings')
+    if sp:
+        w('')
+        w(f'## Saplings and the protected village ({VILLAGE["name"]}, x {VILLAGE["x"][0]}..{VILLAGE["x"][1]}, z {VILLAGE["z"][0]}..{VILLAGE["z"][1]})')
+        names = (('spots', 'plant spots chosen (`_plant_spot found`)'), ('orders', 'orders to plant (`_work_order place *_sapling`)'),
+                 ('placed', 'saplings planted, by the bots\' `place` rows'), ('history', 'saplings planted, by the block history'))
+        for k, label in names:
+            z_ = sp[k]['in_zone']
+            w(f'- {label}: {sp[k]["n"]} in all, **{len(z_)} inside the village**'
+              + (': ' + '; '.join(f'{hm(t)}Z {str(b).replace("showcase-", "")} at {x},{y},{zz}' for t, b, x, y, zz in z_[:12]) if z_ else ''))
     return '\n'.join(L) + '\n'
 
 
@@ -386,6 +450,17 @@ def block_hours(db, bots, a, b):
         q = (f'select (time / 3600) * 3600, sum(action = 1), sum(action = 0) from co_block where time >= ? and time < ? '
              f'and user in ({",".join("?" * len(ids))}) group by 1 order by 1')
         return [(int(h), int(p or 0), int(cl or 0)) for h, p, cl in c.execute(q, [int(a), int(b)] + ids)]
+    finally:
+        c.close()
+
+
+def sapling_places(db, bots, a, b):
+    """[(epoch, bot, x, y, z)] of every sapling the bots PLACED in [a, b), from the block-history database."""
+    c = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=30)
+    try:
+        q = ("select b.time, u.user, b.x, b.y, b.z from co_block b join co_user u on u.id = b.user join co_material_map m on m.id = b.type "
+             "where m.material like '%sapling' and b.action = 1 and b.time >= ? and b.time < ? order by b.time")
+        return [(int(t), u, int(x), int(y), int(z)) for t, u, x, y, z in c.execute(q, [int(a), int(b)]) if u in bots]
     finally:
         c.close()
 
@@ -447,6 +522,17 @@ def collect(run):
     uuid_name = {u['uuid']: u['name'] for u in cache}
     run_dir = f'{TW.SOAK}/{run}'
     guards = [r for r in after if r['event'] == 'guard' and ts(r['t']) <= t1]
+    guard_off = None
+    if start.get('showcase_stopped'):
+        armed = next((r for r in after if r['event'] == 'guard-armed' and ts(r['t']) <= t1), None)
+        guard_off = {'why': start['showcase_stopped'], 'armed_at': ts(armed['t']) if armed else None}
+    sap_rows = []
+    for name in ('_plant_spot', '_work_order', 'place'):
+        # a zero here is allowed only because the same load counted every bot's rows above (rows_by_bot)
+        for r in ev.of(name, allow_zero=True):
+            sk = r['raw'].get('skill') or {}
+            sap_rows.append((r['t'].timestamp(), (r['raw'].get('bot') or {}).get('name'), sk.get('name'), sk.get('args'), sk.get('detail'), sk.get('status')))
+    sap_places = sapling_places(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), t0, t1)
     before = [r for r in rows if r['event'] == 'guard' and r.get('phase') == 'before-start' and ts(r['t']) < t0]
     return {'run': run, 'expected_version': start['expected_version'], 'bots': bots, 't0': t0, 'quiet_end': quiet_end, 't1': t1,
             'load': load, 'stopped': (end or {}).get('stopped') or (None if end else 'no soak-end row: the driver did not finish'),
@@ -454,7 +540,8 @@ def collect(run):
             'versions': ev.versions(), 'death_rows': death_rows,
             'stats_start': stats_dir(f'{run_dir}/stats-start', uuid_name), 'stats_end': stats_dir(f'{run_dir}/stats-end', uuid_name),
             'blocks': block_hours(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), t0, t1), 'llm': llm,
-            'guards': guards, 'guard_before': before[-1] if before else None}
+            'guards': guards, 'guard_before': before[-1] if before else None, 'guard_off': guard_off,
+            'sapling_rows': sap_rows, 'sapling_places': sap_places}
 
 
 def main():

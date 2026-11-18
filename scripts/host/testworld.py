@@ -12,6 +12,7 @@ Plan: docs/reports/testworld-plan-2026-11-18.md. Runbook: docs/runbooks/testworl
     testworld.py squeeze --minutes 15 --share 0.4   cut the slice's CPU to a share of what it used; always undone
     testworld.py pauses --rounds 6 --seconds 50     pause each bot long enough to miss its keepalive (the 11-18 failure)
     testworld.py soak --run NAME [--hours 3]        the whole read: 3 h untouched, the load step, then soakread.py
+    (start and soak take --showcase-stopped "<why>": the showcase guard is off until the showcase's rows come back)
 
 WHY A THIN COPY and not showcase_ops.py at a second root: that file holds its root, the mcshow@ unit name and the log paths
 as constants on 58 lines, binds stage and activate to gates that are the showcase's own, and is tooling-protected. What must
@@ -209,6 +210,19 @@ def guard_verdict(calls, p95_ms, limit=GUARD_LIMIT_MS, min_calls=GUARD_MIN_CALLS
     if p95_ms > limit:
         return 'TRIP', f'showcase model p95 {p95_ms / 1000:.2f} s over 30 min ({calls} calls) is past {limit / 1000:.0f} s'
     return 'OK', f'showcase model p95 {p95_ms / 1000:.2f} s over 30 min ({calls} calls)'
+
+
+def guard_step(armed, blind, verdict):
+    """One guard check during a soak -> (armed, blind_in_a_row, stop). Pure.
+    armed False = the showcase is STOPPED on the control session's word (`--showcase-stopped`): a blind check is expected
+    and stops nothing. The first check that SEES the showcase (OK or TRIP) arms the guard from that moment, and from then
+    on the usual rule holds: a TRIP stops the bots, and so do GUARD_BLIND_MAX blind checks in a row."""
+    if not armed:
+        if verdict == 'BLIND':
+            return False, 0, False
+        armed = True
+    blind = blind + 1 if verdict == 'BLIND' else 0
+    return armed, blind, verdict == 'TRIP' or blind >= GUARD_BLIND_MAX
 
 
 def archive_commit(pax_headers):
@@ -574,8 +588,9 @@ def brain_health():
         return False, f"{b['url']} did not answer ({type(e).__name__})"
 
 
-def gate():
-    """-> [why ...], empty when the bots may start."""
+def gate(showcase_stopped=None):
+    """-> [why ...], empty when the bots may start. showcase_stopped: the reason the showcase is known to be stopped (then
+    a guard that cannot see it is expected; a guard that sees it past the limit still refuses)."""
     bad = []
     f = fleet_refusal(active_units('mcbot@*'))
     if f:
@@ -606,8 +621,11 @@ def gate():
     # This row is the read's "before" (soakread.py guard_before).
     verdict, why = guard_once('before-start')
     print('showcase guard before the start: ' + why)
-    if verdict != 'OK':
-        bad.append('no model room: ' + why)
+    if verdict == 'BLIND' and showcase_stopped:
+        journal('guard-off', phase='before-start', why=showcase_stopped)
+        print('   accepted: the showcase is stopped (' + showcase_stopped + ')')
+    elif verdict != 'OK':
+        bad.append('no model room: ' + why + ' (if the showcase is stopped on purpose: --showcase-stopped "<why>")')
     return bad
 
 
@@ -631,7 +649,7 @@ def cmd_stop(a):
 def cmd_start(a):
     guard_host()
     lk = lock()   # noqa: F841
-    bad = gate()
+    bad = gate(a.showcase_stopped)
     if bad:
         for w in bad:
             print('GATE: ' + w)
@@ -827,14 +845,17 @@ def save_copy(run_dir, tag):
                 time.sleep(5)
 
 
-def guard_loop(trip, done, every_s=600):
+def guard_loop(trip, done, every_s=600, armed=True):
     """The showcase guard for the WHOLE soak, load step included: every 10 minutes; a TRIP, or three blind checks in a row,
-    sets `trip` (trip.why says which)."""
+    sets `trip` (trip.why says which). armed False: see guard_step."""
     blind = 0
     while not done.wait(every_s):
         verdict, why = guard_once()
-        blind = blind + 1 if verdict == 'BLIND' else 0
-        if verdict == 'TRIP' or blind >= GUARD_BLIND_MAX:
+        was = armed
+        armed, blind, stop = guard_step(armed, blind, verdict)
+        if armed and not was:
+            journal('guard-armed', why='the showcase is back in the telemetry store: ' + why)
+        if stop:
             trip.why = why if verdict == 'TRIP' else f'guard blind {blind} checks in a row: {why}'
             trip.set()
             return
@@ -857,10 +878,10 @@ def cmd_soak(a):
     save_copy(run_dir, 'start')
     cmd_sample(a)
     journal('soak-start', run=a.run, release=os.path.basename(os.path.realpath(HARNESS)), expected_version=rel['expected_version'],
-            hours=a.hours, load_step=not a.no_load_step)
+            hours=a.hours, load_step=not a.no_load_step, **({'showcase_stopped': a.showcase_stopped} if a.showcase_stopped else {}))
     trip, done = threading.Event(), threading.Event()
     trip.why = None
-    threading.Thread(target=guard_loop, args=(trip, done), daemon=True).start()
+    threading.Thread(target=guard_loop, args=(trip, done), kwargs={'armed': not a.showcase_stopped}, daemon=True).start()
 
     def nap(seconds):
         if trip.wait(max(0, seconds)):
@@ -905,7 +926,7 @@ def main():
     s = sub.add_parser('adopt-bundle'); s.add_argument('dir'); s.set_defaults(fn=cmd_adopt_bundle)
     s = sub.add_parser('load'); s.add_argument('sha'); s.add_argument('--archive', required=True); s.set_defaults(fn=cmd_load)
     s = sub.add_parser('activate'); s.add_argument('release'); s.set_defaults(fn=cmd_activate)
-    s = sub.add_parser('start'); s.set_defaults(fn=cmd_start)
+    s = sub.add_parser('start'); s.add_argument('--showcase-stopped', metavar='WHY'); s.set_defaults(fn=cmd_start)
     s = sub.add_parser('stop'); s.add_argument('why', nargs='?', default='operator'); s.set_defaults(fn=cmd_stop)
     s = sub.add_parser('status'); s.set_defaults(fn=cmd_status)
     s = sub.add_parser('sample'); s.set_defaults(fn=cmd_sample)
@@ -918,7 +939,9 @@ def main():
     s.add_argument('--no-load-step', action='store_true'); s.add_argument('--squeeze-minutes', type=float, default=15)
     s.add_argument('--share', type=float, default=0.4); s.add_argument('--rounds', type=int, default=6)
     s.add_argument('--pause-seconds', type=int, default=50); s.add_argument('--gap', type=int, default=120)
-    s.add_argument('--recover-minutes', type=float, default=15); s.set_defaults(fn=cmd_soak)
+    s.add_argument('--recover-minutes', type=float, default=15)
+    s.add_argument('--showcase-stopped', metavar='WHY', help='the showcase is stopped (say why and on whose word): the guard is off until its rows come back')
+    s.set_defaults(fn=cmd_soak)
     a = ap.parse_args()
     # SIGTERM (systemctl stop of a soak) must unwind like any exit: the squeeze's and the pauses' `finally` put the CPU
     # quota back and continue every paused bot (review 11-18: the default handler skipped them).
