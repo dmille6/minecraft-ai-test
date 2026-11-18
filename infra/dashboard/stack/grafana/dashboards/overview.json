@@ -436,7 +436,7 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "sum(mcai_alarms_active{scope=\"showcase\",severity!=\"acked\"}) or vector(0)",
+     "expr": "sum(mcai_alarms_active{scope=\"showcase\",severity=~\"critical|warning\"}) or vector(0)",
      "legendFormat": "__auto",
      "range": false,
      "instant": true,
@@ -460,6 +460,10 @@
        {
         "color": "orange",
         "value": 1
+       },
+       {
+        "color": "red",
+        "value": 10
        }
       ]
      },

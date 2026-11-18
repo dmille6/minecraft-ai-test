@@ -348,9 +348,9 @@ def overview():
                   th=steps(GREEN, (ORANGE, 1), (RED, 2)), text_size=18))
     p.append(stat('Test world bots', (9, 0, 3, 4), [prom('sum(mcai_bot_units_running{scope="testworld"})', instant=True)],
                   th=steps(GREY, (BLUE, 1)), no_value='0'))
-    p.append(stat('Open alarms', (12, 0, 3, 4),
-                  [prom('sum(mcai_alarms_active{scope="showcase",severity!="acked"}) or vector(0)', instant=True)],
-                  th=steps(GREEN, (ORANGE, 1))))
+    p.append(stat('Open alarms', (12, 0, 3, 4),   # warnings and critical only: 'info' rows (old routes, restack notes) are not alarms
+                  [prom('sum(mcai_alarms_active{scope="showcase",severity=~"critical|warning"}) or vector(0)', instant=True)],
+                  th=steps(GREEN, (ORANGE, 1), (RED, 10))))
     p.append(stat('Deaths 24h', (15, 0, 3, 4), [es_show('skill.name:_death', buckets=[hist('1h')])], calc='sum',
                   th=steps(GREEN, (ORANGE, 3), (RED, 6)), timeFrom='24h', hideTimeOverride=True))
     p.append(stat('Showcase TPS', (18, 0, 3, 4), [prom('min(mcai_world_tps_5m{kind="showcase"})', instant=True)],
