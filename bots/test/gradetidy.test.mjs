@@ -353,9 +353,10 @@ await t('BLOCKER 1: the visit bills the dirt its held cap-less columns wait on (
   const srv = server({ [`0,${G + 3},0`]: 'grass_block', [`0,${G + 2},0`]: 'stone', [`0,${G + 1},0`]: 'stone' })
   const cuts = [G + 3, G + 2, G + 1].map(y => ({ at: [0, y, 0], grade: true }))
   assert.strictEqual(GT.exposeDirtNeed(cuts, srv.read, []), 1)
+  srv.set([0, G, 0], 'cobblestone')
   assert.strictEqual(GT.exposeDirtNeed(cuts, srv.read, [{ at: [0, G, 0], role: 'topsoil', retop: 1 }]), 0, 'a column with its own cap is billed as topsoil already')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  assert.ok(/const ne = exposeDirtNeed\(tidyCuts\(rec, read, mem\), read, visitRec\.cells, rec\.waived\); if \(ne > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ Math\.min\(ne, TIDY_VISIT_FILLS\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
+  assert.ok(/const ne = exposeDirtNeed\(tidyCuts\(rec, read, mem\), read, visitRec\.cells, rec\.waived\); exposeNeed = ne; if \(ne > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ Math\.min\(ne, TIDY_VISIT_FILLS\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
 await t('BLOCKER 2: a column whose cap is waived is held whatever the dirt, and the refresh takes its cuts off (nothing exposed, no wait for good)', () => {
   const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'cobblestone' })
@@ -370,6 +371,19 @@ await t('BLOCKER 2: a column whose cap is waived is held whatever the dirt, and 
   assert.strictEqual(GT.dropOrphanCuts({ cells, cut: cuts, waived: {} }).dropped, 0)
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/cur = stale\.rec\n\s*\{ const oc = dropOrphanCuts\(cur, \{ standing: q => cutStanding\(read, q, now\) \}\); cur = oc\.rec \}/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
+})
+console.log('CODEX T11 DELTA r3')
+await t('BLOCKER 2: a cap already laid (earth there now) does not exempt the column\'s remaining stone-exposing cuts', () => {
+  const srv = server({ [`0,${G + 3},0`]: 'grass_block', [`0,${G + 2},0`]: 'stone', [`0,${G + 1},0`]: 'air', [`0,${G},0`]: 'dirt' })
+  const cells = [{ at: [0, G, 0], role: 'topsoil', retop: 1, grade: true }]
+  const cuts = [{ at: [0, G + 3, 0], grade: true }, { at: [0, G + 2, 0], grade: true }]
+  assert.ok(GT.capHeldCols(cuts, srv.read, Object.assign(new Set(), { left: 0 }), cells).has('0,0'))
+  srv.set([0, G, 0], 'cobblestone')   // control: a cap still to lay is the column's own (it holds through retopHeld)
+  assert.ok(!GT.capHeldCols(cuts, srv.read, Object.assign(new Set(), { left: 0 }), cells).has('0,0'))
+})
+await t('BLOCKER 1: with only held cuts left (no workable segment) the visit still draws their dirt (comments stripped)', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/\}\s*else if \(exposeNeed > 0 && \(need\.dirt \?\? 0\) > 0\) \{ const w2 = await matsWithdraw\(ctx, \{ dirt: need\.dirt \}, signal,/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {

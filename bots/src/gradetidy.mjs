@@ -306,7 +306,8 @@ export function capHeldCols (cuts, read, held, cells = [], waived = null) {
   // refresh takes those cuts off (dropOrphanCuts), so the hold ends within the hour
   const isW = c => !!waived && Object.prototype.hasOwnProperty.call(waived, c.at.join(','))
   for (const c of cells ?? []) if (c?.retop && c.role === 'topsoil' && isW(c)) out.add(k2(c.at[0], c.at[2]))
-  const capped = new Set((cells ?? []).filter(c => c?.retop && c.role === 'topsoil' && !isW(c)).map(c => k2(c.at[0], c.at[2])))   // a column with its own cap granted
+  // a column whose own cap is still to lay (Codex T11 delta r3: a cap already laid -- earth there now -- exempts nothing)
+  const capped = new Set((cells ?? []).filter(c => c?.retop && c.role === 'topsoil' && !isW(c) && !EARTH_TOP.test(nm(read(...c.at)))).map(c => k2(c.at[0], c.at[2])))
   let left = Math.max(0, Number(held?.left) || 0)
   const seen = new Set()
   for (const c of cuts ?? []) {

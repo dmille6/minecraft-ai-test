@@ -30721,7 +30721,8 @@ async function buildTidyVisit (ctx, args, signal) {
     if (parkish) { try { Object.assign(extra, parkBill(rec, read, { held: held0, stock: matsTownStock(bot)?.stock ?? {}, done: q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role) })) } catch { /* the park waits for its bill */ } }
     if (wantSoil > 0) extra.dirt = (extra.dirt ?? 0) + wantSoil
     // gradetidy-01show (Codex T11 delta r2): the dirt the grade's stone-exposing columns with no cap of their own wait on is billed too
-    if (gradeOn()) { try { const ne = exposeDirtNeed(tidyCuts(rec, read, mem), read, visitRec.cells, rec.waived); if (ne > 0) extra.dirt = (extra.dirt ?? 0) + Math.min(ne, TIDY_VISIT_FILLS) } catch { /* the bill as it was */ } }
+    let exposeNeed = 0
+    if (gradeOn()) { try { const ne = exposeDirtNeed(tidyCuts(rec, read, mem), read, visitRec.cells, rec.waived); exposeNeed = ne; if (ne > 0) extra.dirt = (extra.dirt ?? 0) + Math.min(ne, TIDY_VISIT_FILLS) } catch { /* the bill as it was */ } }
     const need = want > 0 || Object.keys(extra).length ? needFromTown({ ...(want > 0 ? { cobblestone: want } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
     let took = {}
     bag0 = held0
@@ -30742,6 +30743,8 @@ async function buildTidyVisit (ctx, args, signal) {
     if (Object.keys(need).length && workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: GROUNDS.on })) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
+    // gradetidy-01show (Codex T11 delta r3): a visit with only the grade's held cuts left (no workable segment) still draws the dirt they wait on
+    else if (exposeNeed > 0 && (need.dirt ?? 0) > 0) { const w2 = await matsWithdraw(ctx, { dirt: need.dirt }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w2.took ?? {} }
     check(signal)
     effects = botBuildEffects(bot, {
       acks,
