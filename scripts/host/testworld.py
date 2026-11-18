@@ -474,7 +474,7 @@ def cmd_load(a):
         if pkg != pol['package_sha256']:
             raise ValueError('bots/package.json differs from the one the dependency bundle was built for: this candidate '
                              'needs its own bundle (ask the control session for the staged release\'s node_modules)')
-        os.symlink(f'{ARTIFACTS}/node_modules-{pol["deps"]}', f'{tmp}/node_modules')
+        os.symlink(modules_dir(pol['deps']), f'{tmp}/node_modules')
         shutil.copy(f'{OPS}/policy-{pol["policy"]}.env', f'{tmp}/control.env')
         rel = {'sha': sha, 'policy': pol['policy'], 'deps': pol['deps'], 'expected_version': f'{sha}+{src_digest(tmp + "/src")}',
                'loaded_at': iso(), 'files': len(members)}
@@ -490,6 +490,10 @@ def cmd_load(a):
     journal('loaded', release=name, **rel)
     print(f'LOADED {dst} expected_version {rel["expected_version"]}')
     return 0
+
+
+def modules_dir(deps):
+    return f'{ARTIFACTS}/{deps}/node_modules'
 
 
 def policy_digest(control):
@@ -513,7 +517,10 @@ def cmd_adopt_bundle(a):
     if got_deps != rel['deps']:
         print(f'REFUSED: node_modules digests to {got_deps}, the release recorded {rel["deps"]}')
         return 1
-    dst = f'{ARTIFACTS}/node_modules-{rel["deps"]}'
+    # The tree must sit in a folder NAMED node_modules: Node resolves a package's own imports from its real path upward,
+    # so a release's `node_modules` link to a folder of any other name finds nothing (11-18: `Cannot find module 'vec3'`).
+    dst = modules_dir(rel['deps'])
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
     if not os.path.isdir(dst):
         sh('rsync', '-a', f'{d}/node_modules/', dst + '.part/')
         sh('chown', '-R', 'root:root', dst + '.part')
@@ -631,6 +638,8 @@ def cmd_start(a):
         journal('start-refused', why=bad)
         return 1
     rel = current_release()
+    for b in BOTS:                           # a unit that hit its start limit earlier would refuse to start at all
+        sh('systemctl', 'reset-failed', f'{UNIT}{b}', check=False)
     t0 = time.time()
     journal('start-requested', release=os.path.basename(os.path.realpath(HARNESS)))
     for b in BOTS:
@@ -646,6 +655,7 @@ def cmd_start(a):
     if bad or missing:
         journal('start-failed', bad=bad, not_in_world=missing)
         print(f'START NOT VERIFIED: rows {bad}; not in the world {missing}')
+        _stop('start not verified')          # a half-started town is not left running unwatched
         return 1
     journal('start-verified', release=os.path.basename(os.path.realpath(HARNESS)), expected_version=rel['expected_version'], bots=len(BOTS))
     print(f'STARTED + VERIFIED: {len(BOTS)} bots in the world on {rel["expected_version"]}')
