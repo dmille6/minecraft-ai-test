@@ -5,6 +5,8 @@ Asked for by the control session 11-18, beside the soak read of the same run (sc
     buildfirstread.py --run NAME      on block2-bots: the run's window from the journal, the bots' rows from their logs;
                                       writes /srv/testworld/soak/NAME/buildfirst-read.md
 
+Since the same day it also reads drawshort-01show (the stack f7cc2a19): `_build_bag` need / tried / short, `_draw_short`
+retries and caps, `_structure_complete` by project, and each unfinished building's parts (roof ...) from `_build` and `_build_seg`.
 The release (802f4ba3): an idle bot goes to an unfinished building first; to carry for it, it makes bag room in sequence
 (the room bank, the yard, surplus cobblestone down the junk well, clay balls compacted), else holds that plot 10 minutes.
 What this counts, each with its denominator:
@@ -96,7 +98,10 @@ def summarize(rows, t0, t1):
            'well': {'trips': 0, 'threw': 0, 'thrown': {}, 'slots': [], 'stops': {}},
            'yard': {'trips': 0, 'stocked': {}}, 'clay': {'rows': 0, 'done': 0, 'made': 0},
            'holds': {}, 'holds_raw': {}, 'slots_by_hour': {h: [] for h in hours}, 'first_slots': None,
-           'idle': {'building': 0, 'grounds': 0}, 'build_first': {}, 'stays': [], 'loops': []}
+           'idle': {'building': 0, 'grounds': 0}, 'build_first': {}, 'stays': [], 'loops': [],
+           # drawshort-01show: what a building visit asked the town for and could not get; false shortages re-asked; completions
+           'bag': {'rows': 0, 'asked': 0, 'short': 0, 'short_by_item': {}, 'short_by_project': {}},
+           'draw_short': {'short': 0, 'cap': 0, 'by_plot': {}}, 'complete': {}, 'segs': {}}
     per_bot_pos, per_bot_ev = {}, {}
     stand = WELL_STAND
     for t, bot, name, status, detail, pos in sorted(rows, key=lambda r: r[0]):
@@ -118,6 +123,31 @@ def summarize(rows, t0, t1):
             out['outcomes'][p][oc] = out['outcomes'][p].get(oc, 0) + 1
             if 'no_material' in (oc, f.get('stop')):
                 out['no_material'][p] = out['no_material'].get(p, 0) + 1
+        elif name == '_build_bag':
+            b = out['bag']
+            b['rows'] += 1
+            b['asked'] += 1 if f.get('need', '-') not in ('-', '') else 0
+            short = [x.split(':')[0] for x in f.get('short', '-').split(',') if ':' in x]
+            if short:
+                b['short'] += 1
+                p = f.get('project', '?')
+                b['short_by_project'][p] = b['short_by_project'].get(p, 0) + 1
+                for item in short:
+                    b['short_by_item'][item] = b['short_by_item'].get(item, 0) + 1
+        elif name == '_draw_short':
+            d = out['draw_short']
+            op = 'cap' if f.get('op') == 'cap' else 'short'
+            d[op] += 1
+            d['by_plot'].setdefault(f.get('plot', '?'), {'short': 0, 'cap': 0})[op] += 1
+        elif name == '_structure_complete':
+            p = f.get('project', '?')
+            out['complete'][p] = out['complete'].get(p, 0) + 1
+        elif name == '_build' and f.get('project') in UNFINISHED and f.get('op') == 'place':
+            sg = out['segs'].setdefault((f['project'], f.get('seg', '-')), {'placed': 0, 'open': None, 'done': None})
+            sg['placed'] += 1
+        elif name == '_build_seg' and f.get('project') in UNFINISHED:
+            sg = out['segs'].setdefault((f['project'], f.get('seg', '-')), {'placed': 0, 'open': None, 'done': None})
+            sg['open'], sg['done'] = f.get('open'), f.get('done')          # rows are time-ordered: the last one stands
         elif name == '_room_well':
             w = out['well']
             w['trips'] += 1
@@ -209,7 +239,22 @@ def render(r, run, version):
         v = r['visits'].get(p, 0)
         placed = sum(r['placed'][h].get('unfinished', {}).get(p, 0) for h in r['hours'])
         oc = r['outcomes'].get(p, {})
-        w(f'- {p}: {v} visits, {placed} placed' + ('; ended ' + ', '.join(f'{k} {n}' for k, n in sorted(oc.items(), key=lambda x: -x[1])) if oc else ''))
+        segs = sorted((sg, d) for (pp, sg), d in r['segs'].items() if pp == p)
+        w(f'- {p}: {v} visits, {placed} placed' + ('; ended ' + ', '.join(f'{k} {n}' for k, n in sorted(oc.items(), key=lambda x: -x[1])) if oc else '')
+          + (f'; **completed** ({r["complete"][p]} `_structure_complete`)' if r['complete'].get(p) else '; not completed')
+          + ('; parts: ' + ', '.join(f'{sg} {d["placed"]} cells placed (now open={d["open"]} done={d["done"]})' for sg, d in segs) if segs else ''))
+    other = {p: n for p, n in r['complete'].items() if p not in UNFINISHED}
+    if other:
+        w(f'- also completed: {other}')
+    w('')
+    w('## Materials for building (the draw)')
+    b = r['bag']
+    w(f'- build visits that logged their bag (`_build_bag`): {b["rows"]}; asked the town for something: {b["asked"]}; **left short of something: {b["short"]}**'
+      + (' by item: ' + ', '.join(f'{k} {n}' for k, n in sorted(b['short_by_item'].items(), key=lambda x: -x[1]))
+         + '; by project: ' + ', '.join(f'{k} {n}' for k, n in sorted(b['short_by_project'].items(), key=lambda x: -x[1])) if b['short'] else ''))
+    d = r['draw_short']
+    w(f'- false shortages re-asked (`_draw_short op=short`): {d["short"]}; gave up after two (`op=cap`): {d["cap"]}'
+      + (f'; by plot: {d["by_plot"]}' if d['by_plot'] else ''))
     w('')
     w('## Making bag room')
     wl = r['well']

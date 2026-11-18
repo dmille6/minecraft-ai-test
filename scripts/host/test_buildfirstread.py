@@ -86,6 +86,38 @@ check('| 16:00Z | 69 (civicM 62, civicH 7) | 3 (house1 3) | 30 (tidy 30) |' in m
 check('- civicM: 2 visits, 62 placed; ended placed 1, complete 1' in md and '- civicH: 2 of its 2 visits ended no_material' in md, 'each unfinished building with its visits, blocks and endings')
 check('building 2 (67%), grounds 1' in md and 'median per hour: 16:00Z 35/36 (n=3); 17:00Z 26/36 (n=2)' in md, 'idle split and bag medians with n')
 check('Bravo stood there 7.0 min from 16:33Z' in md and 'LOOP: Bravo went well -> hold -> well for civicH from 17:40Z' in md, 'the well stay and the loop are named')
+# ---- drawshort-01show: the draw, the false shortage, completions, the roof
+def row(t, name, detail, status='success'):
+    return (t, A, name, status, detail, None)
+DRAW = [row(T0 + 10, '_build_bag', 'project=civicH exit=placed silent=0 drawn=ok need=spruce_stairs:24,cobblestone:8 tried=3:box@1,2,3:ok;box@4,5,6:ok short=- spruce_stairs=0/24/0/24/0/0'),
+        row(T0 + 20, '_build_bag', 'project=civicH exit=no_material silent=0 drawn=short need=spruce_stairs:24 tried=12:box@1,2,3:ok short=spruce_stairs:11,glass_pane:2'),
+        row(T0 + 30, '_build_bag', 'project=civicM exit=no_material silent=0 drawn=short need=glass_pane:4 tried=18:x short=glass_pane:4'),
+        row(T0 + 40, '_build_bag', 'project=tidy exit=cell_deferred silent=0 drawn=ok'),
+        row(T0 + 50, '_draw_short', 'op=short plot=civicH n=1/2 why=no_material town=spruce_stairs:132'),
+        row(T0 + 60, '_draw_short', 'op=short plot=civicH n=2/2 why=no_material town=spruce_stairs:132'),
+        row(T0 + 70, '_draw_short', 'op=cap plot=civicH n=2/2 why=no_material town=spruce_stairs:132 then=no_material', status='no_effect'),
+        row(T0 + 80, '_structure_complete', 'project=civicH op=complete kind=wellhouse gen=12'),
+        row(T0 + 81, '_structure_complete', 'project=shaft op=complete kind=shaft gen=3'),
+        row(T0 + 90, '_build', 'project=civicH op=place seg=roof cell=4,75,6 block=spruce_stairs st=placed'),
+        row(T0 + 91, '_build', 'project=civicH op=place seg=roof cell=5,75,6 block=spruce_stairs st=placed'),
+        row(T0 + 92, '_build', 'project=civicH op=deferred seg=roof cell=6,75,6 block=spruce_stairs'),
+        row(T0 + 93, '_build', 'project=civicH op=place seg=posts cell=4,71,6 block=spruce_log st=placed'),
+        row(T0 + 94, '_build', 'project=tidy op=place seg=fill cell=1,63,1 block=dirt st=placed'),
+        row(T0 + 95, '_build_seg', 'project=civicH seg=roof open=33 done=2 material_open=0 found_done=1 found_open=0'),
+        row(T0 + 99, '_build_seg', 'project=civicH seg=roof open=0 done=35 material_open=0 found_done=1 found_open=0'),
+        row(T0 + 96, '_build_seg', 'project=tidy seg=fill open=9 done=1')]
+d = B.summarize(DRAW, T0, T1)
+check(d['bag'] == {'rows': 4, 'asked': 3, 'short': 2, 'short_by_item': {'spruce_stairs': 1, 'glass_pane': 2}, 'short_by_project': {'civicH': 1, 'civicM': 1}},
+      'the draw: 4 visits logged their bag, 3 asked the town, 2 were left short; by item and by project (short=- is not short)')
+check(d['draw_short'] == {'short': 2, 'cap': 1, 'by_plot': {'civicH': {'short': 2, 'cap': 1}}}, 'false shortages re-asked twice, then one cap')
+check(d['complete'] == {'civicH': 1, 'shaft': 1}, 'completions by project')
+check(d['segs'] == {('civicH', 'roof'): {'placed': 2, 'open': '0', 'done': '35'}, ('civicH', 'posts'): {'placed': 1, 'open': None, 'done': None}},
+      'an unfinished building\'s parts: roof cells placed (a deferred cell is not placed) and its last open / done; tidy is not a building')
+md = B.render(d, 'r2', 'v')
+check('**completed** (1 `_structure_complete`); parts: posts 1 cells placed (now open=None done=None), roof 2 cells placed (now open=0 done=35)' in md, 'the page: civicH completed, its roof 2 cells placed, open=0 done=35')
+check('**left short of something: 2** by item: glass_pane 2, spruce_stairs 1; by project: civicH 1, civicM 1' in md and "gave up after two (`op=cap`): 1" in md and "also completed: {'shaft': 1}" in md, 'and the draw section with its denominators')
+check('- civicM: 0 visits, 0 placed; not completed' in md, 'a building that did not complete says so')
+
 e = B.summarize([visit(T0 + 60, A, 'tidy', 'deadline', 72), order(T0 + 70, A, True)], T0, T1)
 md = B.render(e, 'old', 'v')
 check('0 (0%) went into unfinished buildings' in md and 'no `_build_first` row carried a count' in md and 'none of 1 build visits ended no_material' in md
@@ -117,6 +149,11 @@ m = mutant("a[2] == b[2] == c[2] and c[0] - a[0] <= LOOP_S", "c[0] - a[0] <= LOO
 killed('a hold on another plot counts as a loop', len(m['summarize'](ROWS, T0, T1)['loops']) == 2)
 m = mutant("        elif name == '_compact' and f.get('op') == 'bag' and f.get('from') == 'clay_ball':\n", "        elif name == '_compact':\n")
 killed('a cobblestone compaction counts as clay', m['summarize'](ROWS, T0, T1)['clay']['rows'] == 3)
+
+m = mutant("            short = [x.split(':')[0] for x in f.get('short', '-').split(',') if ':' in x]\n", "            short = ['x']\n")
+killed('every build visit counts as short', m['summarize'](DRAW, T0, T1)['bag']['short'] == 4)
+m = mutant("        elif name == '_build' and f.get('project') in UNFINISHED and f.get('op') == 'place':\n", "        elif name == '_build' and f.get('project') in UNFINISHED:\n")
+killed('a deferred roof cell counts as placed', m['summarize'](DRAW, T0, T1)['segs'][('civicH', 'roof')]['placed'] == 3)
 
 print(f'\n{"OK" if not fails else "FAILED"}: {fails} failure(s)')
 sys.exit(1 if fails else 0)
