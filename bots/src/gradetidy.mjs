@@ -194,3 +194,19 @@ export function releaseGradeCols (rec, cols, { done = () => false, standing = ()
   const waived = Object.fromEntries(Object.entries(w).filter(([k]) => { const [x, , z] = k.split(','); return !rel.has(k2(x, z)) }))
   return { rec: { ...rec, cells: (rec.cells ?? []).filter(keep), cut: (rec.cut ?? []).filter(keep), ...(rec.waived ? { waived } : {}) }, released: [...rel] }
 }
+
+/**
+ * THE GRADE'S SEGMENTS FIRST (release 1: the gated terrace is the proof) -> the record with every segment holding an OPEN grade cell
+ * (`open(cell)`), and the segments those wait on, at the head of its order; the rest as they were. Pure; the same record when there
+ * is none. (grounds2.mjs stairsFirst's rule; stuckLast still sends a stuck grade segment to the end.)
+ */
+export function gradeFirst (record, open = () => true) {
+  const segs = record?.segments ?? []
+  const want = new Set()
+  for (const c of record?.cells ?? []) if (c?.grade && !c.prev && open(c)) want.add(c.seg)
+  if (!want.size) return record
+  const by = new Map(segs.map(s => [s.seg, s]))
+  const add = s => { for (const d of by.get(s)?.deps ?? []) if (!want.has(d)) { want.add(d); add(d) } }
+  for (const s of [...want]) add(s)
+  return { ...record, segments: [...segs.filter(s => want.has(s.seg)), ...segs.filter(s => !want.has(s.seg))] }
+}

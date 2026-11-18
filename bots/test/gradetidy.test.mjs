@@ -209,6 +209,15 @@ await t('WIRED (comments stripped): the refresh releases the finished gated colu
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
   assert.ok(/const relG = gNow\?\.t \? releaseGradeCols\(cur, gNow\.t\.gate,[^\n]*\n\s*cur = relG\.rec\n\s*const busy = openColumns\(cur, read,[^\n]*\n\s*res = refreshMerge\(cur, fresh,/.test(sk))
 })
+await t('gradeFirst: segments with an open grade cell, and what they wait on, go first; none open -> the order as it was', () => {
+  const rec = { segments: [{ seg: 'A', deps: [] }, { seg: 'B', deps: [] }, { seg: 'G0', deps: [] }, { seg: 'G1', deps: ['G0'] }],
+    cells: [{ at: [0, 0, 0], seg: 'A' }, { at: [1, 0, 0], seg: 'G0', grade: true }, { at: [1, 1, 0], seg: 'G1', grade: true }] }
+  assert.deepStrictEqual(GT.gradeFirst(rec).segments.map(s => s.seg), ['G0', 'G1', 'A', 'B'])
+  assert.deepStrictEqual(GT.gradeFirst(rec, q => q.seg === 'G1').segments.map(s => s.seg), ['G0', 'G1', 'A', 'B'], 'a layer pulls the one under it')
+  assert.strictEqual(GT.gradeFirst(rec, () => false), rec)
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/visitRec = gradeFirst\(visitRec, q => !waivedK\(q\) && !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\)\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit orders by it')
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

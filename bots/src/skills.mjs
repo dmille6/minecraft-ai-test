@@ -213,7 +213,7 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
 import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
-import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols, setGradeSource } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
+import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols, setGradeSource, gradeFirst } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30794,6 +30794,8 @@ async function buildTidyVisit (ctx, args, signal) {
     const stairOpenQ = q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)
     let stairsHead = false
     if (G2.on && !floorOnly && !prepNow) { try { const v0 = visitRec; visitRec = stairsFirst(v0, stairOpenQ, TIDY_PALETTE.access.some(n => !!effects?.has?.(n))); stairsHead = visitRec !== v0 } catch { /* the survey's order */ } }
+    // gradetidy-01show (gradetidy.mjs gradeFirst): the gated terrace's open segments next, ahead of the town's older work
+    if (!floorOnly && !prepNow && gradeOn()) { try { visitRec = gradeFirst(visitRec, q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)) } catch { /* the order as it was */ } }
     // grounds-01 (grounds2.mjs stuckSegs / stuckLast; LIVE 11-12: seven segments at the head of the order, their first cells tried
     // 100 to 366 times, took every visit's first minute): a segment whose open cell no stand has reached in GROUNDS2.stuckMin visits
     // town-wide goes to the END of this visit's order -- after the stairs, so a stuck staircase is last too
