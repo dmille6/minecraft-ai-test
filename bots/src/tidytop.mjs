@@ -25,7 +25,7 @@ const hasOwn = (o, k) => !!o && typeof o === 'object' && Object.prototype.hasOwn
 /** The earth-laid roles of a tidy column. */
 const COLUMN_ROLES = new Set(['earth', 'core', 'topsoil'])
 /** What a grey fill is (the bag's stone a fill laid). */
-export const GREY_FILL = /^(cobblestone|cobbled_deepslate|mossy_cobblestone|stone)$/
+export const GREY_FILL = /^(cobblestone|cobbled_deepslate|stone)$/   // Codex T11 r2: only what the visit's foreign pass may dig (buildrun.mjs FOREIGN_CLEAR; never mossy cobblestone)
 /** Ground that greens a laid dirt block beside it. */
 export const SOIL_NEAR = /^(grass_block|dirt|coarse_dirt|podzol|rooted_dirt|mycelium|moss_block)$/
 const AIRY = /^(air|cave_air|void_air)$/

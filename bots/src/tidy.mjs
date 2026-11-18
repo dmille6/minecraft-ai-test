@@ -32,7 +32,7 @@ import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { surfaceFills, tidyTopOn } from './tidytop.mjs'
-import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary, gradeProvided, gradeStamp } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
+import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary, gradeProvided, gradeStamp, RETOP_DIGGABLE } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut expires
@@ -1568,7 +1568,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       const cellColsG = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
       // Codex T11 r1 BLOCKER 1: the survey's own keep-out (`keepOff`: no-litter plots, the reservations -- landmark, demolition hold,
       // lawns -- then `avoid`), never `avoid` alone
-      gw = gradeSurvey(read, grade.t, { home, avoid: keepOff, cellCols: cellColsG, col: (x, z, y) => tidyColumn(read, x, z, { yHi: y + GRADE.above, yLo: y - GRADE.below }), cuttable: n => LEVEL_CUT.test(n), liquid: b => !!b && isLiquid(b) })
+      gw = gradeSurvey(read, grade.t, { home, avoid: keepOff, cellCols: cellColsG, col: (x, z, y) => tidyColumn(read, x, z, { yHi: y + GRADE.above, yLo: y - GRADE.below }), cuttable: n => LEVEL_CUT.test(n), retopable: n => LEVEL_CUT.test(n) && RETOP_DIGGABLE.test(n), liquid: b => !!b && isLiquid(b) })
       const kept = dropGradeCols(sv0, gw.cols)
       Object.assign(sv0, kept, { cut: [...kept.cut, ...gw.cut], fill: [...kept.fill, ...gw.fill], pits: [...kept.pits, ...gw.pits] })
     }

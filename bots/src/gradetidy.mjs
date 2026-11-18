@@ -25,6 +25,8 @@ export const gradeProvided = () => { try { return gradeSource ? gradeSource() : 
 
 const k2 = (x, z) => `${x},${z}`
 const nm = b => String(b?.name ?? '').replace(/^minecraft:/, '').replace(/\[.*\]$/, '')
+/** What the visit's foreign pass digs out of an open record cell (buildrun.mjs FOREIGN_CLEAR, the same list; a test holds them equal). */
+export const RETOP_DIGGABLE = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel|snow)$/
 /** The classes with a target (ground). */
 export const GRADE_CLASSES = Object.freeze({ t: 'terrace', b: 'bank', a: 'apron', e: 'edge' })
 /** The classes the plan names that mean "leave it" (no opinion). */
@@ -76,7 +78,7 @@ export function targetAt (t, x, z) {
  * `liquid(b)` a liquid block. Never plans half a column: any block it may not cut, a tree, water at or beside the worked heights ->
  * the reason, nothing planned.
  */
-export function gradeColumn (read, x, z, y, { col, cuttable, liquid }) {
+export function gradeColumn (read, x, z, y, { col, cuttable, liquid, retopable = cuttable }) {
   const g = col(x, z, y)
   if (g.y == null) return { why: g.why === 'water' ? 'water' : g.why === 'built' || g.why === 'furniture' ? 'built' : 'no_ground' }
   const h = g.y
@@ -101,7 +103,9 @@ export function gradeColumn (read, x, z, y, { col, cuttable, liquid }) {
     }
     const n = nm(b)
     if (EARTH_TOP.test(n)) return null
-    if (!cuttable(n)) return 'not_cuttable'
+    // Codex T11 r2 BLOCKER 2: a re-top is dug by the visit's foreign pass (buildrun.mjs FOREIGN_CLEAR): a block it may not dig
+    // (tuff, mossy cobblestone) is never planned -- it would be waived and planned again for good
+    if (!retopable(n)) return 'retop_not_diggable'
     fill.push({ at: [x, y, z], role: 'topsoil', retop: true })
     return null
   }
@@ -140,7 +144,7 @@ export function gradeColumn (read, x, z, y, { col, cuttable, liquid }) {
  * grade owns (worked or left for a reason other than "no opinion"): the survey's other rules stay out of them. One pit a column
  * (`gr<n>`), nearest `home` first.
  */
-export function gradeSurvey (read, t, { home = { x: 0, z: 0 }, avoid = () => null, cellCols = new Set(), col, cuttable, liquid } = {}) {
+export function gradeSurvey (read, t, { home = { x: 0, z: 0 }, avoid = () => null, cellCols = new Set(), col, cuttable, liquid, retopable = cuttable } = {}) {
   const out = { cut: [], fill: [], pits: [], cols: new Set(), skipped: {}, v: gradeV(t) }
   if (!t) return out
   const skip = (why, n = 1) => { out.skipped[why] = (out.skipped[why] ?? 0) + n }
@@ -153,7 +157,7 @@ export function gradeSurvey (read, t, { home = { x: 0, z: 0 }, avoid = () => nul
     const av = avoid(x, z)
     if (av) { skip(`avoided:${String(av).split(':').slice(0, 2).join(':').replace(/[,\s]/g, '_')}`); continue }   // the reason's kind (project:paths, zone:...)
     if (cellCols.has(k2(x, z))) { skip('cell_column'); continue }
-    const w = gradeColumn(read, x, z, tg.y, { col, cuttable, liquid })
+    const w = gradeColumn(read, x, z, tg.y, { col, cuttable, liquid, retopable })
     if (w.why) { skip(w.why); continue }
     if (!w.cut.length && !w.fill.length) { skip('at_target'); continue }
     const id = `gr${n++}`
@@ -237,7 +241,11 @@ export function dropStaleGrade (rec, stamp, { done = () => false, standing = () 
   if (was === stamp) return { rec, dropped: 0 }
   const kOf = at => at.join(',')
   const gone = new Set()
-  for (const c of rec.cells ?? []) if (c.grade && !done(c)) gone.add(kOf(c.at))
+  // Codex T11 r2 BLOCKER 1: a hole the grade already OPENED keeps its fills -- an open fill whose opener is dug, or in a column where a
+  // grade cut is already down -- a repair the record still owes, whatever the plan now says
+  const dugCols = new Set((rec.cut ?? []).filter(c => c.grade && !standing(c)).map(c => k2(c.at[0], c.at[2])))
+  const owed = c => dugCols.has(k2(c.at[0], c.at[2])) || (Array.isArray(c.opener) && !(rec.cut ?? []).some(q => kOf(q.at) === kOf(c.opener) && standing(q)))
+  for (const c of rec.cells ?? []) if (c.grade && !done(c) && !owed(c)) gone.add(kOf(c.at))
   for (const c of rec.cut ?? []) if (c.grade && standing(c)) gone.add(kOf(c.at))
   const keepC = c => !(c.grade && gone.has(kOf(c.at)))
   const waived = rec.waived ? Object.fromEntries(Object.entries(rec.waived).filter(([k]) => !gone.has(k))) : undefined

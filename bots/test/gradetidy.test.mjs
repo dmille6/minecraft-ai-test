@@ -263,6 +263,24 @@ await t('chainCuts: the grade\'s cuts first, then the rest from where they end (
   assert.deepStrictEqual(T.chainCuts(cuts, [0, 0]).map(c => c.at[0]), [20, 21, 22, 1])
   assert.deepStrictEqual(T.chainCuts(cuts.map(c => ({ at: c.at })), [0, 0]).map(c => c.at[0]), [1, 20, 21, 22], 'control: without the grade, nearest first')
 })
+console.log('CODEX T11 r2')
+await t('BLOCKER 1: a withdrawn plan keeps the fills of a hole it already opened', () => {
+  const rec = { grade_v: 'A', cells: [{ at: [0, G - 1, 0], grade: true, opener: [0, G + 1, 0] }, { at: [0, G, 0], grade: true, opener: [0, G + 1, 0] }, { at: [3, G, 0], grade: true }],
+    cut: [{ at: [0, G + 1, 0], grade: true, hollow: [[0, G - 1, 0], [0, G, 0]] }] }
+  const r = GT.dropStaleGrade(rec, null, { done: () => false, standing: () => false })   // the crust is dug: the hollow is open
+  assert.deepStrictEqual(r.rec.cells.map(c => c.at[0]), [0, 0], 'the opened hollow\'s fills stay; the untouched column\'s goes')
+  const r2 = GT.dropStaleGrade(rec, null, { done: () => false, standing: () => true })    // nothing dug yet: all of it goes
+  assert.strictEqual(r2.rec.cells.length, 0)
+})
+await t('BLOCKER 2: a re-top only on a block the visit may dig (tuff, mossy cobblestone are left); the list is buildrun\'s own', async () => {
+  const { FOREIGN_CLEAR } = await import('../src/buildrun.mjs')
+  assert.strictEqual(GT.RETOP_DIGGABLE.source, FOREIGN_CLEAR.source)
+  const srv = server({ [`0,${G},0`]: 'tuff', [`1,${G},0`]: 'andesite' })
+  const d = { ...deps(srv.read), retopable: n => T.LEVEL_CUT.test(n) && GT.RETOP_DIGGABLE.test(n) }
+  assert.strictEqual(GT.gradeColumn(srv.read, 0, 0, G, d).why, 'retop_not_diggable')
+  assert.deepStrictEqual(GT.gradeColumn(srv.read, 1, 0, G, d).fill, [{ at: [1, G, 0], role: 'topsoil', retop: true }])
+  assert.ok(!TT.GREY_FILL.test('mossy_cobblestone'))
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }
