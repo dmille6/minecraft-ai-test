@@ -133,7 +133,7 @@ await t('the wiring: the keeper plans it once (land.landmark), every tidy rule a
   const res = LP.landReservation({ corridors: [], landmark: { box: [1, 2, 9, 10] } })
   assert.ok(res.zones.some(z => z.why === 'land:landmark' && z.box[0] === 1 && z.box[5] === 10), 'a reservation other builds keep off')
   assert.strictEqual(LM.landmarkOn({ LANDMARK: 'off' }), false); assert.strictEqual(LM.landmarkOn({}), true)
-  assert.ok(/const noSoil = q => soilSkip\(q, n => !!effects\?\.has\?\.\(n\)\)/.test(sk) && (sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 2, 'a top with no dirt held waits (never cobble)')
+  assert.ok(/const noSoil = q => soilSkip\(q, n => !!effects\?\.has\?\.\(n\)\)/.test(sk) && (sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 1 && /noTorch\(q\) \|\| \(tidyTopOn\(\) \? soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\)\) : noSoil\(q\)\)/.test(sk)   /* tidytop-01show: the completion keeps a hole or a grey top open (tidytop.mjs soilPassDone) */, 'a top with no dirt held waits (never cobble)')
   assert.ok(/const openSoil = \(visitRec\.cells \?\? \[\]\)\.filter\(q => q\.role === 'topsoil'/.test(sk) && /if \(wantSoil > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ wantSoil/.test(sk) && /q\.role !== 'topsoil' && !PARK_ROLES\.has\(q\.role\)/.test(sk), 'topsoil billed as DIRT, drawn from the town (Codex 3 r2)')
 })
 
