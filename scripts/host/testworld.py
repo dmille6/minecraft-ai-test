@@ -12,6 +12,7 @@ Plan: docs/reports/testworld-plan-2026-11-18.md. Runbook: docs/runbooks/testworl
     testworld.py squeeze --minutes 15 --share 0.4   cut the slice's CPU to a share of what it used; always undone
     testworld.py pauses --rounds 6 --seconds 50     pause each bot long enough to miss its keepalive (the 11-18 failure)
     testworld.py soak --run NAME [--hours 3]        the whole read: 3 h untouched, the load step, then soakread.py
+    testworld.py soak --run NAME --load-only        the load step alone after 20 quiet minutes (1 h 25 min): reconnects, not a soak
     (start and soak take --showcase-stopped "<why>": the showcase guard is off until the showcase's rows come back)
 
 WHY A THIN COPY and not showcase_ops.py at a second root: that file holds its root, the mcshow@ unit name and the log paths
@@ -56,6 +57,7 @@ RUN_NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Frost', 'Gale', 'Haven
 BOTS = [ME.PREFIX + n for n in RUN_NAMES]
 MIN_FREE = 15 * 2 ** 30                 # the loader and the world restore refuse below 15 GiB free
 STAGGER_S = 12
+LOAD_ONLY_QUIET_H = 0.34                # `soak --load-only`: 20 quiet minutes (the squeeze needs CPU samples, the leak rule a "before")
 GUARD_LIMIT_MS = 6000                   # the showcase's 30-minute model p95 (the 11-15 capacity read's limit)
 GUARD_MIN_CALLS = 60                    # fewer answered calls in 30 min than this is "cannot see", not "fine"
 GUARD_BLIND_MAX = 3                     # three blind checks in a row (30 min) stop the bots too: no telemetry is not no harm
@@ -865,6 +867,11 @@ def cmd_soak(a):
     """The whole read, meant for `systemd-run --unit testworld-soak-<run>` so it does not hang on an ssh session."""
     import threading
     guard_host()
+    if a.load_only:
+        if a.no_load_step:
+            print('REFUSED: --load-only with --no-load-step is no check at all')
+            return 1
+        a.hours = min(a.hours, LOAD_ONLY_QUIET_H)
     rel = current_release()
     who = players()
     if sorted(who) != sorted(BOTS):
@@ -878,7 +885,8 @@ def cmd_soak(a):
     save_copy(run_dir, 'start')
     cmd_sample(a)
     journal('soak-start', run=a.run, release=os.path.basename(os.path.realpath(HARNESS)), expected_version=rel['expected_version'],
-            hours=a.hours, load_step=not a.no_load_step, **({'showcase_stopped': a.showcase_stopped} if a.showcase_stopped else {}))
+            hours=a.hours, load_step=not a.no_load_step, **({'showcase_stopped': a.showcase_stopped} if a.showcase_stopped else {}),
+            **({'load_only': True} if a.load_only else {}))
     trip, done = threading.Event(), threading.Event()
     trip.why = None
     threading.Thread(target=guard_loop, args=(trip, done), kwargs={'armed': not a.showcase_stopped}, daemon=True).start()
@@ -941,6 +949,7 @@ def main():
     s.add_argument('--pause-seconds', type=int, default=50); s.add_argument('--gap', type=int, default=120)
     s.add_argument('--recover-minutes', type=float, default=15)
     s.add_argument('--showcase-stopped', metavar='WHY', help='the showcase is stopped (say why and on whose word): the guard is off until its rows come back')
+    s.add_argument('--load-only', action='store_true', help='the load step alone after 20 quiet minutes (about 1 h 25 min): a check of reconnects, not a soak')
     s.set_defaults(fn=cmd_soak)
     a = ap.parse_args()
     # SIGTERM (systemctl stop of a soak) must unwind like any exit: the squeeze's and the pauses' `finally` put the CPU

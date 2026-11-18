@@ -146,6 +146,22 @@ check(any('could not see' in f for f in SR.build_report(i)['flags']), 'a blind s
 i = run(per_reconnect=18); i['rows_by_bot']['showcase-Comet'] = 0
 check(SR.build_report(i)['verdict'] == 'FAIL', 'a failure outranks a blind spot')
 
+# ---- the load step alone (soak --load-only): a check of reconnects after 20 quiet minutes
+def short(**kw):
+    i = run(**kw)
+    cut = 3 * 3600 - 1200                # drop the first 2 h 40 min of the untouched stretch
+    i['t0'] = T0 + cut
+    i['samples'] = [x for x in i['samples'] if SR.ts(x['t']) >= i['t0']]
+    return i
+i = short(per_reconnect=18); i['load_only'] = True
+r = SR.build_report(i)
+check(r['verdict'] == 'FAIL' and any('kept per forced reconnect' in f for f in r['fails']), 'load-only on the leaking release: FAIL on the leak rule')
+i = short(); i['load_only'] = True
+r = SR.build_report(i)
+check(r['verdict'] == 'PASS' and any('LOAD-STEP CHECK ONLY' in f and 'nothing about the untouched hours' in f for f in r['flags']), 'load-only on the fixed release: PASS, and the read says it is not a soak')
+check(SR.render(r).startswith('# Load-step check `r1`: **PASS**'), 'and the page is titled a load-step check, not a soak read')
+check(SR.build_report(short())['verdict'] == 'INCONCLUSIVE', 'POSITIVE CONTROL: the same 20-minute run not declared load-only is INCONCLUSIVE (not 3 h)')
+
 # ---- the showcase stopped on purpose: the guard is off, and the read says so
 i = run(); i['guard_off'] = {'why': 'tripwire S4 at 15:13Z; control session 11-18', 'armed_at': None}
 i['guards'] = [{'t': z(T0 + 600 * k), 'verdict': 'BLIND', 'p95_ms': None, 'calls': 0} for k in range(1, 18)]; i['guard_before'] = {'verdict': 'BLIND', 'p95_ms': None, 'calls': 0}
@@ -216,6 +232,7 @@ killed('two deaths pass', mutant("    if deaths >= DEATHS_FAIL:\n", "    if Fals
 i = run(load=False); i['paper'] = []
 check(SR.build_report(i)['verdict'] == 'INCONCLUSIVE', 'POSITIVE CONTROL for the next mutant: no Paper line and no load step is INCONCLUSIVE')
 killed('an unread Paper log is not blind', mutant("    if not inp['paper']:\n", "    if False:\n")(i) == 'PASS')
+killed('a 20-minute run passes as a soak', mutant("    elif quiet_h < 2.9:\n", "    elif False:\n")(short()) == 'PASS')
 i = run(); i['stopped'] = 'guard'
 killed('a stopped run passes', mutant("    if inp.get('stopped'):\n        blind.append", "    if False:\n        blind.append")(i) == 'PASS')
 

@@ -223,7 +223,9 @@ def build_report(inp):
         blind.append('no line of the Paper server\'s log was read: reconnects cannot be counted')
     if inp.get('stopped'):
         blind.append('the run was stopped early: ' + inp['stopped'])
-    if quiet_h < 2.9:
+    if inp.get('load_only'):
+        flags.append(f'LOAD-STEP CHECK ONLY ({quiet_h * 60:.0f} quiet minutes, then the load step): this says nothing about the untouched hours')
+    elif quiet_h < 2.9:
         blind.append(f'the untouched stretch was {quiet_h:.2f} h, not 3')
 
     # ---- memory, restarts, kills
@@ -319,7 +321,7 @@ def build_report(inp):
             'bots': bots, 'memory': per_bot, 'restarts': rs, 'oom_lines': len(ooms),
             'reconnects_quiet': rq, 'reconnects_load': rl, 'leak': leak, 'back_minutes': back,
             'deaths': {'server': n_stat, 'rows': n_rows, 'per_bot': {b: dd.get(b) for b in bots}},
-            'saplings': sap, 'guard_off': off, 'blocks': inp['blocks'], 'llm': inp['llm'], 'rows_by_bot': inp['rows_by_bot'], 'versions': inp['versions'],
+            'saplings': sap, 'guard_off': off, 'load_only': bool(inp.get('load_only')), 'blocks': inp['blocks'], 'llm': inp['llm'], 'rows_by_bot': inp['rows_by_bot'], 'versions': inp['versions'],
             'samples_expected': want, 'paper_lines': len(inp['paper']), 'memory_lines': len(mem),
             'guards': {'checks': len(inp['guards']), 'trips': len(trips), 'blind': len(blinds),
                        'p95_max_ms': max((g['p95_ms'] for g in inp['guards'] if g.get('p95_ms')), default=None),
@@ -334,7 +336,7 @@ def render(r):
     """The report as markdown. Pure."""
     L = []
     w = L.append
-    w(f'# Soak read `{r["run"]}`: **{r["verdict"]}**')
+    w(f'# {"Load-step check" if r.get("load_only") else "Soak read"} `{r["run"]}`: **{r["verdict"]}**')
     w('')
     w(f'Release `{r["expected_version"]}`, {len(r["bots"])} bots. Untouched {hm(r["t0"])}-{hm(r["quiet_end"])}Z '
       f'({r["quiet_hours"]} h = {len(r["bots"]) * r["quiet_hours"]:.1f} bot-hours)'
@@ -541,7 +543,7 @@ def collect(run):
             'stats_start': stats_dir(f'{run_dir}/stats-start', uuid_name), 'stats_end': stats_dir(f'{run_dir}/stats-end', uuid_name),
             'blocks': block_hours(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), t0, t1), 'llm': llm,
             'guards': guards, 'guard_before': before[-1] if before else None, 'guard_off': guard_off,
-            'sapling_rows': sap_rows, 'sapling_places': sap_places}
+            'sapling_rows': sap_rows, 'sapling_places': sap_places, 'load_only': bool(start.get('load_only'))}
 
 
 def main():
