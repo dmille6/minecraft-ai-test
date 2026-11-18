@@ -83,6 +83,7 @@ PROM = 'http://10.0.0.186:9090'
 # instead). While this file exists the report leads with the showcase and the test world and does not read the fleet-only
 # sources (they would only report a stopped fleet as broken, and the headline read "? of ? bots running").
 FLEET_STOPPED = f'{DIGEST}/FLEET_STOPPED'
+SHOW_MIN_RUNNING = 10   # with no total known (fleet stopped, no halt line), fewer than this is reported as a problem
 FLEET_OFF = '- the fleet is stopped on purpose (owner 11-18): not read; the showcase and the test world are below'
 SHOW_PROXY = 'http://10.0.0.186/agent/showcase'
 WORLDS_AGENT = 'http://10.0.0.30:9188'
@@ -315,6 +316,8 @@ def judge(f, prev=None):
         D.append((9, f'showcase release failed its 60-minute check: {plain(x.get("why"), 100)}'))
     if passes:
         W.append((25, f'showcase: {len(passes)} release(s) passed the 60-minute check'))
+    if sc.get('units') and sc['units'][1] is None and sc['units'][0] < SHOW_MIN_RUNNING:   # Codex r1: no total, still a floor
+        D.append((11, f'showcase: only {sc["units"][0]} bots running'))
     if sc.get('units') and sc['units'][1] is not None and sc['units'][0] < sc['units'][1]:
         D.append((11, f'showcase: {sc["units"][1] - sc["units"][0]} of {sc["units"][1]} bots not running'))
     for x in (sc.get('stuck') or [])[:4]:
@@ -1251,7 +1254,11 @@ def showcase_units(halt_line):
 
 def c_testworld(f, now):
     """The test world and the showcase's bags, from the dashboard's Prometheus (the agents' metrics)."""
-    val = lambda q: sum(float(r['value'][1]) for r in prom(q))
+    def val(q):   # Codex r1: an empty result is missing telemetry, never a measured zero
+        r = prom(q)
+        if not r:
+            raise RuntimeError(f'Prometheus has no data for {q}')
+        return sum(float(x['value'][1]) for x in r)
     f['_show_running'] = int(val('sum(mcai_bot_units_running{scope="showcase"})'))
     f['testworld'] = {'running': int(val('sum(mcai_bot_units_running{scope="testworld"})')),
                       'show_bags': {'bots': int(val('sum(mcai_bots_reporting{scope="showcase"})')),

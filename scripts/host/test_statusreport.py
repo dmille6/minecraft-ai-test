@@ -431,6 +431,9 @@ def ck_fleet_stopped_headline(M):
     first_g = M.headline(g, jg)[0]
     if not ('showcase 13 bots running; test world 14 bots' in first_g and 'bots not running' not in texts(jg['didnt'])):
         return False
+    z = dict(f, showcase=dict(f['showcase'], units=[0, None], held=None))
+    if 'showcase: only 0 bots running' not in texts(M.judge(z)['didnt']):
+        return False
     return ('showcase 13 of 13 bots running (Comet, Nova held out); test world 14 bots; 0 showcase death(s)' in first
             and '?' not in first and 'showcase bags full: 12 of 13' in texts(j['didnt'])
             and 'bots not running' not in texts(j['didnt']))
@@ -463,6 +466,7 @@ CHECKS = [ck_fleet_stopped_headline, ck_fleet_running_headline, ck_held_out, ck_
 MUTANTS = [
     ('fleet-stopped headline ignored', "    if f.get('fleet_stopped'):\n        sc, tw =", "    if False:\n        sc, tw =",
      ck_fleet_stopped_headline),
+    ('no floor without a total', "    if sc.get('units') and sc['units'][1] is None and sc['units'][0] < SHOW_MIN_RUNNING:", "    if False:", ck_fleet_stopped_headline),
     ('held-out bots counted as down', "    return [int(m.group(1)), int(m.group(2)) - len(held)], held", "    return [int(m.group(1)), int(m.group(2))], held", ck_held_out_units),
     ('table lines rendered as paragraphs', "        if line.startswith('|') and line.rstrip().endswith('|'):", "        if False:",
      ck_headline_block),
