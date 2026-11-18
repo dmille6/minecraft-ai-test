@@ -114,7 +114,7 @@ await t('gradeSurvey: only gated columns; unknown and no-opinion classes counted
   const gs = GT.gradeSurvey(srv.read, t0, { ...deps(srv.read), avoid: (x, z) => (x === 8 && z === 6 ? 'zone' : null), cellCols: new Set(['8,7']) })
   assert.deepStrictEqual(gs.cut.map(c => c.at.join(',')), [`5,${G + 1},5`])
   assert.ok(!gs.cut.some(c => c.at[0] === 9), 'never an ungated column')
-  assert.deepStrictEqual(gs.skipped, { unknown_class: 1, no_opinion: 1, avoided: 1, cell_column: 1, at_target: 1 })
+  assert.deepStrictEqual(gs.skipped, { unknown_class: 1, no_opinion: 1, 'avoided:zone': 1, cell_column: 1, at_target: 1 })
   assert.ok(gs.cols.has('5,5') && gs.cols.has('8,5') && !gs.cols.has('6,5') && !gs.cols.has('7,5'))
   assert.strictEqual(gs.v, 'v1:ab12cd34:T11')
 })

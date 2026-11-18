@@ -15,7 +15,7 @@ Object.assign(process.env, {
 })
 registerHooks({ load (url, context, nextLoad) {
   const r = nextLoad(url, context)
-  if (url.endsWith('/bots/src/skills.mjs')) r.source = String(r.source) + `\nexport const __e2e = { ${['buildShop'].map(n => `get ${n} () { return typeof ${n} === 'undefined' ? undefined : ${n} }`).join(', ')} }\nexport const __setActive = b => { activeMem = { ...(activeMem ?? {}), bot: b } }\n`
+  if (url.endsWith('/bots/src/skills.mjs')) r.source = String(r.source) + `\nexport const __e2e = { ${['buildShop', 'buildTidy'].map(n => `get ${n} () { return typeof ${n} === 'undefined' ? undefined : ${n} }`).join(', ')} }\nexport const __setActive = b => { activeMem = { ...(activeMem ?? {}), bot: b } }\n`
   return r
 } })
 const BOTS = path.resolve('bots')
@@ -58,7 +58,9 @@ for (let n = 1; Date.now() < until && !has('stop'); n++) {
   bot.shopWait ??= new Map(); for (const p of SH.projectsOn()) if (p.plot !== 'tidy') bot.shopWait.set(p.plot, { stop: 'room', until: Date.now() + 3600000 })
   const t = Date.now(), u0 = used()
   let r = null
-  try { r = await E.buildShop({ bot }, { grounds: true, why: 'idle' }, new AbortController().signal) } catch (e) { r = { status: 'threw', detail: String(e?.stack ?? e).slice(0, 300) } } finally { bot.groundsPick = null }
+  // T11_DIRECT=1 (rig fixture): the tidy visit itself (skills.mjs buildTidy: the keeper's election, its hourly refresh, the crew's
+  // cuts and fills), not through the idle steer's grounds quota (whose turns kept the rig's three bots waiting on 14 absent ones)
+  try { r = process.env.T11_DIRECT ? await E.buildTidy({ bot }, {}, new AbortController().signal) : await E.buildShop({ bot }, { grounds: true, why: 'idle' }, new AbortController().signal) } catch (e) { r = { status: 'threw', detail: String(e?.stack ?? e).slice(0, 300) } } finally { bot.groundsPick = null }
   W('decisions.jsonl', { bot: NAME, n, t: new Date(t).toISOString(), ms: Date.now() - t, status: r?.status ?? null, stop: r?.stop ?? null, placed: r?.placed ?? null, detail: String(r?.detail ?? '').slice(0, 240), slots: `${u0}->${used()}`, dirt: bag().dirt ?? 0 })
   P(n, r?.status, r?.stop ?? '', String(r?.detail ?? '').slice(0, 120), `${u0}->${used()}`)
   await sleep(r?.status === 'no_effect' ? 15000 : 2000)

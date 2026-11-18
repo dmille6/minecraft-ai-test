@@ -133,7 +133,8 @@ export function gradeSurvey (read, t, { home = { x: 0, z: 0 }, avoid = () => nul
     const tg = targetAt(t, x, z)
     if (tg.y == null) { skip(tg.why); continue }
     out.cols.add(k2(x, z))
-    if (avoid(x, z)) { skip('avoided'); continue }
+    const av = avoid(x, z)
+    if (av) { skip(`avoided:${String(av).split(':').slice(0, 2).join(':').replace(/[,\s]/g, '_')}`); continue }   // the reason's kind (project:paths, zone:...)
     if (cellCols.has(k2(x, z))) { skip('cell_column'); continue }
     const w = gradeColumn(read, x, z, tg.y, { col, cuttable, liquid })
     if (w.why) { skip(w.why); continue }
