@@ -98,7 +98,7 @@ def summarize(rows, t0, t1):
            'well': {'trips': 0, 'threw': 0, 'thrown': {}, 'slots': [], 'stops': {}},
            'yard': {'trips': 0, 'stocked': {}}, 'clay': {'rows': 0, 'done': 0, 'made': 0},
            'holds': {}, 'holds_raw': {}, 'slots_by_hour': {h: [] for h in hours}, 'first_slots': None,
-           'idle': {'building': 0, 'grounds': 0}, 'build_first': {}, 'stays': [], 'loops': [],
+           'idle': {'building': 0, 'grounds': 0}, 'build_first': {}, 'look': {}, 'room_skips': {}, 'stays': [], 'loops': [],
            # drawshort-01show: what a building visit asked the town for and could not get; false shortages re-asked; completions
            'bag': {'rows': 0, 'asked': 0, 'short': 0, 'short_by_item': {}, 'short_by_project': {}},
            'draw_short': {'short': 0, 'cap': 0, 'by_plot': {}}, 'complete': {}, 'segs': {}}
@@ -184,13 +184,23 @@ def summarize(rows, t0, t1):
         elif name == '_build_first':
             why = f.get('why', '?')
             out['build_first'][why] = out['build_first'].get(why, 0) + 1
+            # the steer's own decision is the idle split's "building" (its order reaches the log as a plain `build_shop {}`
+            # or a room trip, seen 11-18); what it looked at says why not: away, skip:<plot>:room, idle:<plot>:complete ...
+            out['idle']['building'] += 1 if why == 'building' else 0
+            parts = f.get('look', '-').split(':')
+            kind = parts[0] if len(parts) < 3 else f'{parts[0]}:{parts[-1]}'
+            out['look'][kind] = out['look'].get(kind, 0) + 1
+            if len(parts) == 3 and parts[0] == 'skip' and parts[2] == 'room':
+                out['room_skips'][parts[1]] = out['room_skips'].get(parts[1], 0) + 1
             if f.get('free', '').isdigit():
                 used = 36 - int(f['free'])
                 out['slots_by_hour'][hr(t)].append(used)
                 if out['first_slots'] is None:
                     out['first_slots'] = used
-        elif name == '_work_order' and (detail or '').startswith('build_shop {') and '"why":"idle"' in (detail or '').split(' — ')[0]:
-            out['idle']['grounds' if '"grounds":true' in detail.split(' — ')[0] else 'building'] += 1
+        elif name == '_work_order' and (detail or '').startswith('build_shop {'):
+            head = detail.split(' \u2014 ')[0]
+            if '"why":"idle"' in head and '"grounds":true' in head:
+                out['idle']['grounds'] += 1
         elif name in ('_well_refused', '_well_step'):
             m = STAND.search(detail or '')
             if m:
@@ -280,9 +290,11 @@ def render(r, run, version):
     w('## Idle orders')
     i = r['idle']
     n = i['building'] + i['grounds']
-    w(f'- idle build orders (`_work_order build_shop ... "why":"idle"`): {n}; building {i["building"]} '
-      f'({(100.0 * i["building"] / n) if n else 0:.0f}%), grounds {i["grounds"]}')
-    w(f'- the steer\'s decisions (`_build_first why=`): {dict(sorted(r["build_first"].items(), key=lambda x: -x[1])) or "no row"}')
+    w(f'- idle orders: {n}; to a building {i["building"]} ({(100.0 * i["building"] / n) if n else 0:.0f}%; `_build_first why=building`), '
+      f'to the grounds {i["grounds"]} (`_work_order build_shop {{"grounds":true,"why":"idle"}}`)')
+    w(f'- the steer\'s decisions (`_build_first why=`): {dict(sorted(r["build_first"].items(), key=lambda x: -x[1])) or "no row"}'
+      + (f'; what it looked at: {dict(sorted(r["look"].items(), key=lambda x: -x[1]))}' if r['look'] else '')
+      + (f'; passed over for want of bag room, by plot: {dict(sorted(r["room_skips"].items(), key=lambda x: -x[1]))}' if r['room_skips'] else ''))
     w('')
     w('## Visits that ended for want of material')
     if r['no_material']:

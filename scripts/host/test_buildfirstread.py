@@ -21,15 +21,15 @@ def visit(t, bot, project, outcome, placed, stop=None):
     return (t, bot, '_build_visit', 'success' if placed else 'no_effect',
             f'project={project} outcome={outcome} stop={stop or outcome} placed={placed} refused=0 silent=0 cleared=0 planted=0 unknown=0 slot=2 gen=197 took=- back=- crew=worker lane=inside ms=54965 why=93_cell(s)_no_stand', (0.5, 70, 0.5))
 def order(t, bot, grounds):
-    args = '{"grounds":true,"why":"idle"}' if grounds else '{"why":"idle","plot":"civicM"}'
+    args = '{"grounds":true,"why":"idle"}' if grounds else '{}'
     return (t, bot, '_work_order', 'success', f'build_shop {args} \u2014 mine crew: idle at the surface', (0.5, 70, 0.5))
 def well(t, bot, plot, cobble, deep, before, after, stop=None):
     return (t, bot, '_room_well', 'success' if cobble + deep else 'no_effect',
             f'plot={plot} need=8 planned=5 slots={before}->{after} cobblestone={cobble} cobbled_deepslate={deep} then=build' + (f' stop={stop}' if stop else ''), (12.5, 74, 6.5))
 def hold(t, bot, plot, wellf, ok, bank=0, plus=0):
     return (t, bot, '_room_hold', 'no_effect', f'plot={plot} free=1 min=10 bank={bank} plus={plus} well={wellf} well_ok={ok} yard_room=0', (0.5, 70, 0.5))
-def first(t, bot, free, why='building'):
-    return (t, bot, '_build_first', 'success', f'why={why} run=3 look=- free={free} args=plot plot=civicM', (0.5, 70, 0.5))
+def first(t, bot, free, why='building', look='order:civicM'):
+    return (t, bot, '_build_first', 'success' if why == 'building' else 'no_effect', f'why={why} run=3 look={look} free={free}' + (' args=plot plot=civicM' if why == 'building' else ''), (0.5, 70, 0.5))
 
 ROWS = [
     visit(T0 + 60, A, 'civicM', 'placed', 40), visit(T0 + 600, A, 'civicM', 'complete', 22), visit(T0 + 900, Bv, 'civicH', 'no_material', 7),
@@ -45,7 +45,8 @@ ROWS = [
     (T0 + 96, Bv, '_compact', 'success', 'op=bank from=cobblestone to=stone took=64 made=64 banked=stone:64 bag_slots=36->35 why=done', None),
     hold(T0 + 300, Bv, 'civicH', '0:cap_unknown', 0), hold(T0 + 400, Bv, 'civicH', '2:cap_below_town_cap', 1), hold(T0 + 500, A, 'warehouse', '0:-', 0),
     hold(T0 + 520, A, 'warehouse', '3:ok', 1, bank=1, plus=2), hold(T0 + 540, A, 'warehouse', '9:ok', 1),
-    first(T0 + 40, A, 1), first(T0 + 45, Bv, 0), first(T0 + 1200, A, 8), first(T0 + 3650, A, 9), first(T0 + 3660, Bv, 11),
+    first(T0 + 40, A, 1), first(T0 + 45, Bv, 0, why='no_building', look='skip:warehouse:room'), first(T0 + 1200, A, 8), first(T0 + 3650, A, 9, why='no_building', look='away'),
+    first(T0 + 3660, Bv, 11, why='no_building', look='skip:warehouse:room'),
     (T0 + 30, A, '_well_refused', 'refused', "order=dispose reason=unreachable could not reach the junk well's standing cell at 12,74,6 (the bot is at -2.14,70.00,-20.30)", None),
 ]
 # Bravo stands at the well 400 s (rows every 60 s), Alpha passes it for 120 s
@@ -64,7 +65,7 @@ check(r['placed'][h1] == {'unfinished': {'civicH': 0}, 'tidy': {'tidy': 5}}, 'ho
 check(r['visits'] == {'civicM': 2, 'civicH': 2, 'tidy': 2, 'house1': 1}, 'visits per project are the denominators')
 check(r['no_material'] == {'civicH': 2}, 'no_material by project: by outcome, and by stop when the outcome says something else')
 check(r['outcomes']['civicM'] == {'placed': 1, 'complete': 1}, 'a project\'s outcomes are kept (civicM completed)')
-check(r['idle'] == {'building': 2, 'grounds': 1}, 'idle orders: 2 building, 1 grounds; a craft order and a non-idle build order are neither')
+check(r['idle'] == {'building': 2, 'grounds': 1}, 'idle orders: 2 to a building (the steer said so), 1 to the grounds; a plain `build_shop {}`, a craft order and a non-idle order are not counted twice')
 w = r['well']
 check(w['trips'] == 7 and w['threw'] == 4 and w['thrown'] == {'cobblestone': 443, 'cobbled_deepslate': 64}, 'well trips 7, 4 threw something; 443 cobblestone and 64 cobbled deepslate')
 check(w['slots'][0] == (36, 28) and w['stops'].get('cap_unknown') == 1, 'slots before -> after per trip, and why a trip stopped')
@@ -75,7 +76,8 @@ check(r['holds'] == {'cap_unknown': 2, 'cap_below': 1, 'well_dead': 2, 'short_of
 check(B.hold_reason('plot=x free=1 min=10 bank=4 plus=2 well=2:ok well_ok=1 yard_room=0') == 'other:ok' and
       B.hold_reason('plot=x free=1 min=10 bank=4 plus=1 well=2:ok well_ok=1 yard_room=0') == 'short_of_8', 'short of 8 is bank + plus + well under 8, exactly')
 check(r['first_slots'] == 35 and r['slots_by_hour'][h0] == [35, 36, 28] and r['slots_by_hour'][h1] == [27, 25], 'bag slots used = 36 - free at each idle order, by hour')
-check(r['build_first'] == {'building': 5}, 'the steer\'s decisions are counted by why=')
+check(r['build_first'] == {'building': 2, 'no_building': 3} and r['look'] == {'order': 2, 'skip:room': 2, 'away': 1} and r['room_skips'] == {'warehouse': 2},
+      'the steer\'s decisions by why=, what it looked at (plots folded), and the plots passed over for want of bag room')
 check(r['well_stand'] == (12, 74, 6), 'the well\'s standing cell is read from the bots\' own rows')
 check([(b, s, sec) for b, s, sec in r['stays']] == [(Bv, T0 + 2000, 420.0)], 'Bravo stood at the well 7 min; Alpha\'s 2 minutes and single trips are not stays')
 check(r['loops'] == [(Bv, T0 + 6000, 'civicH')], 'Bravo went well -> hold -> well on civicH; a hold on another plot in between is not a loop')
@@ -84,7 +86,7 @@ check(B.loops([(0, 'well', 'p'), (60, 'hold', 'p'), (4000, 'well', 'p')]) == [],
 md = B.render(r, 'r1', 'v')
 check('| 16:00Z | 69 (civicM 62, civicH 7) | 3 (house1 3) | 30 (tidy 30) |' in md and '69 (64%) went into unfinished buildings' in md, 'the table and the share, with the total as denominator')
 check('- civicM: 2 visits, 62 placed; ended placed 1, complete 1' in md and '- civicH: 2 of its 2 visits ended no_material' in md, 'each unfinished building with its visits, blocks and endings')
-check('building 2 (67%), grounds 1' in md and 'median per hour: 16:00Z 35/36 (n=3); 17:00Z 26/36 (n=2)' in md, 'idle split and bag medians with n')
+check('idle orders: 3; to a building 2 (67%' in md and "passed over for want of bag room, by plot: {'warehouse': 2}" in md and 'median per hour: 16:00Z 35/36 (n=3); 17:00Z 26/36 (n=2)' in md, 'idle split and bag medians with n')
 check('Bravo stood there 7.0 min from 16:33Z' in md and 'LOOP: Bravo went well -> hold -> well for civicH from 17:40Z' in md, 'the well stay and the loop are named')
 # ---- drawshort-01show: the draw, the false shortage, completions, the roof
 def row(t, name, detail, status='success'):
