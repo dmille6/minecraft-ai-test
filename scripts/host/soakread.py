@@ -35,13 +35,15 @@ JOIN = re.compile(r'^\[\d\d:\d\d:\d\d INFO\]: (\S+) joined the game$')
 LOST = re.compile(r'^\[\d\d:\d\d:\d\d INFO\]: (\S+) lost connection: (.*)$')
 MEM = re.compile(r'^\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d+Z\] \w+\s+memory rss_mb=(\d+) heap_used_mb=(\d+) .*?array_buffers_mb=(\d+)')
 OOM = re.compile(r'(?i)out of memory|oom-kill')
-# The showcase's protected village (tripwire S4, zone village-taiga-6_1). 11-18 15:13Z: a spruce sapling a bot planted at
-# 121,67,-8 grew into a tree inside it and the tripwire stopped the town. The copy runs the same code on the same ground,
-# so the read counts every sapling aimed at or put inside it (reported, not part of the verdict).
-VILLAGE = {'name': 'village-taiga-6_1', 'x': (49, 157), 'z': (-59, 45)}
+# PROTECTED ZONES (the pool's protected-zones.json: villages and the trial chambers, kept as scenery; the showcase tripwire's
+# S4). 11-18 15:13Z: a spruce sapling a marooned bot planted at 121,67,-8 grew into a tree inside village-taiga-6_1 and the
+# tripwire stopped the town. The copy runs the same code on the same ground, so the read reports what the bots aimed at,
+# were refused, and did inside every zone box. Reported and named; never part of the verdict.
+GROWTH_MARGIN = 8             # protectzone.mjs GROWTH_MARGIN: no plant spot within a zone box grown by 8 on x and z
 AT = re.compile(r'\bfound at=(-?\d+),(-?\d+),(-?\d+)')
 ORDER = re.compile(r'^place (\{.*?\}) ')
-
+XYZ = re.compile(r'^(-?\d+),(-?\d+),(-?\d+)$')
+GROWS = re.compile(r'(sapling|propagule|seeds|wheat|carrots|potatoes|beetroots|bone_meal|sugar_cane|bamboo|cactus|kelp|berry|stem|nether_wart|vine|azalea|moss)')
 
 # ------------------------------------------------------------------------------------------------ pure
 def ts(s):
@@ -157,36 +159,98 @@ def death_delta(start, end):
     return {b: (end[b] - start[b]) if b in start and b in end else None for b in sorted(set(start) | set(end))}
 
 
-def in_zone(x, z, zone=VILLAGE):
-    return zone['x'][0] <= x <= zone['x'][1] and zone['z'][0] <= z <= zone['z'][1]
+def zone_of(zones, x, y, z, margin=0, use_y=True):
+    """The id of the first zone whose box [x1, y1, z1, x2, y2, z2] (grown by `margin` on x and z) holds the point, or None. Pure."""
+    for zn in zones:
+        x1, y1, z1, x2, y2, z2 = zn['box']
+        if x1 - margin <= x <= x2 + margin and z1 - margin <= z <= z2 + margin and (not use_y or y1 <= y <= y2):
+            return zn['id']
+    return None
 
 
-def sapling_rows(rows, zone=VILLAGE):
-    """[(epoch, bot, skill name, args, detail, status)] -> per kind {'n', 'in_zone': [(epoch, bot, x, y, z)]}:
-    spots (`_plant_spot ... found at=x,y,z`: where the bot decided to plant), orders (`_work_order place {"item":
-    "*_sapling", x, y, z}`), placed (`place` rows of a sapling that succeeded). Pure."""
-    out = {k: {'n': 0, 'in_zone': []} for k in ('spots', 'orders', 'placed')}
-    def add(kind, t, bot, x, y, z):
+def zone_report(zones, rows, first_pos, last_pos, history):
+    """What the bots aimed at, were refused and did inside the protected zones. Pure.
+    rows: [(epoch, bot, skill name, args, detail, status, (x, y, z) or None)];  first_pos / last_pos: {bot: (x, y, z)};
+    history: [(epoch, user, x, y, z, material, action)] from the block history, action 1 = placed, 0 = broken."""
+    out = {'zones': len(zones), 'spots': {'n': 0, 'in_zone': [], 'near': []}, 'orders': {'n': 0, 'in_zone': []},
+           'planted': {'n': 0, 'in_zone': []}, 'refused': {}, 'refused_n': 0, 'refused_with_remedy': 0,
+           'walks': {}, 'walk_out_inside': [], 'rescue': {}, 'deaths': {'n': 0, 'in_zone': []},
+           'history': {'placed_in_zone': {}, 'grows_in_zone': [], 'tree_in_zone': 0, 'broken_in_zone': {}},
+           'inside_at_end': [], 'started_inside': {}}
+    def spot(kind, t, bot, x, y, z):
         out[kind]['n'] += 1
-        if in_zone(x, z, zone):
-            out[kind]['in_zone'].append((t, bot, x, y, z))
-    for t, bot, name, args, detail, status in rows:
+        zid = zone_of(zones, x, y, z)
+        if zid:
+            out[kind]['in_zone'].append((t, bot, x, y, z, zid))
+        return zid
+    for t, bot, name, args, detail, status, pos in rows:
+        args, detail = args or {}, detail or ''
         if name == '_plant_spot':
-            m = AT.search(detail or '')
+            m = AT.search(detail)
             if m:
-                add('spots', t, bot, *map(int, m.groups()))
+                x, y, z = map(int, m.groups())
+                if not spot('spots', t, bot, x, y, z) and zone_of(zones, x, y, z, GROWTH_MARGIN, use_y=False):
+                    out['spots']['near'].append((t, bot, x, y, z, zone_of(zones, x, y, z, GROWTH_MARGIN, use_y=False)))
         elif name == '_work_order':
-            m = ORDER.match(detail or '')
+            m = ORDER.match(detail)
             if m:
                 try:
                     a = json.loads(m.group(1))
                 except ValueError:
                     continue
-                if str(a.get('item', '')).endswith('_sapling') and all(isinstance(a.get(k), (int, float)) for k in 'xyz'):
-                    add('orders', t, bot, int(a['x']), int(a['y']), int(a['z']))
-        elif name == 'place' and status == 'success' and str((args or {}).get('item', '')).endswith('_sapling') \
-                and all(isinstance((args or {}).get(k), (int, float)) for k in 'xyz'):
-            add('placed', t, bot, int(args['x']), int(args['y']), int(args['z']))
+                if GROWS.search(str(a.get('item', ''))) and all(isinstance(a.get(k), (int, float)) for k in 'xyz'):
+                    spot('orders', t, bot, int(a['x']), int(a['y']), int(a['z']))
+        elif name == 'place' and status == 'success' and GROWS.search(str(args.get('item', ''))) \
+                and all(isinstance(args.get(k), (int, float)) for k in 'xyz'):
+            spot('planted', t, bot, int(args['x']), int(args['y']), int(args['z']))
+        elif name == '_protect_zone_refused':
+            f = dict(re.findall(r'(\w+)=(\S*)', detail.split(' | ')[0]))
+            key = f"op={f.get('op', '?')} purpose={f.get('purpose', '?')} struct={f.get('struct', '?')}"
+            out['refused'][key] = out['refused'].get(key, 0) + 1
+            out['refused_n'] += 1
+            out['refused_with_remedy'] += 1 if 'walk out first (goto ' in detail else 0
+        elif name == '_zone_walk':
+            f = dict(re.findall(r'(\w+)=(\S*)', detail))
+            oc = f.get('outcome', '?')
+            out['walks'][oc] = out['walks'].get(oc, 0) + 1
+            m = XYZ.match(f.get('to', ''))
+            if oc == 'out' and m and zone_of(zones, *map(int, m.groups()), use_y=False):
+                out['walk_out_inside'].append((t, bot, f.get('to')))
+        elif name == '_needs_rescue' and 'arm=zone_walk' in detail:
+            out['rescue'][bot] = out['rescue'].get(bot, 0) + 1
+        elif name == '_death':
+            out['deaths']['n'] += 1
+            if pos and zone_of(zones, *pos):
+                out['deaths']['in_zone'].append((t, bot, tuple(round(v) for v in pos), zone_of(zones, *pos)))
+    h = out['history']
+    for t, user, x, y, z, material, action in history:
+        if not zone_of(zones, x, y, z):
+            continue
+        mat = material.replace('minecraft:', '')
+        if user == '#tree':
+            h['tree_in_zone'] += 1 if action == 1 else 0
+        elif action == 1:
+            h['placed_in_zone'][mat] = h['placed_in_zone'].get(mat, 0) + 1
+            if GROWS.search(mat):
+                h['grows_in_zone'].append((t, user, x, y, z, mat))
+        elif action == 0:
+            h['broken_in_zone'][user] = h['broken_in_zone'].get(user, 0) + 1
+    for bot, pos in sorted(last_pos.items()):
+        if pos and zone_of(zones, *pos):
+            out['inside_at_end'].append((bot, tuple(round(v) for v in pos), zone_of(zones, *pos)))
+    for bot, pos in sorted(first_pos.items()):
+        if pos and zone_of(zones, *pos):
+            end = last_pos.get(bot)
+            walks = {}
+            for t, b, name, args, detail, status, _ in rows:
+                if b == bot and name == '_zone_walk':
+                    oc = dict(re.findall(r'(\w+)=(\S*)', detail or '')).get('outcome', '?')
+                    walks[oc] = walks.get(oc, 0) + 1
+            out['started_inside'][bot] = {'from': tuple(round(v) for v in pos), 'zone': zone_of(zones, *pos),
+                                          'to': tuple(round(v) for v in end) if end else None,
+                                          'inside_at_end': bool(end and zone_of(zones, *end)), 'walks': walks,
+                                          'broke_in_zone': h['broken_in_zone'].get(bot, 0),
+                                          'placed_in_zone': sum(1 for r in history if r[1] == bot and r[6] == 1 and zone_of(zones, r[2], r[3], r[4]))}
     return out
 
 
@@ -305,15 +369,22 @@ def build_report(inp):
     elif blinds:
         flags.append(f'the showcase guard could not see for {len(blinds)} of {len(inp["guards"])} checks')
 
-    # ---- saplings and the protected village (reported, never part of the verdict)
-    sap = sapling_rows(inp.get('sapling_rows') or [])
-    sap['history'] = {'n': len(inp.get('sapling_places') or []),
-                      'in_zone': [p for p in (inp.get('sapling_places') or []) if in_zone(p[2], p[4])]}
-    n_in = len(sap['placed']['in_zone']) + len(sap['history']['in_zone'])
-    if n_in or sap['spots']['in_zone'] or sap['orders']['in_zone']:
-        flags.append(f'saplings and the protected village {VILLAGE["name"]}: {len(sap["spots"]["in_zone"])} plant spot(s) chosen inside it, '
-                     f'{len(sap["orders"]["in_zone"])} order(s) to plant there, {len(sap["placed"]["in_zone"])} planted by the bots\' rows, '
-                     f'{len(sap["history"]["in_zone"])} by the block history')
+    # ---- the protected zones (reported and named, never part of the verdict)
+    zr = zone_report(inp.get('zones') or [], inp.get('zone_rows') or [], inp.get('first_pos') or {}, inp.get('last_pos') or {},
+                     inp.get('zone_history') or [])
+    if zr['spots']['in_zone'] or zr['spots']['near']:
+        flags.append(f'plant spots chosen inside a protected zone: {len(zr["spots"]["in_zone"])}; within {GROWTH_MARGIN} blocks of one: {len(zr["spots"]["near"])} '
+                     f'(of {zr["spots"]["n"]} chosen)')
+    if zr['planted']['in_zone'] or zr['history']['grows_in_zone']:
+        flags.append(f'PLANTED INSIDE A PROTECTED ZONE: {len(zr["planted"]["in_zone"])} by the bots\' rows, {len(zr["history"]["grows_in_zone"])} by the block history')
+    if zr['history']['tree_in_zone']:
+        flags.append(f'a tree GREW inside a protected zone ({zr["history"]["tree_in_zone"]} blocks by the block history)')
+    if zr['deaths']['in_zone']:
+        flags.append(f'{len(zr["deaths"]["in_zone"])} death(s) inside a protected zone')
+    if zr['walk_out_inside']:
+        flags.append(f'{len(zr["walk_out_inside"])} zone walk(s) said "out" but ended inside a zone box')
+    if zr['inside_at_end']:
+        flags.append('inside a protected zone at the end: ' + ', '.join(f'{b.replace("showcase-", "")} at {",".join(map(str, p))}' for b, p, _ in zr['inside_at_end']))
 
     verdict = 'FAIL' if fails else ('INCONCLUSIVE' if blind else 'PASS')
     return {'run': inp['run'], 'verdict': verdict, 'fails': fails, 'blind': blind, 'flags': flags,
@@ -321,7 +392,7 @@ def build_report(inp):
             'bots': bots, 'memory': per_bot, 'restarts': rs, 'oom_lines': len(ooms),
             'reconnects_quiet': rq, 'reconnects_load': rl, 'leak': leak, 'back_minutes': back,
             'deaths': {'server': n_stat, 'rows': n_rows, 'per_bot': {b: dd.get(b) for b in bots}},
-            'saplings': sap, 'guard_off': off, 'load_only': bool(inp.get('load_only')), 'blocks': inp['blocks'], 'llm': inp['llm'], 'rows_by_bot': inp['rows_by_bot'], 'versions': inp['versions'],
+            'zones': zr, 'guard_off': off, 'load_only': bool(inp.get('load_only')), 'blocks': inp['blocks'], 'llm': inp['llm'], 'rows_by_bot': inp['rows_by_bot'], 'versions': inp['versions'],
             'samples_expected': want, 'paper_lines': len(inp['paper']), 'memory_lines': len(mem),
             'guards': {'checks': len(inp['guards']), 'trips': len(trips), 'blind': len(blinds),
                        'p95_max_ms': max((g['p95_ms'] for g in inp['guards'] if g.get('p95_ms')), default=None),
@@ -396,16 +467,40 @@ def render(r):
           + '; '.join(f'{hm(h)}Z {p:,} placed / {c:,} cleared' for h, p, c in r['blocks']))
     else:
         w('- blocks by hour: no row read from the block-history database')
-    sp = r.get('saplings')
-    if sp:
+    z = r.get('zones')
+    if z and z['zones']:
+        def where(items):
+            return '; '.join(f'{hm(i[0])}Z {str(i[1]).replace("showcase-", "")} at {i[2]},{i[3]},{i[4]}' for i in items[:10])
         w('')
-        w(f'## Saplings and the protected village ({VILLAGE["name"]}, x {VILLAGE["x"][0]}..{VILLAGE["x"][1]}, z {VILLAGE["z"][0]}..{VILLAGE["z"][1]})')
-        names = (('spots', 'plant spots chosen (`_plant_spot found`)'), ('orders', 'orders to plant (`_work_order place *_sapling`)'),
-                 ('placed', 'saplings planted, by the bots\' `place` rows'), ('history', 'saplings planted, by the block history'))
-        for k, label in names:
-            z_ = sp[k]['in_zone']
-            w(f'- {label}: {sp[k]["n"]} in all, **{len(z_)} inside the village**'
-              + (': ' + '; '.join(f'{hm(t)}Z {str(b).replace("showcase-", "")} at {x},{y},{zz}' for t, b, x, y, zz in z_[:12]) if z_ else ''))
+        w(f'## Protected zones ({z["zones"]} boxes from the pool\'s protected-zones.json)')
+        sp = z['spots']
+        w(f'- plant spots chosen (`_plant_spot found`): {sp["n"]}; **{len(sp["in_zone"])} inside a zone**'
+          + (f' ({where(sp["in_zone"])})' if sp['in_zone'] else '')
+          + f'; **{len(sp["near"])} within {GROWTH_MARGIN} blocks of one**' + (f' ({where(sp["near"])})' if sp['near'] else ''))
+        w(f'- orders to plant (`_work_order place` of something that grows): {z["orders"]["n"]}; **{len(z["orders"]["in_zone"])} inside a zone**'
+          + (f' ({where(z["orders"]["in_zone"])})' if z['orders']['in_zone'] else ''))
+        w(f'- planted, by the bots\' `place` rows: {z["planted"]["n"]}; **{len(z["planted"]["in_zone"])} inside a zone**'
+          + (f' ({where(z["planted"]["in_zone"])})' if z['planted']['in_zone'] else ''))
+        hh = z['history']
+        w(f'- block history inside the zone boxes: placed by the bots {sum(hh["placed_in_zone"].values())}'
+          + (f' {dict(sorted(hh["placed_in_zone"].items(), key=lambda x: -x[1])[:8])}' if hh['placed_in_zone'] else '')
+          + f'; **things that grow: {len(hh["grows_in_zone"])}**'
+          + (' (' + '; '.join(f'{hm(t)}Z {u.replace("showcase-", "")} {m} at {x},{y},{zz}' for t, u, x, y, zz, m in hh['grows_in_zone'][:10]) + ')' if hh['grows_in_zone'] else '')
+          + f'; tree growth: {hh["tree_in_zone"]} blocks; broken by the bots: {sum(hh["broken_in_zone"].values())}'
+          + (f' {dict((k.replace("showcase-", ""), v) for k, v in hh["broken_in_zone"].items())}' if hh['broken_in_zone'] else ''))
+        w(f'- refusals (`_protect_zone_refused`): {z["refused_n"]}'
+          + (f', {z["refused_with_remedy"]} naming the walk-out remedy; by kind: ' + ', '.join(f'{k}: {n}' for k, n in sorted(z['refused'].items(), key=lambda x: -x[1])) if z['refused_n'] else ''))
+        w(f'- zone walks (`_zone_walk`): {sum(z["walks"].values())}' + (f' by outcome {z["walks"]}' if z['walks'] else '')
+          + f'; "out" that ended inside a zone box: {len(z["walk_out_inside"])}; `_needs_rescue arm=zone_walk`: {sum(z["rescue"].values())}'
+          + (f' {dict((k.replace("showcase-", ""), v) for k, v in z["rescue"].items())}' if z['rescue'] else ''))
+        w(f'- deaths: {z["deaths"]["n"]} by the bots\' rows; **{len(z["deaths"]["in_zone"])} inside a zone**'
+          + (' (' + '; '.join(f'{hm(t)}Z {b} at {p}' for t, b, p, _ in z['deaths']['in_zone']) + ')' if z['deaths']['in_zone'] else ''))
+        w('- inside a zone box at the end: ' + (', '.join(f'{b.replace("showcase-", "")} at {",".join(map(str, p))} ({zid})' for b, p, zid in z['inside_at_end']) or 'no bot'))
+        for b, d in z['started_inside'].items():
+            how = 'STAYED inside' if d['inside_at_end'] else ('WALKED OUT' if d['walks'].get('out') else 'LEFT (no zone walk said "out")')
+            w(f'- **{b.replace("showcase-", "")} began inside {d["zone"]}** at {",".join(map(str, d["from"]))} and ended at '
+              f'{",".join(map(str, d["to"])) if d["to"] else "?"}: **{how}**; zone walks {d["walks"] or "none"}; '
+              f'it broke {d["broke_in_zone"]} and placed {d["placed_in_zone"]} blocks inside the zone (block history)')
     return '\n'.join(L) + '\n'
 
 
@@ -456,15 +551,24 @@ def block_hours(db, bots, a, b):
         c.close()
 
 
-def sapling_places(db, bots, a, b):
-    """[(epoch, bot, x, y, z)] of every sapling the bots PLACED in [a, b), from the block-history database."""
+def zone_blocks(db, bots, zones, a, b):
+    """[(epoch, user, x, y, z, material, action)]: every block the bots or a growing tree placed or broke inside a zone
+    box in [a, b), from the block history."""
+    if not zones:
+        return []
     c = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=30)
+    out = []
     try:
-        q = ("select b.time, u.user, b.x, b.y, b.z from co_block b join co_user u on u.id = b.user join co_material_map m on m.id = b.type "
-             "where m.material like '%sapling' and b.action = 1 and b.time >= ? and b.time < ? order by b.time")
-        return [(int(t), u, int(x), int(y), int(z)) for t, u, x, y, z in c.execute(q, [int(a), int(b)]) if u in bots]
+        for zn in zones:
+            x1, y1, z1, x2, y2, z2 = zn['box']
+            q = ("select b.time, u.user, b.x, b.y, b.z, m.material, b.action from co_block b join co_user u on u.id = b.user "
+                 "join co_material_map m on m.id = b.type where b.time >= ? and b.time < ? and b.action in (0, 1) "
+                 "and b.x between ? and ? and b.z between ? and ? and b.y between ? and ? order by b.time")
+            out += [(int(t), u, int(x), int(y), int(z), m, int(act)) for t, u, x, y, z, m, act in
+                    c.execute(q, [int(a), int(b), x1, x2, z1, z2, y1, y2]) if u in bots or u == '#tree']
     finally:
         c.close()
+    return out
 
 
 def collect(run):
@@ -528,13 +632,25 @@ def collect(run):
     if start.get('showcase_stopped'):
         armed = next((r for r in after if r['event'] == 'guard-armed' and ts(r['t']) <= t1), None)
         guard_off = {'why': start['showcase_stopped'], 'armed_at': ts(armed['t']) if armed else None}
-    sap_rows = []
-    for name in ('_plant_spot', '_work_order', 'place'):
+    zone_rows, first_pos, last_pos = [], {}, {}
+    def pos_of(raw):
+        p = (raw.get('bot') or {}).get('pos') or {}
+        return (p['x'], p['y'], p['z']) if all(isinstance(p.get(k), (int, float)) for k in 'xyz') else None
+    for b, rs in by.items():
+        ps = [pos_of(r['raw']) for r in rs]
+        ps = [p for p in ps if p]
+        if ps and b in bots:
+            first_pos[b], last_pos[b] = ps[0], ps[-1]
+    for name in ('_plant_spot', '_work_order', 'place', '_protect_zone_refused', '_zone_walk', '_needs_rescue', '_death'):
         # a zero here is allowed only because the same load counted every bot's rows above (rows_by_bot)
         for r in ev.of(name, allow_zero=True):
             sk = r['raw'].get('skill') or {}
-            sap_rows.append((r['t'].timestamp(), (r['raw'].get('bot') or {}).get('name'), sk.get('name'), sk.get('args'), sk.get('detail'), sk.get('status')))
-    sap_places = sapling_places(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), t0, t1)
+            zone_rows.append((r['t'].timestamp(), (r['raw'].get('bot') or {}).get('name'), sk.get('name'), sk.get('args'), sk.get('detail'), sk.get('status'), pos_of(r['raw'])))
+    try:
+        zones = json.load(open(f'{TW.STATE}/_pool-showcase/protected-zones.json')).get('zones') or []
+    except (OSError, ValueError):
+        zones = []
+    zone_history = zone_blocks(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), zones, t0, t1)
     before = [r for r in rows if r['event'] == 'guard' and r.get('phase') == 'before-start' and ts(r['t']) < t0]
     return {'run': run, 'expected_version': start['expected_version'], 'bots': bots, 't0': t0, 'quiet_end': quiet_end, 't1': t1,
             'load': load, 'stopped': (end or {}).get('stopped') or (None if end else 'no soak-end row: the driver did not finish'),
@@ -543,7 +659,8 @@ def collect(run):
             'stats_start': stats_dir(f'{run_dir}/stats-start', uuid_name), 'stats_end': stats_dir(f'{run_dir}/stats-end', uuid_name),
             'blocks': block_hours(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), t0, t1), 'llm': llm,
             'guards': guards, 'guard_before': before[-1] if before else None, 'guard_off': guard_off,
-            'sapling_rows': sap_rows, 'sapling_places': sap_places, 'load_only': bool(start.get('load_only'))}
+            'zones': zones, 'zone_rows': zone_rows, 'first_pos': first_pos, 'last_pos': last_pos, 'zone_history': zone_history,
+            'load_only': bool(start.get('load_only'))}
 
 
 def main():

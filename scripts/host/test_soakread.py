@@ -171,30 +171,80 @@ check('GUARD WAS OFF' in SR.render(r) and 'not read in the 30 min before' in SR.
 i['guard_off']['armed_at'] = T0 + 3600
 check(any('re-armed at 15:00Z' in f for f in SR.build_report(i)['flags']), 'if the showcase came back mid-run the read says when the guard re-armed')
 
-# ---- saplings and the protected village (the 11-18 tripwire stop), on rows in the bots' own shapes
-SAP = [(T0 + 10, 'showcase-Frost', '_plant_spot', {}, 'found at=65,70,-2 item=spruce_sapling sap=8 kinds=1 ordered=0', 'success'),
-       (T0 + 20, 'showcase-Onyx', '_plant_spot', {}, 'none at=- item=spruce_sapling sap=8 kinds=1 ordered=0', 'success'),
-       (T0 + 30, 'showcase-Onyx', '_plant_spot', {}, 'found at=-88,64,-19 item=spruce_sapling sap=8 kinds=1 ordered=0', 'success'),
-       (T0 + 40, 'showcase-Maple', '_work_order', {}, 'place {"item":"spruce_sapling","x":121,"y":67,"z":-8} \u2014 holding 12 spruce_sapling on plantable ground', 'success'),
-       (T0 + 41, 'showcase-Maple', '_work_order', {}, 'place {"item":"spruce_sapling","x":-54,"y":65,"z":-102} \u2014 holding 12', 'success'),
-       (T0 + 42, 'showcase-Maple', '_work_order', {}, 'place {"item":"cobblestone","x":121,"y":67,"z":-8} \u2014 a wall', 'success'),
-       (T0 + 43, 'showcase-Maple', '_work_order', {}, 'build_shop {"grounds":true,"why":"idle"} \u2014 the town\'s grounds (planting)', 'success'),
-       (T0 + 50, 'showcase-Maple', 'place', {'item': 'spruce_sapling', 'x': 121, 'y': 67, 'z': -8}, 'placed spruce_sapling at (121, 67, -8)', 'success'),
-       (T0 + 51, 'showcase-Maple', 'place', {'item': 'spruce_sapling', 'x': 120, 'y': 67, 'z': -8}, 'no reach', 'failed'),
-       (T0 + 52, 'showcase-Maple', 'place', {'item': 'spruce_sapling', 'x': -13, 'y': 63, 'z': 110}, 'placed', 'success'),
-       (T0 + 53, 'showcase-Maple', 'place', {'item': 'dirt', 'x': 121, 'y': 66, 'z': -8}, 'placed', 'success')]
-sp = SR.sapling_rows(SAP)
-check(sp['spots']['n'] == 2 and sp['spots']['in_zone'] == [(T0 + 10, 'showcase-Frost', 65, 70, -2)], 'plant spots: 2 found, 1 inside the village (a "none" row is not a spot)')
-check(sp['orders']['n'] == 2 and sp['orders']['in_zone'] == [(T0 + 40, 'showcase-Maple', 121, 67, -8)], 'orders to plant: 2 sapling orders, 1 inside (a cobblestone order and a build order are not)')
-check(sp['placed']['n'] == 2 and sp['placed']['in_zone'] == [(T0 + 50, 'showcase-Maple', 121, 67, -8)], 'planted: 2 succeeded, 1 inside (a failed place and a dirt block are not)')
-check(SR.in_zone(49, -59) and SR.in_zone(157, 45) and not SR.in_zone(48, 0) and not SR.in_zone(100, 46), 'the zone is x 49..157, z -59..45, edges included')
-i = run(); i['sapling_rows'] = SAP; i['sapling_places'] = [(T0 + 50, 'showcase-Maple', 121, 67, -8), (T0 + 52, 'showcase-Maple', -13, 63, 110)]
+# ---- the protected zones (the 11-18 tripwire stop), on rows in the bots' own shapes
+ZONES = [{'id': 'village-taiga-6_1', 'kind': 'village', 'box': [49, -64, -59, 157, 90, 45]},
+         {'id': 'trial-chambers-home-se', 'kind': 'trial_chambers', 'box': [-20, -64, 65, 88, 31, 164]}]
+REM = ' | protected zone: the taiga village at 103,-7 (x 49..157, z -59..45) is kept as scenery -- bots never build in it (cell 67,62,-25); walk out first (goto 45 64 -23; 4 blocks past its west side)'
+def zrow(t, bot, name, detail, args=None, status='success', pos=None):
+    return (t, bot, name, args or {}, detail, status, pos)
+ZR = [zrow(T0 + 10, 'showcase-Frost', '_plant_spot', 'found at=65,70,-2 item=spruce_sapling sap=8 kinds=1 ordered=0'),
+      zrow(T0 + 20, 'showcase-Onyx', '_plant_spot', 'none at=- item=spruce_sapling sap=8 kinds=1 ordered=0'),
+      zrow(T0 + 30, 'showcase-Onyx', '_plant_spot', 'found at=-88,64,-19 item=spruce_sapling sap=8 kinds=1 ordered=0'),
+      zrow(T0 + 31, 'showcase-Onyx', '_plant_spot', 'found at=42,64,-19 item=spruce_sapling sap=8 kinds=1 ordered=0'),
+      zrow(T0 + 32, 'showcase-Onyx', '_plant_spot', 'found at=40,64,-19 item=spruce_sapling sap=8 kinds=1 ordered=0'),
+      zrow(T0 + 40, 'showcase-Maple', '_work_order', 'place {"item":"spruce_sapling","x":121,"y":67,"z":-8} — holding 12 spruce_sapling'),
+      zrow(T0 + 41, 'showcase-Maple', '_work_order', 'place {"item":"spruce_sapling","x":-54,"y":65,"z":-102} — holding 12'),
+      zrow(T0 + 42, 'showcase-Maple', '_work_order', 'place {"item":"cobblestone","x":121,"y":67,"z":-8} — a wall'),
+      zrow(T0 + 50, 'showcase-Maple', 'place', 'placed spruce_sapling at (121, 67, -8)', {'item': 'spruce_sapling', 'x': 121, 'y': 67, 'z': -8}),
+      zrow(T0 + 51, 'showcase-Maple', 'place', 'no reach', {'item': 'spruce_sapling', 'x': 120, 'y': 67, 'z': -8}, status='failed'),
+      zrow(T0 + 52, 'showcase-Maple', 'place', 'placed', {'item': 'wheat_seeds', 'x': -13, 'y': 63, 'z': 110}),
+      zrow(T0 + 53, 'showcase-Maple', 'place', 'placed', {'item': 'dirt', 'x': 121, 'y': 66, 'z': -8}),
+      zrow(T0 + 60, 'showcase-Lumen', '_protect_zone_refused', 'op=place zone=village-taiga-6_1 at=67,62,-25 purpose=survival by=place:spruce_sapling struct=0' + REM, status='refused'),
+      zrow(T0 + 61, 'showcase-Lumen', '_protect_zone_refused', 'op=place zone=village-taiga-6_1 at=67,62,-25 purpose=survival by=place:spruce_sapling struct=0' + REM, status='refused'),
+      zrow(T0 + 62, 'showcase-Lumen', '_protect_zone_refused', 'op=use zone=village-taiga-6_1 at=67,62,-25 purpose=survival by=use:bone_meal struct=0 | no remedy text', status='refused'),
+      zrow(T0 + 70, 'showcase-Comet', '_zone_walk', 'handler=marooned outcome=progress zone=village-taiga-6_1 from=146,54,-50 to=150,54,-50 steps=4 down=0 dug=8 placed=0 side=east ms=9000'),
+      zrow(T0 + 80, 'showcase-Comet', '_zone_walk', 'handler=marooned outcome=out zone=village-taiga-6_1 from=150,54,-50 to=161,54,-50 steps=11 down=0 dug=22 placed=0 side=east ms=30000'),
+      zrow(T0 + 85, 'showcase-Gale', '_zone_walk', 'handler=marooned outcome=out zone=village-taiga-6_1 from=150,54,-50 to=155,54,-50 steps=5 down=0 dug=2 placed=0 side=east ms=3000'),
+      zrow(T0 + 86, 'showcase-Gale', '_zone_walk', 'handler=marooned outcome=no_exit zone=village-taiga-6_1 from=150,54,-50 to=- steps=0 down=0 dug=0 placed=0 side=- ms=10', status='failed'),
+      zrow(T0 + 87, 'showcase-Gale', '_needs_rescue', 'arm=zone_walk zone=village-taiga-6_1 at=150,54,-50 -- every bearing out of the protected zone is a structure block', status='failed'),
+      zrow(T0 + 88, 'showcase-Gale', '_needs_rescue', 'arm=air at=1,2,3 -- no air', status='failed'),
+      zrow(T0 + 90, 'showcase-Iris', '_death', 'drowned', status='failed', pos=(100.5, 60.0, 0.5)),
+      zrow(T0 + 91, 'showcase-Juno', '_death', 'fell', status='failed', pos=(-100.5, 60.0, 0.5))]
+HIST = [(T0 + 50, 'showcase-Maple', 121, 67, -8, 'minecraft:spruce_sapling', 1), (T0 + 53, 'showcase-Maple', 121, 66, -8, 'minecraft:dirt', 1),
+        (T0 + 54, 'showcase-Maple', -13, 63, 110, 'minecraft:wheat', 1), (T0 + 75, 'showcase-Comet', 148, 54, -50, 'minecraft:stone', 0),
+        (T0 + 76, 'showcase-Comet', 149, 55, -50, 'minecraft:stone', 0), (T0 + 2400, '#tree', 121, 68, -8, 'minecraft:spruce_log', 1),
+        (T0 + 2400, '#tree', 121, 69, -8, 'minecraft:spruce_leaves', 1), (T0 + 77, 'showcase-Comet', 300, 54, -50, 'minecraft:stone', 0)]
+FIRST = {'showcase-Comet': (146.5, 54.0, -50.5), 'showcase-Alpha': (-14.5, 71.0, -5.5), 'showcase-Gale': (150.5, 54.0, -50.5)}
+LAST = {'showcase-Comet': (165.5, 54.0, -50.5), 'showcase-Alpha': (60.5, 70.0, 0.5), 'showcase-Gale': (150.5, 54.0, -50.5)}
+zr = SR.zone_report(ZONES, ZR, FIRST, LAST, HIST)
+check(SR.zone_of(ZONES, 49, 0, -59) == 'village-taiga-6_1' and SR.zone_of(ZONES, 157, 90, 45) and not SR.zone_of(ZONES, 48, 0, 0) and not SR.zone_of(ZONES, 100, 91, 0),
+      'a zone box holds its edges; one block outside on x, or above its top, is out')
+check(SR.zone_of(ZONES, 41, 0, 0, 8, use_y=False) and not SR.zone_of(ZONES, 40, 0, 0, 8, use_y=False) and SR.zone_of(ZONES, 0, 200, 100, 0, use_y=False) == 'trial-chambers-home-se',
+      'grown by 8 on x and z: 41 is within, 40 is not; every zone in the file is checked, not only the village')
+check(zr['spots']['n'] == 4 and [i[1:5] for i in zr['spots']['in_zone']] == [('showcase-Frost', 65, 70, -2)] and [i[1:5] for i in zr['spots']['near']] == [('showcase-Onyx', 42, 64, -19)],
+      'plant spots: 4 found (a "none" row is not one), 1 inside the village, 1 more within 8 blocks of it (7 west), the one 9 west is clear')
+check(zr['orders']['n'] == 2 and len(zr['orders']['in_zone']) == 1 and zr['planted']['n'] == 2 and [i[1:5] for i in zr['planted']['in_zone']] == [('showcase-Maple', 121, 67, -8)],
+      'orders and plantings of things that grow (saplings, seeds): counted, in-zone ones listed; cobblestone, dirt and a failed place are not')
+check(zr['refused'] == {'op=place purpose=survival struct=0': 2, 'op=use purpose=survival struct=0': 1} and zr['refused_n'] == 3 and zr['refused_with_remedy'] == 2,
+      'refusals by op / purpose / struct, and how many name the walk-out remedy')
+check(zr['walks'] == {'progress': 1, 'out': 2, 'no_exit': 1} and [w[1:] for w in zr['walk_out_inside']] == [('showcase-Gale', '155,54,-50')],
+      'zone walks by outcome; an "out" whose `to` is still inside the box is caught (Comet\'s to=161 is outside)')
+check(zr['rescue'] == {'showcase-Gale': 1}, '`_needs_rescue arm=zone_walk` only')
+check(zr['deaths']['n'] == 2 and [d[1] for d in zr['deaths']['in_zone']] == ['showcase-Iris'], 'deaths: 2, 1 inside a zone')
+h = zr['history']
+check(h['placed_in_zone'] == {'spruce_sapling': 1, 'dirt': 1} and [g[1:] for g in h['grows_in_zone']] == [('showcase-Maple', 121, 67, -8, 'spruce_sapling')] and h['tree_in_zone'] == 2,
+      'block history inside the boxes: what the bots placed, the one thing that grows, and 2 blocks of tree growth; wheat planted outside is not there')
+check(h['broken_in_zone'] == {'showcase-Comet': 2}, 'blocks broken inside a zone, by bot (a break outside is not counted)')
+check([i[0] for i in zr['inside_at_end']] == ['showcase-Alpha', 'showcase-Gale'], 'who is inside a zone box at the end')
+c = zr['started_inside']['showcase-Comet']
+check(c['from'] == (146, 54, -50) and c['to'] == (166, 54, -50) and not c['inside_at_end'] and c['walks'] == {'progress': 1, 'out': 1} and c['broke_in_zone'] == 2,
+      'COMET, sealed inside at the start: walked out (its zone walks, where it ended, what it broke inside)')
+check(zr['started_inside']['showcase-Gale']['inside_at_end'] and 'showcase-Alpha' not in zr['started_inside'], 'Gale began inside and stayed; Alpha did not begin inside')
+i = run(); i.update(zones=ZONES, zone_rows=ZR, first_pos=FIRST, last_pos=LAST, zone_history=HIST)
 r = SR.build_report(i)
-check(r['verdict'] == 'PASS' and any('protected village' in f and '1 plant spot' in f and '1 by the block history' in f for f in r['flags']), 'saplings in the village are named with all four counts, and are not part of the verdict')
+fl = ' / '.join(r['flags'])
+check(r['verdict'] == 'PASS' and 'PLANTED INSIDE A PROTECTED ZONE: 1 by the bots\' rows, 1 by the block history' in fl and 'a tree GREW inside' in fl
+      and '1 death(s) inside a protected zone' in fl and 'said "out" but ended inside' in fl and 'inside a protected zone at the end: Alpha' in fl and 'within 8 blocks of one: 1' in fl,
+      'every zone finding is named in the read, and none of them moves the verdict')
 md = SR.render(r)
-check('## Saplings and the protected village' in md and '2 in all, **1 inside the village**: 14:00Z Maple at 121,67,-8' in md, 'the page lists each one with its time, bot and block')
-r = SR.build_report(run())
-check(not any('protected village' in f for f in r['flags']) and '**0 inside the village**' in SR.render(r), 'POSITIVE CONTROL: no sapling rows, no flag, and the page still shows the zeros with their totals')
+check('## Protected zones (2 boxes' in md and '**Comet began inside village-taiga-6_1** at 146,54,-50 and ended at 166,54,-50: **WALKED OUT**' in md
+      and '**Gale began inside village-taiga-6_1**' in md and '**STAYED inside**' in md, 'the page says what each bot that began inside a zone did')
+check('op=place purpose=survival struct=0: 2' in md and '**1 inside a zone** (14:00Z Frost at 65,70,-2)' in md and 'tree growth: 2 blocks' in md, 'and lists refusals by kind, in-zone spots with time and block, and tree growth')
+i = run(); i.update(zones=ZONES, zone_rows=[], first_pos={}, last_pos={}, zone_history=[])
+r = SR.build_report(i)
+md = SR.render(r)
+check(not any('zone' in f for f in r['flags']) and '**0 inside a zone**' in md and 'inside a zone box at the end: no bot' in md, 'POSITIVE CONTROL: nothing in the zones, no flag, and the page still shows the zeros')
+check('## Protected zones' not in SR.render(SR.build_report(run())), 'no zones file read: the section is left out rather than printed empty')
 
 # ---- the page
 md = SR.render(leaky)
@@ -235,6 +285,20 @@ killed('an unread Paper log is not blind', mutant("    if not inp['paper']:\n", 
 killed('a 20-minute run passes as a soak', mutant("    elif quiet_h < 2.9:\n", "    elif False:\n")(short()) == 'PASS')
 i = run(); i['stopped'] = 'guard'
 killed('a stopped run passes', mutant("    if inp.get('stopped'):\n        blind.append", "    if False:\n        blind.append")(i) == 'PASS')
+
+def mutant_ns(old, new):
+    assert SRC.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
+    ns = {'__name__': 'soakread_mutant', '__file__': os.path.join(HERE, 'soakread.py')}
+    exec(compile(SRC.replace(old, new), 'soakread_mutant', 'exec'), ns)
+    return ns
+m = mutant_ns("GROWTH_MARGIN = 8 ", "GROWTH_MARGIN = 0 ")
+killed('a plant spot 7 blocks from a zone is not counted as near', m['zone_report'](ZONES, ZR, FIRST, LAST, HIST)['spots']['near'] == [])
+m = mutant_ns("            if oc == 'out' and m and zone_of(zones, *map(int, m.groups()), use_y=False):\n", "            if False:\n")
+killed('a walk that says out but ends inside is not caught', m['zone_report'](ZONES, ZR, FIRST, LAST, HIST)['walk_out_inside'] == [])
+m = mutant_ns("        if not zone_of(zones, x, y, z):\n            continue\n", "")
+killed('block history outside the zones is counted as inside', m['zone_report'](ZONES, ZR, FIRST, LAST, HIST)['history']['broken_in_zone'] == {'showcase-Comet': 3})
+m = mutant_ns("        elif name == '_needs_rescue' and 'arm=zone_walk' in detail:\n", "        elif name == '_needs_rescue':\n")
+killed('every rescue call counts as a zone-walk rescue', m['zone_report'](ZONES, ZR, FIRST, LAST, HIST)['rescue'] == {'showcase-Gale': 2})
 
 print(f'\n{"OK" if not fails else "FAILED"}: {fails} failure(s)')
 sys.exit(1 if fails else 0)
