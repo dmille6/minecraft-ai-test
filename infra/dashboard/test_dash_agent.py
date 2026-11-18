@@ -162,6 +162,22 @@ def main():
     check('fleet stopped (marker): no expected metric', 'mcai_bot_units_expected' not in m2.rows)
     m3 = A.Metrics(); ag._units(m3, 'mctest@*', 'testworld')
     check('the test world has no expected metric', 'mcai_bot_units_expected' not in m3.rows and mval(m3, 'mcai_bot_units_running') == 0)
+
+    # TRIPWIRE LEVEL: a lost or verdict-less file is not "clear", and a level read earlier is not republished (Codex r1, r2).
+    d2 = tempfile.mkdtemp(); tl = os.path.join(d2, 'trip-last.json')
+    o2 = type('O', (), {'trip_last': tl, 'every': 60, 'slow_every': 0})()
+    ag2 = A.Agent('showcase', o2)
+    open(tl, 'w').write('{"t": "2026-11-18T20:35:01Z", "verdict": "WATCH", "why": []}')
+    mA = A.Metrics(); ag2._trip(mA)
+    check('a WATCH verdict exports level 0', mval(mA, 'mcai_trip_level') == 0 and 'mcai_trip_level' in mA.rows)
+    open(tl, 'w').write('{"verdict": "TRIP"}')
+    mB = A.Metrics(); ag2._trip(mB)
+    check('a TRIP verdict exports level 2', mval(mB, 'mcai_trip_level') == 2)
+    os.unlink(tl)
+    mC = A.Metrics()
+    check('a missing file fails the collector', raises(lambda: ag2._trip(mC)))
+    check('and exports no level', 'mcai_trip_level' not in mC.rows)
+    check('and drops the cached level', 'mcai_trip_level' not in getattr(ag2, 'slow_metrics', {}))
     print(f'\n{len(FAILS)} failed' if FAILS else '\nall passed')
     return 1 if FAILS else 0
 
