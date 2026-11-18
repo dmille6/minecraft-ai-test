@@ -404,6 +404,13 @@ await t('Codex T11 delta r5: an air gap under the cut is looked through -- the b
   assert.ok(GT.capHeldCols([q], srv.read, Object.assign(new Set(), { left: 0 })).has('0,0'))
   assert.strictEqual(GT.gradeCutsHeld([q], srv.read, new Set(['0,0'])).size, 1)
 })
+await t('Codex T11 delta r6: a gap deeper than the scan reads unknown (held), never air', () => {
+  const srv = server()
+  for (let y = G; y <= G + 40; y++) srv.set([0, y, 0], 'air')
+  srv.set([0, G + 41, 0], 'cobblestone')
+  assert.strictEqual(GT.topUnder(srv.read, [0, G + 41, 0]), 'unknown')
+  assert.strictEqual(GT.gradeCutOk({ at: [0, G + 41, 0], grade: true }, srv.read, () => false), false)
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

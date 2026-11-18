@@ -28,10 +28,11 @@ const nm = b => String(b?.name ?? '').replace(/^minecraft:/, '').replace(/\[.*\]
 /** What the visit's foreign pass digs out of an open record cell (buildrun.mjs FOREIGN_CLEAR, the same list; a test holds them equal). */
 export const RETOP_DIGGABLE = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel|snow)$/
 /** Codex T11 delta r5: THE BLOCK LEFT ON TOP once the block at `at` is gone -> its name: the first non-air block below it (an air
- *  gap under floating spoil is skipped; at most GRADE.above deep, else 'air'). Pure over `read`. */
+ *  gap under floating spoil is skipped; over the whole column a grade may work, else 'unknown', never earth). Pure over `read`. */
 export function topUnder (read, at) {
-  for (let y = at[1] - 1; y >= at[1] - 16; y--) { const n = nm(read(at[0], y, at[2])); if (!/^(air|cave_air|void_air)$/.test(n)) return n }
-  return 'air'
+  // Codex T11 delta r6: the whole column a grade may work (above + below + a hollow), and past it 'unknown' -- not earth: held
+  for (let y = at[1] - 1; y >= at[1] - (GRADE.above + GRADE.below + GRADE.hollow); y--) { const n = nm(read(at[0], y, at[2])); if (!/^(air|cave_air|void_air)$/.test(n)) return n }
+  return 'unknown'
 }
 /** The classes with a target (ground). */
 export const GRADE_CLASSES = Object.freeze({ t: 'terrace', b: 'bank', a: 'apron', e: 'edge' })
