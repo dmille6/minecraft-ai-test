@@ -426,6 +426,11 @@ def ck_fleet_stopped_headline(M):
               'testworld': {'running': 14, 'show_bags': {'bots': 13, 'full': 12}}})
     j = M.judge(f)
     first = M.headline(f, j)[0]
+    g = dict(f, showcase=dict(f['showcase'], units=[13, None], held=None))
+    jg = M.judge(g)
+    first_g = M.headline(g, jg)[0]
+    if not ('showcase 13 bots running; test world 14 bots' in first_g and 'bots not running' not in texts(jg['didnt'])):
+        return False
     return ('showcase 13 of 13 bots running (Comet, Nova held out); test world 14 bots; 0 showcase death(s)' in first
             and '?' not in first and 'showcase bags full: 12 of 13' in texts(j['didnt'])
             and 'bots not running' not in texts(j['didnt']))

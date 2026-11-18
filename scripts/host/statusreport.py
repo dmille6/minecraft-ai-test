@@ -83,6 +83,7 @@ PROM = 'http://10.0.0.186:9090'
 # instead). While this file exists the report leads with the showcase and the test world and does not read the fleet-only
 # sources (they would only report a stopped fleet as broken, and the headline read "? of ? bots running").
 FLEET_STOPPED = f'{DIGEST}/FLEET_STOPPED'
+FLEET_OFF = '- the fleet is stopped on purpose (owner 11-18): not read; the showcase and the test world are below'
 SHOW_PROXY = 'http://10.0.0.186/agent/showcase'
 WORLDS_AGENT = 'http://10.0.0.30:9188'
 KEY_FILE = f'{HOME}/.config/mcai/anthropic.key'
@@ -303,7 +304,7 @@ def judge(f, prev=None):
         D.append((7, f'showcase stopped by its safety check: {plain(x, 100)}'))
     eps = sc.get('halts') or []
     if eps:
-        back = sc.get('units') and sc['units'][0] >= sc['units'][1]
+        back = sc.get('units') and sc['units'][1] is not None and sc['units'][0] >= sc['units'][1]
         mins = max((ts(b) - ts(a)).total_seconds() / 60 + 5 for a, b, _ in eps)
         D.append((35 if back else 7, f'showcase bots were down {len(eps)} time(s), the longest about {mins:.0f} min '
                                      f'({plain(re.split(r" -- |;", eps[-1][2])[0], 70)})'
@@ -314,7 +315,7 @@ def judge(f, prev=None):
         D.append((9, f'showcase release failed its 60-minute check: {plain(x.get("why"), 100)}'))
     if passes:
         W.append((25, f'showcase: {len(passes)} release(s) passed the 60-minute check'))
-    if sc.get('units') and sc['units'][0] < sc['units'][1]:
+    if sc.get('units') and sc['units'][1] is not None and sc['units'][0] < sc['units'][1]:
         D.append((11, f'showcase: {sc["units"][1] - sc["units"][0]} of {sc["units"][1]} bots not running'))
     for x in (sc.get('stuck') or [])[:4]:
         S.append((40, f'showcase {plot_word(x["plot"])} stuck {x["hours"]:.0f} h'))
@@ -513,7 +514,7 @@ def headline(f, j):
     if f.get('fleet_stopped'):
         sc, tw = f.get('showcase') or {}, f.get('testworld') or {}
         u = sc.get('units') or [None, None]
-        bots_part = (f'showcase {n(u[0])} of {n(u[1])} bots running'
+        bots_part = (f'showcase {n(u[0])} ' + (f'of {n(u[1])} ' if u[1] is not None else '') + 'bots running'
                      + (f' ({", ".join(sc["held"])} held out)' if sc.get('held') else '')
                      + f'; test world {n(tw.get("running"))} bots; '
                      + f'{n(sc.get("deaths"))} showcase death(s) in the last {f.get("window_h")} h; ')
@@ -816,7 +817,7 @@ def render(f, j, now):
         L.append('- Last ' + f'{wh} h: ' + '; '.join(
             f'{k.replace("_", " ")} {n(a["success"])} of {n(a["attempts"])} worked' for k, a in acts.items()) + '.')
     if not v and not acts:
-        L.append('- could not read production numbers')
+        L.append(FLEET_OFF if f.get('fleet_stopped') else '- could not read production numbers')
     L.append('')
 
     # 4 bags, chests, pit
@@ -844,7 +845,7 @@ def render(f, j, now):
             L.append(f'- Crafting tables / furnaces: {n(fl["stations_crafted"])} made, {n(fl["stations_left"])} left '
                      f'behind in the world ({fl.get("window_h")} h).')
     else:
-        L.append('- could not read the flow ledger')
+        L.append(FLEET_OFF if f.get('fleet_stopped') else '- could not read the flow ledger')
     L.append('')
 
     # 5 towns and buildings
@@ -873,7 +874,7 @@ def render(f, j, now):
         for t, plots in blocked_list(g):
             L.append(f'  - {blocked_text(t, plots)[1]}')
     if not (bnow or g.get('read') or bt.get('completed') is not None):
-        L.append('- could not read the town numbers')
+        L.append(FLEET_OFF if f.get('fleet_stopped') else '- could not read the town numbers')
     L.append('')
 
     # 6 projects
@@ -893,7 +894,7 @@ def render(f, j, now):
             L.append(f'  - {verdict.lower()}: {plot_word(plot)} in {len(towns)} town(s) ({", ".join(towns[:8])}'
                      f'{" ..." if len(towns) > 8 else ""}) -- e.g. {plain(whys[0], 110)}')
     else:
-        L.append('- could not read the project audit')
+        L.append(FLEET_OFF if f.get('fleet_stopped') else '- could not read the project audit')
     if pa.get('showcase'):
         L.append(f'- Showcase audit: {plain(pa["showcase"], 260)}')
     L.append('')
@@ -972,7 +973,7 @@ def render(f, j, now):
         L.append('- Next up: ' + ('; '.join(f'{x["run"]}' + (f' ({x["title"]})' if x.get('title') else '') for x in c.get('next') or [])
                                  or 'nothing ready') + f'. Ready {c.get("ready", 0)}, waiting on something {c.get("held", 0)}.')
     else:
-        L.append('- could not read the testing pipeline')
+        L.append(FLEET_OFF if f.get('fleet_stopped') else '- could not read the testing pipeline')
     L.append('')
 
     # 10 judged
@@ -1251,6 +1252,7 @@ def showcase_units(halt_line):
 def c_testworld(f, now):
     """The test world and the showcase's bags, from the dashboard's Prometheus (the agents' metrics)."""
     val = lambda q: sum(float(r['value'][1]) for r in prom(q))
+    f['_show_running'] = int(val('sum(mcai_bot_units_running{scope="showcase"})'))
     f['testworld'] = {'running': int(val('sum(mcai_bot_units_running{scope="testworld"})')),
                       'show_bags': {'bots': int(val('sum(mcai_bots_reporting{scope="showcase"})')),
                                     'full': int(val('sum(mcai_bots_bag_full{scope="showcase"})'))}}
@@ -1521,6 +1523,8 @@ def c_showcase(f, now, since):
     sc['units'], held = showcase_units(halt)
     if held:
         sc['held'] = held
+    if sc['units'] is None and f.get('_show_running') is not None:   # fleet stopped: no halt line; running only, no total
+        sc['units'] = [f['_show_running'], None]
     sc['stuck'] = [x for x in (parse_stuck(re.sub(r'^!!\s*', '', y)) for y in f.pop('_show_goal_lines', [])) if x]
     m = re.search(r'(\d+) of (\d+) bots \(seen in 24 h\) wrote a row in the last 30 min; absent ([^;]+);', f.pop('_show_head', None) or '')
     if m:
@@ -1635,8 +1639,9 @@ def c_alarms(f, now):
 def collect(now, since, wh, prev):
     f = {'generated_at': iso(now), 'since': iso(since), 'window_h': wh, 'errors': {}}
     attempt(f, 'headline numbers', lambda: c_headline(f, now))
-    attempt(f, 'fleet numbers (fleetstatus)', lambda: c_fleetstatus(f, now, wh))   # also carries the showcase lines
     f['fleet_stopped'] = fleet_stopped_why()
+    if not f['fleet_stopped']:   # fleetstatus refuses a window with no fleet rows (ZeroLooksWrong): only while it runs
+        attempt(f, 'fleet numbers (fleetstatus)', lambda: c_fleetstatus(f, now, wh))   # also carries the showcase lines
     if f['fleet_stopped']:
         f['bots'], f['bags'] = None, None   # a stopped fleet's last numbers are not news
         attempt(f, 'test world (Prometheus)', lambda: c_testworld(f, now))
