@@ -32,7 +32,7 @@ import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { surfaceFills, tidyTopOn } from './tidytop.mjs'
-import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
+import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary, gradeProvided } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut expires
@@ -340,7 +340,7 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
   // after every ground layer: runVisit stops `deps_open` there)
   const lk = sg => { const m = /^T-(\d+)-(\d+)$/.exec(sg); return [Number(m[2]), Number(m[1])] }
   segments.sort((a, b) => { const [ka, ga] = lk(a.seg), [kb, gb] = lk(b.seg); return ka - kb || ga - gb })
-  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}), ...(c.handed ? { handed: c.handed } : {}), ...(c.grade ? { grade: true } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it; litter-01 r1: a hand-off's cut says so (read again at the dig)
+  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}), ...(c.grade ? { grade: true } : {}), ...(c.handed ? { handed: c.handed } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it; litter-01 r1: a hand-off's cut says so (read again at the dig)
   return {
     v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r,
     cells, clear: [...(s.clear ?? [])].sort((a, b) => a.at[1] - b.at[1]), cut, replant: [], segments, zones: [],
@@ -1512,7 +1512,7 @@ const litterOut = (terrace, seen) => ({ read: (terrace?.litter ?? []).length, se
  * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
  * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND, report = null, grade = null } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND, report = null, grade = gradeProvided() } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)

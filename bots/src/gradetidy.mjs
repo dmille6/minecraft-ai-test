@@ -17,6 +17,11 @@
 
 export const GRADE = Object.freeze({ file: 'grade-target.json', above: 16, below: 16, hollow: 4 })
 export const gradeOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.GRADE ?? '').trim())
+/** THE PROCESS'S TARGET SOURCE (skills.mjs sets it once: the pool's grade-target.json) -> { t } | null. tidy.mjs siteStage's default
+ *  `grade`; unset or throwing: null (the survey as before). */
+let gradeSource = null
+export const setGradeSource = fn => { gradeSource = typeof fn === 'function' ? fn : null }
+export const gradeProvided = () => { try { return gradeSource ? gradeSource() : null } catch { return null } }
 
 const k2 = (x, z) => `${x},${z}`
 const nm = b => String(b?.name ?? '').replace(/^minecraft:/, '').replace(/\[.*\]$/, '')

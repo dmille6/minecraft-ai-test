@@ -207,7 +207,7 @@ await t('releaseGradeCols: a gated column whose named work is all done or waived
 await t('WIRED (comments stripped): the refresh releases the finished gated columns before its merge', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/const relG = gNow\?\.t \? releaseGradeCols\(cur, gNow\.t\.gate,[^\n]*\n[^\n]*\n\s*const busy = openColumns\(relG\.rec, read,[^\n]*\n\s*res = refreshMerge\(relG\.rec, fresh,/.test(sk))
+  assert.ok(/const relG = gNow\?\.t \? releaseGradeCols\(cur, gNow\.t\.gate,[^\n]*\n\s*cur = relG\.rec\n\s*const busy = openColumns\(cur, read,[^\n]*\n\s*res = refreshMerge\(cur, fresh,/.test(sk))
 })
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
@@ -218,8 +218,8 @@ await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a 
 await t('WIRED (comments stripped): the refresh and the inside-the-wall siting pass the target; the refresh row says grade_v', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/planned: busy, grade: gradeNow\(bot\) \}\)/.test(sk), 'the refresh')
-  assert.ok(/forest: forestRecNow\(\), grade: k === landStages\(\)\.find\(q => q\.id === 'inwall'\)\?\.k \? gradeNow\(bot\) : null \}\)/.test(sk), 'the siting')
+  assert.ok(/setGradeSource\(\(\) => gradeNow\(activeMem\?\.bot \?\? null\)\)/.test(sk), 'the process\'s target source')
+  assert.ok(/report = null, grade = gradeProvided\(\) \} = \{\}\) \{/.test(strip(readFileSync(P('tidy.mjs'), 'utf8'))), 'siteStage\'s default')
   assert.ok(/op: 'refreshed'[^\n]*\.\.\.\(s\?\.grade \? \{ grade_v: s\.grade\.v \} : \{\}\)/.test(sk), 'grade_v on the refresh row')
   assert.ok(/'grade_v', 'why'\], f\)/.test(strip(readFileSync(P('shop.mjs'), 'utf8'))), 'the row keeps the field')
 })
