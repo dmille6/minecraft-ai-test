@@ -30108,7 +30108,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     // gradetidy-01show (gradetidy.mjs releaseGradeCols): a gated column whose named work is all finished or waived is the grade's now
     const gNow = gradeNow(bot)
     // Codex T11 r1 BLOCKER 3 (gradetidy.mjs dropStaleGrade): a changed or withdrawn target takes its open grade work off the record
-    const stale = dropStaleGrade(cur, gradeStamp(gNow?.t ?? null), { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), standing: q => cutStanding(read, q, now) })
+    const stale = dropStaleGrade(cur, gradeStamp(gNow?.t ?? null), { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), standing: q => cutStanding(read, q, now), empty: q => /^(air|cave_air|void_air)$/.test(String(read(...q.at)?.name ?? '')) })
     cur = stale.rec
     const relG = gNow?.t ? releaseGradeCols(cur, gNow.t.gate, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), standing: q => cutStanding(read, q, now) }) : { rec: cur, released: [] }
     cur = relG.rec

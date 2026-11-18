@@ -281,6 +281,11 @@ await t('BLOCKER 2: a re-top only on a block the visit may dig (tuff, mossy cobb
   assert.deepStrictEqual(GT.gradeColumn(srv.read, 1, 0, G, d).fill, [{ at: [1, G, 0], role: 'topsoil', retop: true }])
   assert.ok(!TT.GREY_FILL.test('mossy_cobblestone'))
 })
+await t('Codex T11 r3: a re-top already dug out (air now) is owed by a withdrawn plan too; one not yet dug goes', () => {
+  const rec = { grade_v: 'A', cells: [{ at: [0, G, 0], role: 'topsoil', grade: true, retop: 1 }, { at: [1, G, 0], role: 'topsoil', grade: true, retop: 1 }], cut: [] }
+  const r = GT.dropStaleGrade(rec, null, { done: () => false, standing: () => true, empty: q => q.at[0] === 0 })
+  assert.deepStrictEqual(r.rec.cells.map(c => c.at[0]), [0])
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

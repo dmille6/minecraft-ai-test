@@ -235,7 +235,7 @@ export const gradeStamp = t => (t ? `${gradeV(t)}:${t.gateHash ?? '-'}` : null)
  * grade fill not done (`done`), a grade cut still standing (`standing`) -- leaves the record (its waivers too), and the record takes
  * the new stamp. Finished grade work stays (it is ground now). The same stamp -> the record as it is.
  */
-export function dropStaleGrade (rec, stamp, { done = () => false, standing = () => true } = {}) {
+export function dropStaleGrade (rec, stamp, { done = () => false, standing = () => true, empty = () => false } = {}) {
   if (!rec) return { rec, dropped: 0 }
   const was = rec.grade_v ?? null
   if (was === stamp) return { rec, dropped: 0 }
@@ -244,7 +244,8 @@ export function dropStaleGrade (rec, stamp, { done = () => false, standing = () 
   // Codex T11 r2 BLOCKER 1: a hole the grade already OPENED keeps its fills -- an open fill whose opener is dug, or in a column where a
   // grade cut is already down -- a repair the record still owes, whatever the plan now says
   const dugCols = new Set((rec.cut ?? []).filter(c => c.grade && !standing(c)).map(c => k2(c.at[0], c.at[2])))
-  const owed = c => dugCols.has(k2(c.at[0], c.at[2])) || (Array.isArray(c.opener) && !(rec.cut ?? []).some(q => kOf(q.at) === kOf(c.opener) && standing(q)))
+  // Codex T11 r3: and a RE-TOP whose block is already dug out (`empty(cell)`: air there now) -- the visit opened it
+  const owed = c => dugCols.has(k2(c.at[0], c.at[2])) || (Array.isArray(c.opener) && !(rec.cut ?? []).some(q => kOf(q.at) === kOf(c.opener) && standing(q))) || (!!c.retop && empty(c))
   for (const c of rec.cells ?? []) if (c.grade && !done(c) && !owed(c)) gone.add(kOf(c.at))
   for (const c of rec.cut ?? []) if (c.grade && standing(c)) gone.add(kOf(c.at))
   const keepC = c => !(c.grade && gone.has(kOf(c.at)))
