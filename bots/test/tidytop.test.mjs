@@ -167,7 +167,7 @@ await t('WIRED: the visit holds re-tops by dirt in its alsoDone and the completi
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
   assert.ok(/retopHeld\(visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\), \{ waived: rec\.waived, open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\) \}\)/.test(sk))
   assert.ok(/alsoDone: q => [^\n]*retopPass\.has\(q\.at\.join\(','\)\)/.test(sk))
-  assert.ok(/soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\)\)/.test(sk))
+  assert.ok(/soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\), q\)/.test(sk))
 })
 await t('Codex r2 BLOCKER 1: one dirt, an open topsoil hole and a grey re-top -> the hole gets the dirt, the grey is never dug', async () => {
   const B = await import('./helpers/buildfake.mjs')

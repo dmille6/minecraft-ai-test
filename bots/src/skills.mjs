@@ -213,6 +213,7 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
 import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
+import { GRADE, gradeOn, gradeTarget, gradeAdded } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30045,6 +30046,23 @@ function fcKeepInputs (bot, h, dir = townDir()) {
   return { c, I, report }
 }
 export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport, plainInputs: (bot, h, dir = townDir()) => { const c = shopCtx(bot); return { c, I: tidyInputs(bot, c, h, dir) } } })
+/** GRADETIDY-01show: the pool's published ground plan (gradetidy.mjs gradeTarget over <pool>/grade-target.json) -> { t, why } | null,
+ *  re-read when the file changes; one `_grade_mode` row a change (v, gate, why). GRADE=off or no file: null (the survey as before). */
+let gradeMemo = { mtime: -1, val: null }
+function gradeNow (bot) {
+  try {
+    if (!gradeOn()) return null
+    const f = path.join(townDir(), GRADE.file)
+    let st = null
+    try { st = fs.statSync(f) } catch { st = null }
+    const mt = st ? st.mtimeMs : 0
+    if (mt === gradeMemo.mtime) return gradeMemo.val
+    const g = st ? gradeTarget(JSON.parse(fs.readFileSync(f, 'utf8'))) : { ok: false, t: null, why: 'no_file' }
+    gradeMemo = { mtime: mt, val: g.ok ? { t: g.t, why: 'ok' } : null }
+    try { logEvent({ kind: 'grade_mode', status: g.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `on=1 file=${st ? 1 : 0} why=${g.why} v=${g.ok ? `v${g.t.v}:${String(g.t.sha256).slice(0, 8)}:${g.t.gateId}` : '-'} gate=${g.ok ? g.t.gate.size : 0}` }) } catch { /* telemetry */ }
+    return gradeMemo.val
+  } catch { return null }
+}
 async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const r0 = rh.head.rec
   let s, read, cap = 0, guard, fcKeepOff = null, fcReport = null, cR = c
@@ -30062,7 +30080,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     const inK = landStages().find(q => q.id === 'inwall')?.k
     if (!Number.isFinite(inK)) return null
     const busy = openColumns(r0, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
-    s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, report: fcReport, forest: forestRecNow(), planned: busy })
+    s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, report: fcReport, forest: forestRecNow(), planned: busy, grade: gradeNow(bot) })
     cap = s?.survey?.rough?.skipped?.cap ?? 0
     fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null   // fillcolumn-01 r2: THIS survey's own exclusions (tidy.mjs siteStage)
     guard = tidyGuardSet()   // the visit's own guard (one source)
@@ -30094,7 +30112,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
-  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}${s?.grade ? `/gcut${gradeAdded(res?.rec, now).cut}/gfill${gradeAdded(res?.rec, now).fill}` : ''}`, ...(s?.grade ? { grade_v: s.grade.v } : {}), ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: [...Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`), ...Object.entries(s?.grade?.skipped ?? {}).map(([a, b]) => `g.${a}:${b}`)].join(',').slice(0, 240) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
   // (a cell the repair left out is a waiver like any other: one `waived` row each, its reason on it)
   for (const d of fx?.dropped ?? []) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
   const h2 = recordHead(dir, key)
@@ -30474,7 +30492,7 @@ async function buildTidyVisit (ctx, args, signal) {
         const inK = landStages().find(q => q.id === 'inwall')?.k
         firstIn = !!gkNext && inwallFirst({ rec: rh.head?.rec, nextK: k0, inwallK: inK })
         for (const k of stageTryOrder(k0, last, firstIn, inK)) {
-          s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved, forest: forestRecNow() })
+          s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved, forest: forestRecNow(), grade: k === landStages().find(q => q.id === 'inwall')?.k ? gradeNow(bot) : null })
           s.k = k
           if (firstIn && k === inK && s.ok && !s.record) inChecked = Date.now()   // surveyed, nothing inside: the clock restarts
           if (!s.ok || s.record) break
@@ -30873,7 +30891,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (tidyTopOn() ? soilPassDone(noSoil(q), read2(...q.at)) : noSoil(q)) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
+    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (tidyTopOn() ? soilPassDone(noSoil(q), read2(...q.at), q) : noSoil(q)) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
     let prog = tidyProgress(rw, read2, progOpts)
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {

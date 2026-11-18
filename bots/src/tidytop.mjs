@@ -41,8 +41,8 @@ export function fillRole (cell, top) {
 export function surfaceFills (rec) {
   if (!rec?.cells?.length) return rec
   const top = new Map()
-  for (const c of rec.cells) if (c?.role === 'earth') { const k = k2(c.at[0], c.at[2]); top.set(k, Math.max(top.get(k) ?? -Infinity, c.at[1])) }
-  if (!top.size) return rec
+  for (const c of rec.cells) if (c?.role === 'earth' || c?.role === 'topsoil') { const k = k2(c.at[0], c.at[2]); top.set(k, Math.max(top.get(k) ?? -Infinity, c.at[1])) }   // gradetidy-01show: a topsoil cell is a column's top too
+  if (!rec.cells.some(c => c?.role === 'earth')) return rec
   return { ...rec, cells: rec.cells.map(c => { const r = fillRole(c, top.get(k2(c.at[0], c.at[2]))); return r === c.role ? c : { ...c, role: r } }) }
 }
 
@@ -65,6 +65,7 @@ export function soilBeside (read, at) {
 export function retopWhy (cell, read, { waived = null, guard = new Set(), cutK = new Set(), keepOff = () => null, aboveFill = false } = {}) {
   if (!cell || !Array.isArray(cell.at) || !COLUMN_ROLES.has(cell.role) || cell.role === 'topsoil') return 'role'
   if (cell.prev || cell.plot != null || cell.prep || cell.landmark) return 'not_tidy'
+  if (cell.grade) return 'grade'   // gradetidy-01show: in a graded column the target decides
   const k = kOf(cell.at)
   if (hasOwn(waived, k)) return 'waived'
   if (guard.has(k)) return 'guarded'
@@ -126,7 +127,8 @@ export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFi
     // first, dirt when the bag has none) too
     // Codex rel3 r2 BLOCKER: every OPEN cell (short grass, water, anything not done), not air alone; a grey re-top is the second loop's
     if (!Array.isArray(c?.at) || c.prev || !COLUMN_ROLES.has(c.role) || hasOwn(waived, kOf(c.at))) continue
-    if (c.retop && c.role === 'topsoil' && GREY_FILL.test(nm(read(...c.at)))) continue
+    // gradetidy-01show: a re-top holding ANY block to dig (grey, andesite, tuff ...) is the second loop's
+    if (c.retop && c.role === 'topsoil' && !AIRY.test(nm(read(...c.at))) && !SOIL_NEAR.test(nm(read(...c.at)))) continue
     if (open(c, read)) left--
   }
   const out = new Set()
@@ -145,4 +147,4 @@ export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFi
 /** Codex r2 BLOCKER 2: a topsoil cell WAITING FOR DIRT (passed for want of it, or a re-top held for it) -> bool. Pure. Such a cell is
  *  open work but never a strike toward a waiver (gkwork.mjs leftWaiveDue): an empty bag is not "nobody can lay it". */
 export const dirtWait = (passed, held) => !!passed || !!held
-export const soilPassDone = (passed, b) => !!passed && !!b && b.boundingBox === 'block' && !AIRY.test(nm(b)) && !GREY_FILL.test(nm(b))   // Codex rel3 r3: a full block only (never water, short grass)
+export const soilPassDone = (passed, b, cell = null) => !!passed && !!b && b.boundingBox === 'block' && !AIRY.test(nm(b)) && !GREY_FILL.test(nm(b)) && !(cell?.retop && !SOIL_NEAR.test(nm(b)))   // gradetidy-01show: a re-top is done only as soil   // Codex rel3 r3: a full block only (never water, short grass)

@@ -31,7 +31,8 @@ import { hubEntranceCols } from './storehub.mjs'   // the showcase gkaccess fold
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
-import { surfaceFills, tidyTopOn } from './tidytop.mjs'   // tidytop-01show
+import { surfaceFills, tidyTopOn } from './tidytop.mjs'
+import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut expires
@@ -332,14 +333,14 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
       const k = f.at[1] - base.get(k2(f.at[0], f.at[2]))
       const seg = segOf(group, k)
       if (!segs.has(seg)) { segs.add(seg); segments.push({ seg, deps: k > 0 ? [segOf(group, k - 1)] : [] }) }
-      cells.push({ at: f.at, role: f.role === 'topsoil' ? 'topsoil' : 'earth', seg, ...(f.opener ? { opener: f.opener } : {}) })   // roughground-1b r1: a hollow's fill names its cut (never waived); roughground-2: a lawn's topsoil is dirt only
+      cells.push({ at: f.at, role: f.role === 'topsoil' ? 'topsoil' : 'earth', seg, ...(f.opener ? { opener: f.opener } : {}), ...(f.grade ? { grade: true } : {}), ...(f.retop ? { retop: now } : {}) })   // gradetidy-01show: the grade's cells say so; a grade re-top is a tidytop re-top   // roughground-1b r1: a hollow's fill names its cut (never waived); roughground-2: a lawn's topsoil is dirt only
     }
   }
   // every group's ground layer first, then every group's next (a visit meets a layer whose dependency another builder holds only
   // after every ground layer: runVisit stops `deps_open` there)
   const lk = sg => { const m = /^T-(\d+)-(\d+)$/.exec(sg); return [Number(m[2]), Number(m[1])] }
   segments.sort((a, b) => { const [ka, ga] = lk(a.seg), [kb, gb] = lk(b.seg); return ka - kb || ga - gb })
-  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}), ...(c.handed ? { handed: c.handed } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it; litter-01 r1: a hand-off's cut says so (read again at the dig)
+  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}), ...(c.handed ? { handed: c.handed } : {}), ...(c.grade ? { grade: true } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it; litter-01 r1: a hand-off's cut says so (read again at the dig)
   return {
     v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r,
     cells, clear: [...(s.clear ?? [])].sort((a, b) => a.at[1] - b.at[1]), cut, replant: [], segments, zones: [],
@@ -1511,7 +1512,7 @@ const litterOut = (terrace, seen) => ({ read: (terrace?.litter ?? []).length, se
  * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
  * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND, report = null } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND, report = null, grade = null } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
@@ -1559,11 +1560,22 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // access-02: a staircase at every busy climb spot of the bots' own ledger (climbSpots / spotStair), off every column a plan of this
     // stage already uses, off the plots, the stands' refusals, the yard and the tree farm
     const sv0 = { ...sv00, access: [...(sv00.access ?? [])], fill: [...sv00.fill], pits: [...sv00.pits] }
+    // GRADETIDY-01show (gradetidy.mjs gradeSurvey): the gated columns with a target are the grade's -- cut above the target, fill below
+    // it, an earth top at it -- and the survey's own rules leave them (dropGradeCols here; the staircases and the rough ground below
+    // treat them as busy). `grade.t` the published target (gradeTarget); none: the survey as before
+    let gw = null
+    if (grade?.t && gradeOn(env)) {
+      const cellColsG = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+      gw = gradeSurvey(read, grade.t, { home, avoid, cellCols: cellColsG, col: (x, z, y) => tidyColumn(read, x, z, { yHi: y + GRADE.above, yLo: y - GRADE.below }), cuttable: n => LEVEL_CUT.test(n), liquid: b => !!b && isLiquid(b) })
+      const kept = dropGradeCols(sv0, gw.cols)
+      Object.assign(sv0, kept, { cut: [...kept.cut, ...gw.cut], fill: [...kept.fill, ...gw.fill], pits: [...kept.pits, ...gw.pits] })
+    }
     if (terrace?.climbs?.length) {
       const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
       const memo = new Map()
       const colA = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
       const usedA = new Set([...sv0.cut, ...sv0.fill].map(q => k2(q.at[0], q.at[2])))
+      for (const k of gw?.cols ?? []) usedA.add(k)   // gradetidy-01show: never a staircase in a column the grade owns
       for (const a of sv0.access) for (const c of a.cells) usedA.add(k2(c[0], c[2]))
       const cellColsA = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
       const inBox = (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
@@ -1594,11 +1606,12 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       const busyR = new Set([...sv0.cut, ...sv0.fill, ...pp.cut, ...pp.fill].map(q => k2(q.at[0], q.at[2])))
       // tidyrefresh-01: an open record's refresh passes the columns it still works (`planned`) -- never planned twice, never under the cap (it pages)
       for (const k of planned ?? []) busyR.add(k)
+      for (const k of gw?.cols ?? []) busyR.add(k)   // gradetidy-01show: the rough ground, the regrade and the banks stay out of the grade's columns
       for (const a of sv0.access ?? []) for (const c of a.cells) busyR.add(k2(c[0], c[2]))
       sv0.cut = [...sv0.cut]; sv0.pillars = [...sv0.pillars]
       // Codex 1c r1 BLOCKER: a stand never stands on a wall extension's reserved plot (the whole box)
       const plotBoxesR = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite))
-      sv0.rough = roughIn(read, { home, boxes, env, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [], litter: terrace?.litter ?? [], now, standOff: (x, z) => plotBoxesR.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }, sv0)
+      sv0.rough = roughIn(read, { home, boxes, env, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [], litter: terrace?.litter ?? [], now, standOff: (x, z) => plotBoxesR.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) || !!gw?.cols?.has(k2(x, z)) }, sv0)
     }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
     // roughground-1c: the rough survey's stands are platforms too (laid as access fills, torn down by platformTeardown)
@@ -1631,15 +1644,15 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (record && (pp.plots.length || platsKept.length)) record.plotprep = { plots: pp.plots, platforms: platsKept, skipped: pp.skipped }
     // litter-01: what became of the walks' handed blocks in this stage's boxes (never on the record: the caller's rows)
     const litter = litterOut(terrace, sv0.rough?.litter)
-    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter, keepOff, ...(report ? { report } : {}) }
+    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter, keepOff, ...(gw ? { grade: gradeSummary(gw) } : {}), ...(report ? { report } : {}) }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
     // access-01: the staircase cells are role `access` (TIDY_PALETTE.access: stone, never dirt)
     const acc = new Set((sv.fill ?? []).filter(f => f.access).map(f => f.at.join(',')))
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
-      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: { census: sv.rough.census, skipped: sv.rough.skipped } } : {}) }
-    return { ok: true, why: 'ok', record, survey: sv, road: null, litter, keepOff, ...(report ? { report } : {}) }
+      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: { census: sv.rough.census, skipped: sv.rough.skipped } } : {}), ...(gw ? { grade: gradeSummary(gw) } : {}) }
+    return { ok: true, why: 'ok', record, survey: sv, road: null, litter, keepOff, ...(gw ? { grade: gradeSummary(gw) } : {}), ...(report ? { report } : {}) }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
   // country-01: `classic: false` -- the band's own survey alone (surveyInwall over the band's columns, which keeps off the wall boxes),
@@ -1765,7 +1778,8 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
 export function coreFills (rec) {
   if (!rec?.cells?.length) return rec
   const top = new Map()
-  for (const c of rec.cells) if (c.role === 'earth') { const k = k2(c.at[0], c.at[2]); top.set(k, Math.max(top.get(k) ?? -Infinity, c.at[1])) }
+  // gradetidy-01show: a column's `topsoil` cell counts as its top too (the grade's fill: earth under a topsoil at the target)
+  for (const c of rec.cells) if (c.role === 'earth' || c.role === 'topsoil') { const k = k2(c.at[0], c.at[2]); top.set(k, Math.max(top.get(k) ?? -Infinity, c.at[1])) }
   const cored = { ...rec, cells: rec.cells.map(c => (c.role === 'earth' && c.at[1] < top.get(k2(c.at[0], c.at[2])) ? { ...c, role: 'core' } : c)) }
   // tidytop-01show: the top is `topsoil` (dirt or grass only, never stone at the surface: tidytop.mjs surfaceFills)
   return tidyTopOn() ? surfaceFills(cored) : cored
