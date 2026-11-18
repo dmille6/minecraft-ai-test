@@ -281,6 +281,11 @@ function connect() {
     })
   }, 10_000)
   memTimer.unref?.()
+  // RECONNLEAK-01SHOW: THE LOGGER ENDS WITH ITS CONNECTION. connect() runs again on every reconnect and this interval was never
+  // cleared: its closure shares connect()'s context, so it held the dead connection's bot, Client and World (its chunk columns'
+  // ArrayBuffers) for the life of the process. Showcase 11-18: every arrayBuffers step fell on a reconnect, and a reconnect storm took
+  // bots to 1,448 MB rss; the rig's heap snapshot after 3 kicks held 4 Worlds, the 3 old ones through timerListMap[10000] -> here.
+  bot.once('end', () => clearInterval(memTimer))
 
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
@@ -299,6 +304,7 @@ function connect() {
     })
     log('warn', 'air trace recording', { minutes: traceMin, file: `air-trace-${config.bot.name}.jsonl` })
     process.once('exit', stopTrace)
+    bot.once('end', () => { process.removeListener('exit', stopTrace); try { stopTrace() } catch { /* already stopped */ } })   // reconnleak-01show: the process held every old bot's trace
   }
 
   bot.once('spawn', () => {
@@ -1104,7 +1110,7 @@ function connect() {
     // one of the declared movement owners; adding a second writer is the
     // multi-writer bug the ratchet exists to prevent.
     const posSamples = []
-    setInterval(() => {
+    const wedgeTimer = setInterval(() => {
       try {
         if (!bot.entity?.position) return
         const now = Date.now()
@@ -1140,6 +1146,7 @@ function connect() {
         posSamples.length = 0
       } catch { /* not connected */ }
     }, 2000)
+    bot.once('end', () => clearInterval(wedgeTimer))   // reconnleak-01show: this sampler held its dead connection's bot as memTimer did
 
     let lavaCorridorLoggedAt = 0
     let deathSiteCrossLoggedAt = 0
@@ -1481,11 +1488,16 @@ function connect() {
       // listener -- exactly what this catches, and it catches it without
       // touching the process's error semantics.
       const probe = net.createServer()
+      // reconnleak-01show (Codex r1): the viewer's HTTP server held this connection's bot after it ended, and kept the port, so no
+      // later connection had a viewer: closed on 'end', and a probe still pending then never starts one
+      let viewerEnded = false
+      bot.once('end', () => { viewerEnded = true; try { probe.close() } catch { /* not listening */ } for (let i = 0; i < 10 && bot.viewer?.close; i++) { try { bot.viewer.close() } catch { /* never started */ } } })   // Codex r2: prismarine-viewer 1.33 close() splices its socket list while iterating it, so one call disconnects every other client; ten calls cover 2^10 (http.close again is a no-op)
       probe.once('error', e => {
         log('error', 'viewer port busy — running WITHOUT a viewer (the bot is fine)',
           { port: config.viewer.port, err: e.code ?? e.message })
       })
       probe.once('listening', () => probe.close(() => {
+        if (viewerEnded) return
         try {
           const { mineflayer: mineflayerViewer } = require_('prismarine-viewer')
           mineflayerViewer(bot, { port: config.viewer.port, firstPerson: config.viewer.firstPerson })
