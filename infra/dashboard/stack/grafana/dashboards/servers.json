@@ -246,7 +246,7 @@
     "w": 4,
     "h": 4
    },
-   "description": "",
+   "description": "Non-sandbox worlds answering RCON. Since 11-18 the 16 fleet worlds are stopped on purpose: the showcase is the one.",
    "targets": [
     {
      "refId": "A",
@@ -276,12 +276,8 @@
         "value": null
        },
        {
-        "color": "orange",
-        "value": 16
-       },
-       {
         "color": "green",
-        "value": 17
+        "value": 1
        }
       ]
      },

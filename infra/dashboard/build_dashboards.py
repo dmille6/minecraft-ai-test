@@ -290,128 +290,168 @@ def merge():
 
 
 # ------------------------------------------------------------------------------------------ dashboards
+# 11-18 REWORK. The 16-world fleet was stopped on the owner's word ("yes do this", 11-18 ~13:00Z) and a TEST WORLD (a copy
+# of the showcase town, 14 bots on block2-bots, scope "testworld") soaks each release before the showcase gets it. The
+# dashboards lead with the showcase and the test world; every fleet-only panel moved into a collapsed "Fleet (stopped)"
+# row at the bottom, kept for its history. Elasticsearch panels read mcai-skill-agents + mcai-skill-showcase.
+PLACE = 'skill.name:_build AND skill.detail:"op=place"'
+ON_BUILDINGS = PLACE + ' AND NOT skill.detail:"project=tidy" AND NOT skill.detail:"project=yard"'
+ON_CLEANUP = PLACE + ' AND (skill.detail:"project=tidy" OR skill.detail:"project=yard")'
+TRIP_MAP = [{'type': 'value', 'options': {'0': {'text': 'CLEAR / WATCH', 'color': GREEN, 'index': 0},
+                                          '1': {'text': 'REPORT', 'color': ORANGE, 'index': 1},
+                                          '2': {'text': 'TRIP (stopped)', 'color': RED, 'index': 2}}}]
+
+
+def collapsed(title, y, panels):
+    """A collapsed row holding `panels` (their y is shifted to start just under the row)."""
+    r = row(title, y, collapsed=True)
+    top = min(q['gridPos']['y'] for q in panels) if panels else 0
+    for q in panels:
+        q['gridPos']['y'] = q['gridPos']['y'] - top + y + 1
+    r['panels'] = panels
+    return r
+
+
+def name_stat(title, pos, expr, desc=''):
+    """A stat that shows the series NAME (a build sha from a version label), not its value."""
+    s = stat(title, pos, [prom(expr, '{{version}}', instant=True)], color_mode='value', text_size=22, desc=desc,
+             no_value='none')
+    s['options']['textMode'] = 'name'
+    return s
+
+
+def building_split(title, pos, interval='1h'):
+    return timeseries(title, pos, [es(ON_BUILDINGS, buckets=[hist(interval)], ref='A', alias='on buildings'),
+                                   es(ON_CLEANUP, buckets=[hist(interval)], ref='B', alias='clean-up (tidy, yard)')],
+                      stack=True, bars=True,
+                      desc='Blocks placed per hour, from _build op=place rows: on town buildings vs clean-up fills. '
+                           'Until 11-18 every placed block went to clean-up (bags full; idle visits sent only to clean-up).',
+                      overrides=[col('on buildings', {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': 'green'}}),
+                                 col('clean-up (tidy, yard)', {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': 'text'}})])
+
+
 def overview():
     _ids[0] = 0
     p = []
-    p.append(stat('Fleet bots', (0, 0, 3, 4), [prom('sum(mcai_bot_units_running{scope="fleet"})', instant=True)],
-                  th=steps(RED, (ORANGE, 70), (GREEN, 80)), desc='mcbot@ units in state running on 10.0.0.31 (of 80).'))
-    p.append(stat('Showcase', (3, 0, 3, 4), [prom('sum(mcai_bot_units_running{scope="showcase"})', instant=True)],
-                  th=steps(RED, (GREEN, 1)), desc='mcshow@ units running on 10.0.0.40.'))
-    p.append(stat('Fleet build', (6, 0, 3, 4), [inf(FLEET + '/manifest.json', [('fleet_build', 'Fleet build', 'string')])],
-                  fields='/.*/', color_mode='value', text_size=24, desc='Declared fleet sha from the trial manifest.'))
-    p.append(stat('In test now', (9, 0, 3, 4), [inf(FLEET + '/manifest.json', [('canary_run', 'In test', 'string')])],
-                  fields='/.*/', color_mode='background', th=steps(PURPLE), mappings=null_text('nothing in test'),
-                  text_size=22, desc='The canary declared in the trial manifest, if any.'))
-    p.append(stat('Alarms', (12, 0, 3, 4), [prom('sum(mcai_alarms_active_total)', instant=True)],
-                  th=steps(GREEN, (ORANGE, 1)), desc='NEW/STILL alarms in ALARMS.log on .31 and .40 (7 h window). Mostly warnings: the severities are in the table below.'))
+    p.append(stat('Showcase bots', (0, 0, 3, 4), [prom('sum(mcai_bot_units_running{scope="showcase"})', instant=True)],
+                  th=steps(RED, (ORANGE, 10), (GREEN, 13))))
+    p.append(name_stat('Showcase build', (3, 0, 3, 4), 'max by (version) (mcai_build_bots{scope="showcase"})'))
+    p.append(stat('Tripwire', (6, 0, 3, 4), [prom('max(mcai_trip_level)', instant=True)], mappings=TRIP_MAP,
+                  th=steps(GREEN, (ORANGE, 1), (RED, 2)), text_size=18))
+    p.append(stat('Test world bots', (9, 0, 3, 4), [prom('sum(mcai_bot_units_running{scope="testworld"})', instant=True)],
+                  th=steps(GREY, (BLUE, 1)), no_value='0'))
+    p.append(stat('Open alarms', (12, 0, 3, 4),
+                  [prom('sum(mcai_alarms_active{scope="showcase",severity!="acked"}) or vector(0)', instant=True)],
+                  th=steps(GREEN, (ORANGE, 1))))
     p.append(stat('Deaths 24h', (15, 0, 3, 4), [es('skill.name:_death', buckets=[hist('1h')])], calc='sum',
-                  th=steps(GREEN, (ORANGE, 40), (RED, 80)), timeFrom='24h', hideTimeOverride=True,
-                  desc='_death rows across the fleet in Elasticsearch, last 24 h. Baseline 10-19: 30/day.'))
-    p.append(stat('Worlds OK', (18, 0, 3, 4),
-                  [prom('count(mcai_world_tps_5m{kind!="sandbox"} >= 19) or vector(0)', instant=True)],
-                  th=steps(RED, (ORANGE, 15), (GREEN, 17)), desc='Fleet + showcase worlds with 5-minute TPS >= 19 (of 17).'))
-    p.append(stat('Bags full', (21, 0, 3, 4), [prom('sum(mcai_bots_bag_full)', instant=True)],
-                  th=steps(GREEN, (ORANGE, 5), (RED, 15)), desc='Bots at >= 34 of 36 estimated inventory slots (fleet + showcase).'))
+                  th=steps(GREEN, (ORANGE, 3), (RED, 6)), timeFrom='24h', hideTimeOverride=True))
+    p.append(stat('Showcase TPS', (18, 0, 3, 4), [prom('min(mcai_world_tps_5m{kind="showcase"})', instant=True)],
+                  decimals=1, th=steps(RED, (ORANGE, 15), (GREEN, 19))))
+    p.append(stat('Bags full', (21, 0, 3, 4), [prom('sum(mcai_bots_bag_full{scope="showcase"}) or vector(0)', instant=True)],
+                  th=steps(GREEN, (ORANGE, 5), (RED, 10))))
 
-    p.append(alertlist('Firing alerts', (0, 4, 8, 10), desc='Grafana alert rules (folder Minecraft AI). Dashboard-only: no notifications are sent.'))
-    p.append(table('Active alarms (fleet watchers)', (8, 4, 16, 10),
-                   [inf(FLEET + '/alarms-fleet.json', alarm_cols, 'A'), inf(SHOW + '/alarms-showcase.json', alarm_cols, 'B')],
-                   alarm_over, transformations=merge(), sort=('Since', False),
-                   desc='The fleet\'s own watchers (goalwatch, flowledger, haltwatch, stallcheck, effectwatch...) via ALARMS.log.'))
+    p.append(building_split('Showcase: blocks placed per hour', (0, 4, 16, 9)))
+    p.append(alertlist('Firing alerts', (16, 4, 8, 9), desc='Grafana alert rules (folder Minecraft AI). Dashboard-only.'))
 
-    p.append(table('What was tested and how it went', (0, 14, 14, 11), [inf(FLEET + '/canaries.json', canary_cols)],
-                   canary_over, sort=('Deployed', True), desc='One row per canary run from ~/canary-journal.jsonl.'))
-    p.append(table('Up next in the test queue', (14, 14, 10, 11), [inf(FLEET + '/queue.json', queue_cols)], queue_over,
-                   desc='canary-sched.py status: entries not done or cancelled, in queue order.'))
+    p.append(table('Showcase projects', (0, 13, 14, 10), [inf(SHOW + '/goals-showcase.json', goal_cols)], goal_over,
+                   desc='Open town projects from goalwatch on the showcase: STUCK = no placement for >= 3 h.'))
+    p.append(table('Showcase alarms', (14, 13, 10, 10), [inf(SHOW + '/alarms-showcase.json', alarm_cols)], alarm_over,
+                   sort=('Since', False), desc='The showcase watchers via its ALARMS.log; acknowledged ones say so.'))
 
-    p.append(timeseries('Bot actions per hour', (0, 25, 12, 8),
+    p.append(table('Showcase releases (newest first)', (0, 23, 24, 9),
+                   [inf(SHOW + '/releases.json', [('t', 'Time', 'timestamp'), ('event', 'Event', 'string'),
+                                                  ('release', 'Release', 'string'), ('bots', 'Bots', 'number'),
+                                                  ('why', 'What happened', 'string')])],
+                   [col('Event', *colored({'activated': GREEN, 'read': BLUE, 'rollout': BLUE, 'staged': PURPLE,
+                                           'stop-bots': RED, 'quarantine': ORANGE, 'rollback': RED}, 'color-text'),
+                        width(130)),
+                    col('Time', width(160)), col('Release', width(220)), col('Bots', width(60))], sort=('Time', True)))
+
+    p.append(timeseries('Bot actions per hour', (0, 32, 12, 8),
                         [es(NOT_INTERNAL, buckets=[terms('skill.status', 5), hist('1h')])], stack=True, bars=True,
-                        desc='Every non-internal skill row, by status.',
+                        desc='Every non-internal skill row, by status (showcase; the fleet before 11-18 13:00Z).',
                         overrides=[col('success', {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': 'green'}}),
                                    col('failure', {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': 'red'}})]))
-    p.append(timeseries('Deaths by cause', (12, 25, 12, 8),
-                        [es('skill.name:_death', buckets=[terms('skill.fail_class', 10), hist('1h')])], stack=True, bars=True,
-                        desc='_death rows by fail_class, hourly.'))
+    p.append(timeseries('Deaths by cause', (12, 32, 12, 8),
+                        [es('skill.name:_death', buckets=[terms('skill.fail_class', 10), hist('1h')])], stack=True, bars=True))
 
-    p.append(bargauge('CPU', (0, 33, 8, 7), [prom('100 * (1 - avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[5m])))', '{{host}}', instant=True)]))
-    p.append(bargauge('Memory used', (8, 33, 8, 7), [prom('100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)', '{{host}}', instant=True)]))
-    p.append(bargauge('Root disk used', (16, 33, 8, 7), [prom('100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})', '{{host}}', instant=True)],
+    p.append(bargauge('CPU', (0, 40, 8, 7), [prom('100 * (1 - avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[5m])))', '{{host}}', instant=True)]))
+    p.append(bargauge('Memory used', (8, 40, 8, 7), [prom('100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)', '{{host}}', instant=True)]))
+    p.append(bargauge('Root disk used', (16, 40, 8, 7), [prom('100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})', '{{host}}', instant=True)],
                       th=steps(GREEN, (ORANGE, 80), (RED, 90))))
-
-    p.append(text('Latest world videos', (0, 40, 24, 22),
+    p.append(text('Latest world videos', (0, 47, 24, 22),
                   f'<iframe src="{GALLERY}" style="width:100%;height:100%;border:0;display:block" loading="lazy"></iframe>'))
-    # The owner's status report headline on top (statusreport.py writes headline.html 4x a day); everything else moves
-    # down by its height (gridPos y is absolute).
     for q in p:
         q['gridPos']['y'] += 4
     p.insert(0, text('Status report (12 AM / 6 AM / 12 PM / 6 PM Central)', (0, 0, 24, 4),
                      f'<iframe src="{STATUS}headline.html" style="width:100%;height:100%;border:0;display:block"></iframe>',
-                     desc='scripts/host/statusreport.py on .31: the plain-language report. Full report: the Status Report '
-                          'dashboard, or /status/ on this host.'))
+                     desc='scripts/host/statusreport.py on .31: the plain-language report.'))
     return dashboard('mcai-overview', 'Minecraft AI — Overview', p,
-                     'Fleet, showcase, tests, alerts, servers and videos at a glance.', tags=['home'])
+                     'The showcase town, the test world, alerts, servers and videos at a glance.', tags=['home'])
 
 
 def bots():
     _ids[0] = 0
     p = []
-    p.append(stat('Fleet bots reporting', (0, 0, 4, 4), [prom('sum(mcai_bots_reporting{scope="fleet"})', instant=True)],
-                  th=steps(RED, (ORANGE, 70), (GREEN, 78)), desc='Bots with a log row in the last 10 minutes.'))
-    p.append(stat('Showcase bots reporting', (4, 0, 4, 4), [prom('sum(mcai_bots_reporting{scope="showcase"})', instant=True)],
-                  th=steps(RED, (GREEN, 1))))
-    p.append(stat('Median bag (fleet)', (8, 0, 4, 4), [prom('quantile(0.5, mcai_bot_bag_slots{scope="fleet"})', instant=True)],
-                  unit='none', decimals=0, th=steps(GREEN, (YELLOW, 30), (RED, 34)), desc='Estimated slots in use, of 36.'))
-    p.append(stat('Bags full (fleet)', (12, 0, 4, 4), [prom('sum(mcai_bots_bag_full{scope="fleet"})', instant=True)],
-                  th=steps(GREEN, (ORANGE, 5), (RED, 15)), desc='>= 34 of 36 slots. 10-19 census: 41 of 80.'))
-    p.append(stat('Builds live', (16, 0, 4, 4), [prom('max(mcai_builds_live{scope="fleet"})', instant=True)],
-                  th=steps(GREEN, (ORANGE, 3), (RED, 4)), desc='Distinct builds among fleet bots seen in the last hour. Two while a canary runs.'))
+    p.append(stat('Showcase bots reporting', (0, 0, 4, 4), [prom('sum(mcai_bots_reporting{scope="showcase"})', instant=True)],
+                  th=steps(RED, (ORANGE, 10), (GREEN, 13)), desc='Bots with a log row in the last 10 minutes (13 run; Comet and Nova are held out).'))
+    p.append(stat('Test world bots reporting', (4, 0, 4, 4), [prom('sum(mcai_bots_reporting{scope="testworld"})', instant=True)],
+                  th=steps(GREY, (BLUE, 1)), no_value='0', desc='The test world: 14 bots on a copy of the town, soaking a candidate release.'))
+    p.append(stat('Median bag (showcase)', (8, 0, 4, 4), [prom('quantile(0.5, mcai_bot_bag_slots{scope="showcase"})', instant=True)],
+                  decimals=0, th=steps(GREEN, (YELLOW, 28), (RED, 34)),
+                  desc='Estimated slots in use, of 36. A building visit needs 8 free (28 or fewer).'))
+    p.append(stat('Bags full (showcase)', (12, 0, 4, 4), [prom('sum(mcai_bots_bag_full{scope="showcase"}) or vector(0)', instant=True)],
+                  th=steps(GREEN, (ORANGE, 5), (RED, 10)), desc='>= 34 of 36 slots.'))
+    p.append(stat('Builds live (showcase)', (16, 0, 4, 4), [prom('max(mcai_builds_live{scope="showcase"})', instant=True)],
+                  th=steps(GREEN, (ORANGE, 2)), desc='Distinct builds among showcase bots in the last hour: 1, or 2 just after a release.'))
     p.append(stat('Action success (24 h)', (20, 0, 4, 4),
                   [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[hist('1h')], ref='A'),
                    es(NOT_INTERNAL, buckets=[hist('1h')], ref='B'), reduce('$A', 'SA'), reduce('$B', 'SB'),
                    math('$SA / $SB * 100', 'C')],
                   unit='percent', decimals=1, th=steps(BLUE), timeFrom='24h', hideTimeOverride=True,
-                  fields='', desc='Successful / all non-internal skill rows, last 24 h. Neutral colour: no baseline has been measured to judge it against.'))
+                  desc='Successful / all non-internal skill rows, last 24 h (showcase).'))
     for t in p[-1]['targets'][:4]:
         t['hide'] = True
 
-    p.append(barchart('Bag fullness (fleet)', (0, 4, 8, 8), [inf(FLEET + '/bagbands-fleet.json',
-                                                                  [('band', 'Slots used', 'string'), ('bots', 'Bots', 'number')])],
+    p.append(barchart('Bag fullness (showcase)', (0, 4, 8, 8), [inf(SHOW + '/bagbands-showcase.json',
+                                                                     [('band', 'Slots used', 'string'), ('bots', 'Bots', 'number')])],
                       x='Slots used', color=ORANGE, desc='Estimated slots in use per bot (36 = completely full).'))
-    p.append(table('Towns (fleet pools)', (8, 4, 16, 8),
-                   [inf(FLEET + '/pools-fleet.json', [('pool', 'Town', 'string'), ('bots', 'Bots', 'number'),
-                                                      ('reporting', 'Reporting', 'number'), ('avg_bag_slots', 'Avg bag slots', 'number'),
-                                                      ('bag_full', 'Bags full', 'number'), ('avg_health', 'Avg health', 'number'),
-                                                      ('tail_deaths', 'Recent deaths', 'number')])],
-                   [col('Avg bag slots', *gauge_cell(steps(GREEN, (YELLOW, 30), (RED, 34)), 36)),
-                    col('Avg health', *gauge_cell(steps(RED, (ORANGE, 8), (GREEN, 14)), 20))]))
+    p.append(timeseries('Median bag slots', (8, 4, 16, 8), [prom('quantile by (scope) (0.5, mcai_bot_bag_slots)', '{{scope}}')],
+                        min_=0, max_=36, th=steps(GREEN, (YELLOW, 28), (RED, 34)), legend='table', calcs=['lastNotNull', 'min'], fill=0,
+                        desc='Showcase and test world. Line under 28 = bots can take a building visit (8 free).'))
 
-    p.append(timeseries('Average bag slots by town', (0, 12, 12, 8), [prom('avg by (pool) (mcai_bot_bag_slots)', '{{pool}}')],
-                        min_=0, max_=36, th=steps(GREEN, (RED, 34)), legend='table', calcs=['lastNotNull', 'max'], fill=0))
-    p.append(timeseries('Action success rate', (12, 12, 12, 8),
+    p.append(table('Showcase bots', (0, 12, 24, 13), [inf(SHOW + '/bots-showcase.json', bot_cols)], bot_over, sort=('Bot', False),
+                   desc='Newest row of each bot\'s live log on the showcase (refreshed every minute). Bag slots are estimated.'))
+    p.append(table('Test world bots', (0, 25, 24, 12), [inf(FLEET + '/bots-testworld.json', bot_cols)], bot_over, sort=('Bot', False),
+                   desc='The test world on block2-bots (/srv/testworld): same names as the showcase, a different world.'))
+
+    p.append(table('Top failing actions', (0, 37, 8, 9),
+                   [es(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.name', 15)])],
+                   [col('Count', *gauge_cell(steps(ORANGE), 1000))], sort=('Count', True), desc='Failed skill rows by skill, current time range.'))
+    p.append(table('Top failure reasons', (8, 37, 8, 9),
+                   [es(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.fail_class', 15)])],
+                   sort=('Count', True)))
+    p.append(timeseries('Most-used actions (successes / h)', (16, 37, 8, 9),
+                        [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[terms('skill.name', 8), hist('1h')])],
+                        stack=True, bars=True))
+    p.append(timeseries('Action success rate', (0, 46, 12, 8),
                         [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[hist('1h')], ref='A'),
                          es(NOT_INTERNAL, buckets=[hist('1h')], ref='B'), math('$A / $B * 100', 'C')],
                         unit='percent', min_=0, max_=100, desc='Hourly successful / all non-internal skill rows.'))
     p[-1]['targets'][0]['hide'] = True
     p[-1]['targets'][1]['hide'] = True
-
-    p.append(table('Top failing actions', (0, 20, 8, 9),
-                   [es(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.name', 15)])],
-                   [col('Count', *gauge_cell(steps(ORANGE), 1000))], sort=('Count', True), desc='Failed skill rows by skill, current time range.'))
-    p.append(table('Top failure reasons', (8, 20, 8, 9),
-                   [es(NOT_INTERNAL + ' AND NOT skill.status:success', buckets=[terms('skill.fail_class', 15)])],
-                   sort=('Count', True)))
-    p.append(timeseries('Most-used actions (successes / h)', (16, 20, 8, 9),
-                        [es(NOT_INTERNAL + ' AND skill.status:success', buckets=[terms('skill.name', 8), hist('1h')])],
-                        stack=True, bars=True))
-
-    p.append(table('Fleet bots', (0, 29, 24, 18), [inf(FLEET + '/bots-fleet.json', bot_cols)], bot_over, sort=('Bag slots', True),
-                   desc='Newest row of each bot\'s live log on 10.0.0.31 (refreshed every minute). Bag slots are estimated from counts.'))
-    p.append(table('Showcase bots', (0, 47, 24, 12), [inf(SHOW + '/bots-showcase.json', bot_cols)], bot_over, sort=('Bot', False)))
-    p.append(timeseries('Deaths by town', (0, 59, 12, 8), [es('skill.name:_death', buckets=[terms('exp.pool', 16), hist('6h')])],
-                        stack=True, bars=True))
-    p.append(timeseries('Town deposits', (12, 59, 12, 8),
+    p.append(timeseries('Town deposits', (12, 46, 12, 8),
                         [es('skill.name:town_deposit', buckets=[terms('skill.status', 4), hist('1h')])], stack=True, bars=True,
                         desc='town_deposit rows by status: bots banking into town chests.'))
+
+    fleet = [table('Fleet bots (last rows before the stop)', (0, 0, 24, 14), [inf(FLEET + '/bots-fleet.json', bot_cols)], bot_over,
+                   sort=('Bag slots', True)),
+             table('Towns (fleet pools)', (0, 14, 24, 8),
+                   [inf(FLEET + '/pools-fleet.json', [('pool', 'Town', 'string'), ('bots', 'Bots', 'number'),
+                                                      ('reporting', 'Reporting', 'number'), ('avg_bag_slots', 'Avg bag slots', 'number'),
+                                                      ('bag_full', 'Bags full', 'number'), ('avg_health', 'Avg health', 'number'),
+                                                      ('tail_deaths', 'Recent deaths', 'number')])])]
+    p.append(collapsed('Fleet (stopped 11-18 by the owner; kept for history)', 54, fleet))
     return dashboard('mcai-bots', 'Minecraft AI — Bots & Bags', p, 'Every bot: health, bags, what it is doing, what fails.')
 
 
@@ -421,7 +461,8 @@ def servers():
     node = '{job="node"}'
     p.append(stat('Hosts up', (0, 0, 4, 4), [prom(f'sum(up{node})', instant=True)], th=steps(RED, (ORANGE, 4), (GREEN, 5))))
     p.append(stat('Agents up', (4, 0, 4, 4), [prom('sum(up{job="mcai-agent"})', instant=True)], th=steps(RED, (ORANGE, 2), (GREEN, 3))))
-    p.append(stat('Worlds up', (8, 0, 4, 4), [prom('sum(mcai_world_up{kind!="sandbox"})', instant=True)], th=steps(RED, (ORANGE, 16), (GREEN, 17))))
+    p.append(stat('Worlds up', (8, 0, 4, 4), [prom('sum(mcai_world_up{kind!="sandbox"})', instant=True)], th=steps(RED, (GREEN, 1)),
+                  desc='Non-sandbox worlds answering RCON. Since 11-18 the 16 fleet worlds are stopped on purpose: the showcase is the one.'))
     p.append(stat('Slowest world TPS', (12, 0, 4, 4), [prom('min(mcai_world_tps{kind!="sandbox"})', instant=True)],
                   decimals=1, th=steps(RED, (ORANGE, 15), (GREEN, 19))))
     p.append(stat('Worst MSPT', (16, 0, 4, 4), [prom('max(mcai_world_mspt{kind!="sandbox"})', instant=True)], unit='ms',
@@ -471,79 +512,85 @@ def servers():
 def testing():
     _ids[0] = 0
     p = []
-    p.append(stat('Fleet build', (0, 0, 3, 4), [inf(FLEET + '/manifest.json', [('fleet_build', 'Fleet build', 'string')])],
-                  fields='/.*/', color_mode='value', text_size=26))
-    p.append(stat('In test', (3, 0, 4, 4), [inf(FLEET + '/manifest.json', [('canary_run', 'In test', 'string')])],
-                  fields='/.*/', th=steps(PURPLE), mappings=null_text('nothing in test'), text_size=24))
-    p.append(stat('Test build', (7, 0, 3, 4), [inf(FLEET + '/manifest.json', [('canary_build', 'Test build', 'string')])],
-                  fields='/.*/', color_mode='value', mappings=null_text('-'), text_size=22))
-    p.append(stat('Test pools', (10, 0, 4, 4), [inf(FLEET + '/manifest.json', [('canary_pools', 'Pools', 'string')])],
-                  fields='/.*/', color_mode='value', mappings=null_text('-'), text_size=18))
-    p.append(stat('Age', (14, 0, 2, 4), [prom('max(mcai_canary_age_seconds)', instant=True)],
-                  unit='s', decimals=1, color_mode='value', no_value='-'))
-    p.append(stat('Kept (30 d)', (16, 0, 3, 4), [prom('sum(mcai_canary_outcomes{window="30d",outcome=~"PROMOTED|KEEP"}) or vector(0)', instant=True)],
-                  th=steps(GREEN)))
-    p.append(stat('Reverted (30 d)', (19, 0, 3, 4), [prom('sum(mcai_canary_outcomes{window="30d",outcome=~"REVERT|ROLLED BACK"}) or vector(0)', instant=True)],
-                  th=steps(GREEN, (RED, 1))))
-    p.append(stat('Queue', (22, 0, 2, 4), [prom('sum(mcai_queue_entries{state="ready"}) or vector(0)', instant=True)], th=steps(BLUE)))
+    p.append(name_stat('Showcase build', (0, 0, 6, 4), 'max by (version) (mcai_build_bots{scope="showcase"})',
+                       desc='The build the showcase bots run (their newest rows, last hour).'))
+    p.append(name_stat('Test world build', (6, 0, 6, 4), 'max by (version) (mcai_build_bots{scope="testworld"})',
+                       desc='The candidate the test world is soaking (3 h + a load step) before the showcase gets it.'))
+    p.append(stat('Test world bots', (12, 0, 4, 4), [prom('sum(mcai_bot_units_running{scope="testworld"})', instant=True)],
+                  th=steps(GREY, (BLUE, 1)), no_value='0'))
+    p.append(stat('Test world median bag', (16, 0, 4, 4), [prom('quantile(0.5, mcai_bot_bag_slots{scope="testworld"})', instant=True)],
+                  decimals=0, th=steps(GREEN, (YELLOW, 28), (RED, 34))))
+    p.append(stat('Tripwire', (20, 0, 4, 4), [prom('max(mcai_trip_level)', instant=True)], mappings=TRIP_MAP,
+                  th=steps(GREEN, (ORANGE, 1), (RED, 2)), text_size=18, desc='The showcase tripwire, read hourly.'))
 
-    p.append(table('Scheduler and watchers right now', (0, 4, 24, 7),
-                   [inf(FLEET + '/digest.json', [('watch', 'Watch', 'string'), ('line', 'Latest line', 'string')])],
-                   [col('Watch', width(140))], desc='Newest line of each watcher log in ~/digest on 10.0.0.31.'))
-    p.append(table('Test history', (0, 11, 16, 16), [inf(FLEET + '/canaries.json', canary_cols)], canary_over, sort=('Deployed', True)))
-    p.append(piechart('Outcomes (30 d)', (16, 11, 8, 8), [prom('sum by (outcome) (mcai_canary_outcomes{window="30d"})', '{{outcome}}', instant=True)],
-                      overrides=[col(k, {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': c}}) for k, c in CANARY_COLORS.items()]))
-    p.append(piechart('Outcomes (7 d)', (16, 19, 8, 8), [prom('sum by (outcome) (mcai_canary_outcomes{window="7d"})', '{{outcome}}', instant=True)],
-                      overrides=[col(k, {'id': 'color', 'value': {'mode': 'fixed', 'fixedColor': c}}) for k, c in CANARY_COLORS.items()]))
-    p.append(table('Queue (in order)', (0, 27, 24, 12), [inf(FLEET + '/queue.json', queue_cols)], queue_over))
-    p.append(table('Showcase releases', (0, 39, 14, 12),
+    p.append(table('Showcase releases (newest first)', (0, 4, 14, 14),
                    [inf(SHOW + '/releases.json', [('t', 'Time', 'timestamp'), ('event', 'Event', 'string'),
                                                   ('release', 'Release', 'string'), ('bots', 'Bots', 'number'),
-                                                  ('why', 'What changed', 'string')])],
-                   [col('Event', *colored({'activated': GREEN, 'rollout': BLUE, 'staged': PURPLE, 'stop-bots': ORANGE,
-                                           'rollback': RED, 'rolled-back': RED}, 'color-text'), width(100)),
+                                                  ('why', 'What happened', 'string')])],
+                   [col('Event', *colored({'activated': GREEN, 'read': BLUE, 'rollout': BLUE, 'staged': PURPLE,
+                                           'stop-bots': RED, 'quarantine': ORANGE, 'rollback': RED}, 'color-text'), width(130)),
                     col('Time', width(160)), col('Release', width(220)), col('Bots', width(60))], sort=('Time', True)))
-    p.append(table('Showcase pieces (tested before release)', (14, 39, 10, 12),
+    p.append(table('Showcase pieces (tested before release)', (14, 4, 10, 14),
                    [inf(SHOW + '/pieces.json', [('piece', 'Piece', 'string'), ('kind', 'Kind', 'string'),
                                                 ('tests', 'Tests', 'string'), ('sha', 'Sha', 'string'),
                                                 ('summary', 'Test summary', 'string')])],
                    [col('Tests', *colored({'PASS': GREEN, 'FAIL': RED}), width(70)), col('Piece', width(160)),
                     col('Kind', width(90)), col('Sha', width(80))]))
+
+    fleet = [stat('Fleet build', (0, 0, 4, 4), [inf(FLEET + '/manifest.json', [('fleet_build', 'Fleet build', 'string')])],
+                  fields='/.*/', color_mode='value', text_size=26),
+             stat('Kept (30 d)', (4, 0, 4, 4), [prom('sum(mcai_canary_outcomes{window="30d",outcome=~"PROMOTED|KEEP"}) or vector(0)', instant=True)],
+                  th=steps(GREEN)),
+             stat('Reverted (30 d)', (8, 0, 4, 4), [prom('sum(mcai_canary_outcomes{window="30d",outcome=~"REVERT|ROLLED BACK"}) or vector(0)', instant=True)],
+                  th=steps(GREEN, (RED, 1))),
+             table('Fleet canary history', (0, 4, 24, 14), [inf(FLEET + '/canaries.json', canary_cols)], canary_over, sort=('Deployed', True)),
+             table('Fleet queue (parked 11-16)', (0, 18, 24, 10), [inf(FLEET + '/queue.json', queue_cols)], queue_over),
+             table('Fleet scheduler and watchers', (0, 28, 24, 7),
+                   [inf(FLEET + '/digest.json', [('watch', 'Watch', 'string'), ('line', 'Latest line', 'string')])],
+                   [col('Watch', width(140))])]
+    p.append(collapsed('Fleet canaries (stopped 11-18 by the owner; kept for history)', 18, fleet))
     return dashboard('mcai-testing', 'Minecraft AI — Testing & Releases', p,
-                     'What is in test, what passed, what failed, what is next.', time_from='now-7d')
+                     'The test world, the showcase releases and what each was tested with.', time_from='now-7d')
 
 
 def towns():
     _ids[0] = 0
     p = []
-    p.append(stat('Open projects (fleet)', (0, 0, 4, 4), [prom('sum(mcai_goals_open{scope="fleet"})', instant=True)], th=steps(BLUE)))
-    p.append(stat('Stuck projects (fleet)', (4, 0, 4, 4), [prom('sum(mcai_goals_stuck{scope="fleet"})', instant=True)],
-                  th=steps(GREEN, (ORANGE, 1), (RED, 6)), desc='No progress for >= 3 h (goalwatch).'))
-    p.append(stat('Open projects (showcase)', (8, 0, 4, 4), [prom('sum(mcai_goals_open{scope="showcase"})', instant=True)], th=steps(BLUE)))
-    p.append(stat('Stuck projects (showcase)', (12, 0, 4, 4), [prom('sum(mcai_goals_stuck{scope="showcase"})', instant=True)],
-                  th=steps(GREEN, (ORANGE, 1), (RED, 3))))
+    p.append(stat('Open projects', (0, 0, 4, 4), [prom('sum(mcai_goals_open{scope="showcase"})', instant=True)], th=steps(BLUE)))
+    p.append(stat('Stuck projects', (4, 0, 4, 4), [prom('sum(mcai_goals_stuck{scope="showcase"})', instant=True)],
+                  th=steps(GREEN, (ORANGE, 1), (RED, 3)), desc='No progress for >= 3 h (goalwatch).'))
+    p.append(stat('Blocks on buildings (24 h)', (8, 0, 4, 4), [es(ON_BUILDINGS, buckets=[hist('1h')])], calc='sum',
+                  th=steps(RED, (ORANGE, 1), (GREEN, 50)), timeFrom='24h', hideTimeOverride=True,
+                  desc='Blocks placed on town buildings (not clean-up), showcase, last 24 h.'))
+    p.append(stat('Buildings finished (7 d)', (12, 0, 4, 4), [es('skill.name:_structure_complete', buckets=[hist('1d')])],
+                  calc='sum', th=steps(BLUE), timeFrom='7d', hideTimeOverride=True))
     p.append(stat('Town deposits (24 h)', (16, 0, 4, 4), [es('skill.name:town_deposit AND skill.status:success', buckets=[hist('1h')])],
                   calc='sum', th=steps(BLUE), timeFrom='24h', hideTimeOverride=True))
-    p.append(stat('Wells used (24 h)', (20, 0, 4, 4), [es('skill.name:_well_dispose AND skill.status:success', buckets=[hist('1h')])],
-                  calc='sum', th=steps(BLUE), timeFrom='24h', hideTimeOverride=True, desc='Junk dispose runs at town wells.'))
+    p.append(stat('Stone to the well (24 h)', (20, 0, 4, 4), [es('skill.name:_room_well', buckets=[hist('1h')])],
+                  calc='sum', th=steps(BLUE), timeFrom='24h', hideTimeOverride=True, no_value='0',
+                  desc='Trips that threw surplus cobblestone into the junk well to make bag room (from the building-first release).'))
 
-    p.append(table('Town projects (fleet)', (0, 4, 24, 12), [inf(FLEET + '/goals-fleet.json', goal_cols)], goal_over,
+    p.append(table('Showcase projects', (0, 4, 24, 10), [inf(SHOW + '/goals-showcase.json', goal_cols)], goal_over,
                    desc='Open town projects from goalwatch: STUCK = no placement for >= 3 h.'))
-    p.append(table('Showcase projects', (0, 16, 24, 8), [inf(SHOW + '/goals-showcase.json', goal_cols)], goal_over))
-    p.append(timeseries('Stuck projects over time', (0, 24, 12, 8), [prom('sum by (scope) (mcai_goals_stuck)', '{{scope}}')],
+    p.append(building_split('Blocks placed per hour', (0, 14, 12, 8)))
+    p.append(timeseries('Build visits per hour', (12, 14, 12, 8),
+                        [es('skill.name:_build_visit', buckets=[terms('skill.status', 5), hist('1h')])], stack=True, bars=True,
+                        desc='_build_visit rows (one per visit to a project), by how the visit ended.'))
+    p.append(timeseries('Stuck projects over time', (0, 22, 12, 8), [prom('sum(mcai_goals_stuck{scope="showcase"})', 'showcase')],
                         fill=20))
-    p.append(timeseries('Building activity', (12, 24, 12, 8),
-                        [es('skill.name:(_build_visit OR build_shop OR _plinth) AND skill.status:success', buckets=[terms('skill.name', 6), hist('1h')])],
-                        stack=True, bars=True, desc='Successful build rows per hour.'))
-    p.append(table('Daily scoreboard (goalboard, yesterday)', (0, 32, 24, 16),
+    p.append(timeseries('Buildings finished', (12, 22, 12, 8), [es('skill.name:_structure_complete', buckets=[hist('6h')])],
+                        bars=True, desc='_structure_complete rows (a project recorded complete).'))
+
+    fleet = [table('Town projects (fleet)', (0, 0, 24, 12), [inf(FLEET + '/goals-fleet.json', goal_cols)], goal_over),
+             table('Daily scoreboard (fleet goalboard)', (0, 12, 24, 14),
                    [inf(FLEET + '/goalboard.json', [('section', 'Goal', 'string'), ('metric', 'Measure', 'string'),
                                                     ('value', 'Amount', 'number'), ('unit', 'Unit', 'string'),
                                                     ('rate', 'Rate', 'number'), ('out_of', 'Out of', 'string'),
                                                     ('day', 'Day', 'string')])],
                    [col('Goal', *colored({'build': BLUE, 'survive': GREEN, 'together': PURPLE, 'health': ORANGE}, 'color-text'), width(90)),
-                    col('Measure', width(260)), col('Amount', width(110)), col('Unit', width(220)), col('Day', width(100))],
-                   desc='scripts/host/goalboard.py, run nightly at 01:40Z on .31: the owner\'s build / survive / together goals.'))
-    return dashboard('mcai-towns', 'Minecraft AI — Towns & Projects', p, 'Town projects, what is stuck, and the daily goal scoreboard.')
+                    col('Measure', width(260)), col('Amount', width(110)), col('Unit', width(220)), col('Day', width(100))])]
+    p.append(collapsed('Fleet towns (stopped 11-18 by the owner; kept for history)', 30, fleet))
+    return dashboard('mcai-towns', 'Minecraft AI — Towns & Projects', p, 'Showcase projects, building progress, what is stuck.')
 
 
 def status():
@@ -596,28 +643,31 @@ def alert_rules():
                   '{{ $labels.host }} root disk is {{ humanize $values.A.Value }}% full'),
             _rule('mcai-memory', 'Memory nearly exhausted', '100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes',
                   'lt', 8, '10m', 'warning', '{{ $labels.host }} has {{ humanize $values.A.Value }}% memory available'),
-            _rule('mcai-world-down', 'World not answering', 'mcai_world_up{kind!="sandbox"}', 'lt', 1, '3m', 'critical',
+            _rule('mcai-world-down', 'World not answering', 'mcai_world_up{kind!="sandbox"}', 'lt', 1, '3m', 'critical',  # fleet worlds stopped 11-18 drop out of this
                   'Paper world {{ $labels.world }} did not answer RCON'),
             _rule('mcai-world-lag', 'World lagging', 'mcai_world_tps_5m{kind!="sandbox"}', 'lt', 18, '10m', 'warning',
                   '{{ $labels.world }} is at {{ humanize $values.A.Value }} TPS (5 m)'),
         ]),
         ('bots', [
+            # no data (OK) while the fleet is stopped on purpose: the agent drops mcai_bot_units_expected (FLEET_STOPPED)
             _rule('mcai-fleet-units', 'Fleet bots not running',
                   'max(mcai_bot_units_expected{scope="fleet"}) - sum(mcai_bot_units_running{scope="fleet"})', 'gt', 0, '15m',
                   'critical', '{{ humanize $values.A.Value }} of 80 fleet bot units are not running'),
+            _rule('mcai-show-units', 'Showcase bots down',
+                  'sum(mcai_bot_units_running{scope="showcase"})', 'lt', 10, '15m', 'critical',
+                  'only {{ humanize $values.A.Value }} showcase bots are running (13 run; Comet and Nova are held out)',
+                  nodata='Alerting'),
             _rule('mcai-bots-silent', 'Bots running but not logging',
                   'sum by (scope) (mcai_bot_units_running) - sum by (scope) (mcai_bots_reporting)', 'gt', 2, '15m', 'warning',
                   '{{ humanize $values.A.Value }} {{ $labels.scope }} bots are running with no log row for 10 min'),
-            _rule('mcai-bags-full', 'Many bags full', 'sum(mcai_bots_bag_full{scope="fleet"})', 'gt', 15, '1h', 'warning',
-                  '{{ humanize $values.A.Value }} fleet bots are at >= 34 of 36 slots'),
-            _es_rule('mcai-death-spike', 'Death spike', 'skill.name:_death', 'gt', 8, '0s', 'warning',
-                     '{{ humanize $values.B.Value }} fleet deaths in the last hour (baseline ~1.3/h)'),
+            _rule('mcai-bags-full', 'Many bags full', 'sum(mcai_bots_bag_full{scope="showcase"})', 'gt', 9, '2h', 'warning',
+                  '{{ humanize $values.A.Value }} showcase bots are at >= 34 of 36 slots: a building visit needs 8 free'),
+            _es_rule('mcai-death-spike', 'Death spike', 'skill.name:_death', 'gt', 2, '0s', 'warning',
+                     '{{ humanize $values.B.Value }} showcase deaths in the last hour (13 bots; a few a day is normal)'),
         ]),
         ('watchers', [
-            _rule('mcai-watch-critical', 'Critical fleet alarm', 'sum by (source) (mcai_alarms_active{severity="critical"})',
+            _rule('mcai-watch-critical', 'Critical watcher alarm', 'sum by (source) (mcai_alarms_active{severity="critical"})',
                   'gt', 0, '5m', 'critical', '{{ $labels.source }} raised a critical alarm: see Active alarms'),
-            _rule('mcai-canary-overdue', 'Canary running over 30 h', 'max(mcai_canary_age_seconds)', 'gt', 30 * 3600, '10m',
-                  'warning', 'The canary has been declared for {{ humanizeDuration $values.A.Value }}: reads go to +1680 min at most'),
             _rule('mcai-agent-down', 'Dashboard agent down', 'up{job="mcai-agent"}', 'lt', 1, '5m', 'warning',
                   'mcai-dash-agent on {{ $labels.host }} is not answering: its panels are stale'),
             _rule('mcai-collector-failing', 'Dashboard collector failing', 'mcai_agent_collector_ok', 'lt', 1, '15m', 'warning',

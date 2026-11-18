@@ -18,7 +18,7 @@ datasources:
     access: proxy
     url: http://elasticsearch:9200     # docker-elk_elk network, see docker-compose.yml
     jsonData:
-      index: mcai-skill-agents
+      index: mcai-skill-agents,mcai-skill-showcase   # 11-18: the fleet (agents) stopped; the showcase ships to its own index
       timeField: "@timestamp"
       maxConcurrentShardRequests: 5
       logMessageField: skill.detail

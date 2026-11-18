@@ -1,7 +1,7 @@
 {
  "uid": "mcai-towns",
  "title": "Minecraft AI \u2014 Towns & Projects",
- "description": "Town projects, what is stuck, and the daily goal scoreboard.",
+ "description": "Showcase projects, building progress, what is stuck.",
  "tags": [
   "mcai"
  ],
@@ -93,147 +93,9 @@
   {
    "id": 1,
    "type": "stat",
-   "title": "Open projects (fleet)",
+   "title": "Open projects",
    "gridPos": {
     "x": 0,
-    "y": 0,
-    "w": 4,
-    "h": 4
-   },
-   "description": "",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "mcai-prom"
-     },
-     "expr": "sum(mcai_goals_open{scope=\"fleet\"})",
-     "legendFormat": "__auto",
-     "range": false,
-     "instant": true,
-     "editorMode": "code"
-    }
-   ],
-   "datasource": {
-    "type": "prometheus",
-    "uid": "mcai-prom"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "none",
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "blue",
-        "value": null
-       }
-      ]
-     },
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "background",
-    "graphMode": "none",
-    "textMode": "value",
-    "justifyMode": "center",
-    "orientation": "auto",
-    "wideLayout": true,
-    "showPercentChange": false
-   }
-  },
-  {
-   "id": 2,
-   "type": "stat",
-   "title": "Stuck projects (fleet)",
-   "gridPos": {
-    "x": 4,
-    "y": 0,
-    "w": 4,
-    "h": 4
-   },
-   "description": "No progress for >= 3 h (goalwatch).",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "mcai-prom"
-     },
-     "expr": "sum(mcai_goals_stuck{scope=\"fleet\"})",
-     "legendFormat": "__auto",
-     "range": false,
-     "instant": true,
-     "editorMode": "code"
-    }
-   ],
-   "datasource": {
-    "type": "prometheus",
-    "uid": "mcai-prom"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "none",
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "orange",
-        "value": 1
-       },
-       {
-        "color": "red",
-        "value": 6
-       }
-      ]
-     },
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "background",
-    "graphMode": "none",
-    "textMode": "value",
-    "justifyMode": "center",
-    "orientation": "auto",
-    "wideLayout": true,
-    "showPercentChange": false
-   }
-  },
-  {
-   "id": 3,
-   "type": "stat",
-   "title": "Open projects (showcase)",
-   "gridPos": {
-    "x": 8,
     "y": 0,
     "w": 4,
     "h": 4
@@ -294,16 +156,16 @@
    }
   },
   {
-   "id": 4,
+   "id": 2,
    "type": "stat",
-   "title": "Stuck projects (showcase)",
+   "title": "Stuck projects",
    "gridPos": {
-    "x": 12,
+    "x": 4,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": "",
+   "description": "No progress for >= 3 h (goalwatch).",
    "targets": [
     {
      "refId": "A",
@@ -365,6 +227,180 @@
     "wideLayout": true,
     "showPercentChange": false
    }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Blocks on buildings (24 h)",
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "Blocks placed on town buildings (not clean-up), showcase, last 24 h.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\"",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       },
+       {
+        "color": "green",
+        "value": 50
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   },
+   "timeFrom": "24h",
+   "hideTimeOverride": true
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Buildings finished (7 d)",
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "skill.name:_structure_complete",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1d",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   },
+   "timeFrom": "7d",
+   "hideTimeOverride": true
   },
   {
    "id": 5,
@@ -452,14 +488,14 @@
   {
    "id": 6,
    "type": "stat",
-   "title": "Wells used (24 h)",
+   "title": "Stone to the well (24 h)",
    "gridPos": {
     "x": 20,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": "Junk dispose runs at town wells.",
+   "description": "Trips that threw surplus cobblestone into the junk well to make bag room (from the building-first release).",
    "targets": [
     {
      "refId": "A",
@@ -467,7 +503,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_well_dispose AND skill.status:success",
+     "query": "skill.name:_room_well",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -509,7 +545,8 @@
      "mappings": [],
      "color": {
       "mode": "thresholds"
-     }
+     },
+     "noValue": "0"
     },
     "overrides": []
    },
@@ -535,305 +572,14 @@
   {
    "id": 7,
    "type": "table",
-   "title": "Town projects (fleet)",
+   "title": "Showcase projects",
    "gridPos": {
     "x": 0,
     "y": 4,
     "w": 24,
-    "h": 12
+    "h": 10
    },
    "description": "Open town projects from goalwatch: STUCK = no placement for >= 3 h.",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "yesoreyeram-infinity-datasource",
-      "uid": "mcai-infinity"
-     },
-     "type": "json",
-     "source": "url",
-     "format": "table",
-     "url": "http://10.0.0.31:9188/goals-fleet.json",
-     "url_options": {
-      "method": "GET",
-      "data": ""
-     },
-     "parser": "backend",
-     "root_selector": "",
-     "filters": [],
-     "columns": [
-      {
-       "selector": "state",
-       "text": "State",
-       "type": "string"
-      },
-      {
-       "selector": "town",
-       "text": "Town",
-       "type": "string"
-      },
-      {
-       "selector": "project",
-       "text": "Project",
-       "type": "string"
-      },
-      {
-       "selector": "hours_since_progress",
-       "text": "Hours since progress",
-       "type": "number"
-      },
-      {
-       "selector": "visits_4h",
-       "text": "Visits (4 h)",
-       "type": "number"
-      },
-      {
-       "selector": "last_visitor",
-       "text": "Last visitor",
-       "type": "string"
-      },
-      {
-       "selector": "last_outcome",
-       "text": "Last outcome",
-       "type": "string"
-      },
-      {
-       "selector": "why",
-       "text": "Why",
-       "type": "string"
-      },
-      {
-       "selector": "site",
-       "text": "Site",
-       "type": "string"
-      }
-     ]
-    }
-   ],
-   "datasource": {
-    "type": "yesoreyeram-infinity-datasource",
-    "uid": "mcai-infinity"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "filterable": true,
-      "inspect": true,
-      "cellOptions": {
-       "type": "auto"
-      }
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": [
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "State"
-      },
-      "properties": [
-       {
-        "id": "mappings",
-        "value": [
-         {
-          "type": "value",
-          "options": {
-           "STUCK": {
-            "color": "red",
-            "index": 0,
-            "text": "STUCK"
-           },
-           "OPEN": {
-            "color": "green",
-            "index": 1,
-            "text": "OPEN"
-           }
-          }
-         }
-        ]
-       },
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "color-background",
-         "mode": "basic"
-        }
-       },
-       {
-        "id": "custom.width",
-        "value": 80
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Town"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 100
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Project"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 100
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Hours since progress"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "green",
-           "value": null
-          },
-          {
-           "color": "orange",
-           "value": 3
-          },
-          {
-           "color": "red",
-           "value": 12
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 48
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       },
-       {
-        "id": "custom.width",
-        "value": 170
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Visits (4 h)"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 90
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Last visitor"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 140
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Last outcome"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 120
-       }
-      ]
-     }
-    ]
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false
-    }
-   },
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "indexByName": {
-       "State": 0,
-       "Town": 1,
-       "Project": 2,
-       "Hours since progress": 3,
-       "Visits (4 h)": 4,
-       "Last visitor": 5,
-       "Last outcome": 6,
-       "Why": 7,
-       "Site": 8
-      },
-      "excludeByName": {},
-      "renameByName": {}
-     }
-    }
-   ]
-  },
-  {
-   "id": 8,
-   "type": "table",
-   "title": "Showcase projects",
-   "gridPos": {
-    "x": 0,
-    "y": 16,
-    "w": 24,
-    "h": 8
-   },
-   "description": "",
    "targets": [
     {
      "refId": "A",
@@ -1115,46 +861,90 @@
    ]
   },
   {
-   "id": 9,
+   "id": 8,
    "type": "timeseries",
-   "title": "Stuck projects over time",
+   "title": "Blocks placed per hour",
    "gridPos": {
     "x": 0,
-    "y": 24,
+    "y": 14,
     "w": 12,
     "h": 8
    },
-   "description": "",
+   "description": "Blocks placed per hour, from _build op=place rows: on town buildings vs clean-up fills. Until 11-18 every placed block went to clean-up (bags full; idle visits sent only to clean-up).",
    "targets": [
     {
      "refId": "A",
      "datasource": {
-      "type": "prometheus",
-      "uid": "mcai-prom"
+      "type": "elasticsearch",
+      "uid": "mcai-es"
      },
-     "expr": "sum by (scope) (mcai_goals_stuck)",
-     "legendFormat": "{{scope}}",
-     "range": true,
-     "instant": false,
-     "editorMode": "code"
+     "query": "skill.name:_build AND skill.detail:\"op=place\" AND NOT skill.detail:\"project=tidy\" AND NOT skill.detail:\"project=yard\"",
+     "alias": "on buildings",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "skill.name:_build AND skill.detail:\"op=place\" AND (skill.detail:\"project=tidy\" OR skill.detail:\"project=yard\")",
+     "alias": "clean-up (tidy, yard)",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
     }
    ],
    "datasource": {
-    "type": "prometheus",
-    "uid": "mcai-prom"
+    "type": "elasticsearch",
+    "uid": "mcai-es"
    },
    "fieldConfig": {
     "defaults": {
      "unit": "none",
      "custom": {
-      "drawStyle": "line",
-      "lineWidth": 2,
-      "fillOpacity": 20,
-      "gradientMode": "opacity",
+      "drawStyle": "bars",
+      "lineWidth": 1,
+      "fillOpacity": 80,
+      "gradientMode": "none",
       "showPoints": "never",
       "spanNulls": true,
       "stacking": {
-       "mode": "none",
+       "mode": "normal",
        "group": "A"
       },
       "axisSoftMin": 0,
@@ -1166,7 +956,38 @@
       "mode": "palette-classic"
      }
     },
-    "overrides": []
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "on buildings"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "clean-up (tidy, yard)"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "text"
+        }
+       }
+      ]
+     }
+    ]
    },
    "options": {
     "legend": {
@@ -1182,16 +1003,16 @@
    }
   },
   {
-   "id": 10,
+   "id": 9,
    "type": "timeseries",
-   "title": "Building activity",
+   "title": "Build visits per hour",
    "gridPos": {
     "x": 12,
-    "y": 24,
+    "y": 14,
     "w": 12,
     "h": 8
    },
-   "description": "Successful build rows per hour.",
+   "description": "_build_visit rows (one per visit to a project), by how the visit ended.",
    "targets": [
     {
      "refId": "A",
@@ -1199,7 +1020,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:(_build_visit OR build_shop OR _plinth) AND skill.status:success",
+     "query": "skill.name:_build_visit",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -1212,9 +1033,9 @@
       {
        "type": "terms",
        "id": "3",
-       "field": "skill.name",
+       "field": "skill.status",
        "settings": {
-        "size": "6",
+        "size": "5",
         "order": "desc",
         "orderBy": "_count",
         "min_doc_count": "1"
@@ -1276,225 +1097,680 @@
    }
   },
   {
-   "id": 11,
-   "type": "table",
-   "title": "Daily scoreboard (goalboard, yesterday)",
+   "id": 10,
+   "type": "timeseries",
+   "title": "Stuck projects over time",
    "gridPos": {
     "x": 0,
-    "y": 32,
-    "w": 24,
-    "h": 16
+    "y": 22,
+    "w": 12,
+    "h": 8
    },
-   "description": "scripts/host/goalboard.py, run nightly at 01:40Z on .31: the owner's build / survive / together goals.",
+   "description": "",
    "targets": [
     {
      "refId": "A",
      "datasource": {
-      "type": "yesoreyeram-infinity-datasource",
-      "uid": "mcai-infinity"
+      "type": "prometheus",
+      "uid": "mcai-prom"
      },
-     "type": "json",
-     "source": "url",
-     "format": "table",
-     "url": "http://10.0.0.31:9188/goalboard.json",
-     "url_options": {
-      "method": "GET",
-      "data": ""
+     "expr": "sum(mcai_goals_stuck{scope=\"showcase\"})",
+     "legendFormat": "showcase",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 20,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
      },
-     "parser": "backend",
-     "root_selector": "",
-     "filters": [],
-     "columns": [
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "Buildings finished",
+   "gridPos": {
+    "x": 12,
+    "y": 22,
+    "w": 12,
+    "h": 8
+   },
+   "description": "_structure_complete rows (a project recorded complete).",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "skill.name:_structure_complete",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
       {
-       "selector": "section",
-       "text": "Goal",
-       "type": "string"
-      },
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
       {
-       "selector": "metric",
-       "text": "Measure",
-       "type": "string"
-      },
-      {
-       "selector": "value",
-       "text": "Amount",
-       "type": "number"
-      },
-      {
-       "selector": "unit",
-       "text": "Unit",
-       "type": "string"
-      },
-      {
-       "selector": "rate",
-       "text": "Rate",
-       "type": "number"
-      },
-      {
-       "selector": "out_of",
-       "text": "Out of",
-       "type": "string"
-      },
-      {
-       "selector": "day",
-       "text": "Day",
-       "type": "string"
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "6h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
       }
      ]
     }
    ],
    "datasource": {
-    "type": "yesoreyeram-infinity-datasource",
-    "uid": "mcai-infinity"
+    "type": "elasticsearch",
+    "uid": "mcai-es"
    },
    "fieldConfig": {
     "defaults": {
+     "unit": "none",
      "custom": {
-      "align": "auto",
-      "filterable": true,
-      "inspect": true,
-      "cellOptions": {
-       "type": "auto"
+      "drawStyle": "bars",
+      "lineWidth": 1,
+      "fillOpacity": 80,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
       }
      },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
+     "color": {
+      "mode": "palette-classic"
      }
     },
-    "overrides": [
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Goal"
-      },
-      "properties": [
-       {
-        "id": "mappings",
-        "value": [
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "row",
+   "title": "Fleet towns (stopped 11-18 by the owner; kept for history)",
+   "gridPos": {
+    "x": 0,
+    "y": 30,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": true,
+   "panels": [
+    {
+     "id": 12,
+     "type": "table",
+     "title": "Town projects (fleet)",
+     "gridPos": {
+      "x": 0,
+      "y": 31,
+      "w": 24,
+      "h": 12
+     },
+     "description": "",
+     "targets": [
+      {
+       "refId": "A",
+       "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "mcai-infinity"
+       },
+       "type": "json",
+       "source": "url",
+       "format": "table",
+       "url": "http://10.0.0.31:9188/goals-fleet.json",
+       "url_options": {
+        "method": "GET",
+        "data": ""
+       },
+       "parser": "backend",
+       "root_selector": "",
+       "filters": [],
+       "columns": [
+        {
+         "selector": "state",
+         "text": "State",
+         "type": "string"
+        },
+        {
+         "selector": "town",
+         "text": "Town",
+         "type": "string"
+        },
+        {
+         "selector": "project",
+         "text": "Project",
+         "type": "string"
+        },
+        {
+         "selector": "hours_since_progress",
+         "text": "Hours since progress",
+         "type": "number"
+        },
+        {
+         "selector": "visits_4h",
+         "text": "Visits (4 h)",
+         "type": "number"
+        },
+        {
+         "selector": "last_visitor",
+         "text": "Last visitor",
+         "type": "string"
+        },
+        {
+         "selector": "last_outcome",
+         "text": "Last outcome",
+         "type": "string"
+        },
+        {
+         "selector": "why",
+         "text": "Why",
+         "type": "string"
+        },
+        {
+         "selector": "site",
+         "text": "Site",
+         "type": "string"
+        }
+       ]
+      }
+     ],
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "custom": {
+        "align": "auto",
+        "filterable": true,
+        "inspect": true,
+        "cellOptions": {
+         "type": "auto"
+        }
+       },
+       "mappings": [],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
          {
-          "type": "value",
-          "options": {
-           "build": {
-            "color": "blue",
-            "index": 0,
-            "text": "build"
-           },
-           "survive": {
-            "color": "green",
-            "index": 1,
-            "text": "survive"
-           },
-           "together": {
-            "color": "purple",
-            "index": 2,
-            "text": "together"
-           },
-           "health": {
-            "color": "orange",
-            "index": 3,
-            "text": "health"
+          "color": "green",
+          "value": null
+         }
+        ]
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "State"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "value",
+            "options": {
+             "STUCK": {
+              "color": "red",
+              "index": 0,
+              "text": "STUCK"
+             },
+             "OPEN": {
+              "color": "green",
+              "index": 1,
+              "text": "OPEN"
+             }
+            }
            }
+          ]
+         },
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "color-background",
+           "mode": "basic"
           }
+         },
+         {
+          "id": "custom.width",
+          "value": 80
          }
         ]
        },
        {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "color-text",
-         "mode": "basic"
-        }
+        "matcher": {
+         "id": "byName",
+         "options": "Town"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 100
+         }
+        ]
        },
        {
-        "id": "custom.width",
-        "value": 90
+        "matcher": {
+         "id": "byName",
+         "options": "Project"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 100
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Hours since progress"
+        },
+        "properties": [
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "gauge",
+           "mode": "basic",
+           "valueDisplayMode": "text"
+          }
+         },
+         {
+          "id": "thresholds",
+          "value": {
+           "mode": "absolute",
+           "steps": [
+            {
+             "color": "green",
+             "value": null
+            },
+            {
+             "color": "orange",
+             "value": 3
+            },
+            {
+             "color": "red",
+             "value": 12
+            }
+           ]
+          }
+         },
+         {
+          "id": "min",
+          "value": 0
+         },
+         {
+          "id": "max",
+          "value": 48
+         },
+         {
+          "id": "color",
+          "value": {
+           "mode": "thresholds"
+          }
+         },
+         {
+          "id": "custom.width",
+          "value": 170
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Visits (4 h)"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 90
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Last visitor"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 140
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Last outcome"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 120
+         }
+        ]
        }
       ]
      },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Measure"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 260
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Amount"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 110
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Unit"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 220
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Day"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 100
-       }
-      ]
-     }
-    ]
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false
-    }
-   },
-   "transformations": [
-    {
-     "id": "organize",
      "options": {
-      "indexByName": {
-       "Goal": 0,
-       "Measure": 1,
-       "Amount": 2,
-       "Unit": 3,
-       "Rate": 4,
-       "Out of": 5,
-       "Day": 6
+      "showHeader": true,
+      "cellHeight": "sm",
+      "footer": {
+       "show": false,
+       "reducer": [
+        "sum"
+       ],
+       "countRows": false
+      }
+     },
+     "transformations": [
+      {
+       "id": "organize",
+       "options": {
+        "indexByName": {
+         "State": 0,
+         "Town": 1,
+         "Project": 2,
+         "Hours since progress": 3,
+         "Visits (4 h)": 4,
+         "Last visitor": 5,
+         "Last outcome": 6,
+         "Why": 7,
+         "Site": 8
+        },
+        "excludeByName": {},
+        "renameByName": {}
+       }
+      }
+     ]
+    },
+    {
+     "id": 13,
+     "type": "table",
+     "title": "Daily scoreboard (fleet goalboard)",
+     "gridPos": {
+      "x": 0,
+      "y": 43,
+      "w": 24,
+      "h": 14
+     },
+     "description": "",
+     "targets": [
+      {
+       "refId": "A",
+       "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "mcai-infinity"
+       },
+       "type": "json",
+       "source": "url",
+       "format": "table",
+       "url": "http://10.0.0.31:9188/goalboard.json",
+       "url_options": {
+        "method": "GET",
+        "data": ""
+       },
+       "parser": "backend",
+       "root_selector": "",
+       "filters": [],
+       "columns": [
+        {
+         "selector": "section",
+         "text": "Goal",
+         "type": "string"
+        },
+        {
+         "selector": "metric",
+         "text": "Measure",
+         "type": "string"
+        },
+        {
+         "selector": "value",
+         "text": "Amount",
+         "type": "number"
+        },
+        {
+         "selector": "unit",
+         "text": "Unit",
+         "type": "string"
+        },
+        {
+         "selector": "rate",
+         "text": "Rate",
+         "type": "number"
+        },
+        {
+         "selector": "out_of",
+         "text": "Out of",
+         "type": "string"
+        },
+        {
+         "selector": "day",
+         "text": "Day",
+         "type": "string"
+        }
+       ]
+      }
+     ],
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "custom": {
+        "align": "auto",
+        "filterable": true,
+        "inspect": true,
+        "cellOptions": {
+         "type": "auto"
+        }
+       },
+       "mappings": [],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         }
+        ]
+       }
       },
-      "excludeByName": {},
-      "renameByName": {}
-     }
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Goal"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "value",
+            "options": {
+             "build": {
+              "color": "blue",
+              "index": 0,
+              "text": "build"
+             },
+             "survive": {
+              "color": "green",
+              "index": 1,
+              "text": "survive"
+             },
+             "together": {
+              "color": "purple",
+              "index": 2,
+              "text": "together"
+             },
+             "health": {
+              "color": "orange",
+              "index": 3,
+              "text": "health"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "color-text",
+           "mode": "basic"
+          }
+         },
+         {
+          "id": "custom.width",
+          "value": 90
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Measure"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 260
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Amount"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 110
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Unit"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 220
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Day"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 100
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "showHeader": true,
+      "cellHeight": "sm",
+      "footer": {
+       "show": false,
+       "reducer": [
+        "sum"
+       ],
+       "countRows": false
+      }
+     },
+     "transformations": [
+      {
+       "id": "organize",
+       "options": {
+        "indexByName": {
+         "Goal": 0,
+         "Measure": 1,
+         "Amount": 2,
+         "Unit": 3,
+         "Rate": 4,
+         "Out of": 5,
+         "Day": 6
+        },
+        "excludeByName": {},
+        "renameByName": {}
+       }
+      }
+     ]
     }
    ]
   }

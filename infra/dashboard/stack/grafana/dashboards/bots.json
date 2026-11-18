@@ -93,14 +93,14 @@
   {
    "id": 1,
    "type": "stat",
-   "title": "Fleet bots reporting",
+   "title": "Showcase bots reporting",
    "gridPos": {
     "x": 0,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": "Bots with a log row in the last 10 minutes.",
+   "description": "Bots with a log row in the last 10 minutes (13 run; Comet and Nova are held out).",
    "targets": [
     {
      "refId": "A",
@@ -108,7 +108,7 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "sum(mcai_bots_reporting{scope=\"fleet\"})",
+     "expr": "sum(mcai_bots_reporting{scope=\"showcase\"})",
      "legendFormat": "__auto",
      "range": false,
      "instant": true,
@@ -131,11 +131,11 @@
        },
        {
         "color": "orange",
-        "value": 70
+        "value": 10
        },
        {
         "color": "green",
-        "value": 78
+        "value": 13
        }
       ]
      },
@@ -166,14 +166,14 @@
   {
    "id": 2,
    "type": "stat",
-   "title": "Showcase bots reporting",
+   "title": "Test world bots reporting",
    "gridPos": {
     "x": 4,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": "",
+   "description": "The test world: 14 bots on a copy of the town, soaking a candidate release.",
    "targets": [
     {
      "refId": "A",
@@ -181,7 +181,7 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "sum(mcai_bots_reporting{scope=\"showcase\"})",
+     "expr": "sum(mcai_bots_reporting{scope=\"testworld\"})",
      "legendFormat": "__auto",
      "range": false,
      "instant": true,
@@ -199,11 +199,11 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "red",
+        "color": "text",
         "value": null
        },
        {
-        "color": "green",
+        "color": "blue",
         "value": 1
        }
       ]
@@ -211,7 +211,8 @@
      "mappings": [],
      "color": {
       "mode": "thresholds"
-     }
+     },
+     "noValue": "0"
     },
     "overrides": []
    },
@@ -235,14 +236,14 @@
   {
    "id": 3,
    "type": "stat",
-   "title": "Median bag (fleet)",
+   "title": "Median bag (showcase)",
    "gridPos": {
     "x": 8,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": "Estimated slots in use, of 36.",
+   "description": "Estimated slots in use, of 36. A building visit needs 8 free (28 or fewer).",
    "targets": [
     {
      "refId": "A",
@@ -250,7 +251,7 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "quantile(0.5, mcai_bot_bag_slots{scope=\"fleet\"})",
+     "expr": "quantile(0.5, mcai_bot_bag_slots{scope=\"showcase\"})",
      "legendFormat": "__auto",
      "range": false,
      "instant": true,
@@ -273,7 +274,7 @@
        },
        {
         "color": "yellow",
-        "value": 30
+        "value": 28
        },
        {
         "color": "red",
@@ -309,14 +310,14 @@
   {
    "id": 4,
    "type": "stat",
-   "title": "Bags full (fleet)",
+   "title": "Bags full (showcase)",
    "gridPos": {
     "x": 12,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": ">= 34 of 36 slots. 10-19 census: 41 of 80.",
+   "description": ">= 34 of 36 slots.",
    "targets": [
     {
      "refId": "A",
@@ -324,7 +325,7 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "sum(mcai_bots_bag_full{scope=\"fleet\"})",
+     "expr": "sum(mcai_bots_bag_full{scope=\"showcase\"}) or vector(0)",
      "legendFormat": "__auto",
      "range": false,
      "instant": true,
@@ -351,7 +352,7 @@
        },
        {
         "color": "red",
-        "value": 15
+        "value": 10
        }
       ]
      },
@@ -382,14 +383,14 @@
   {
    "id": 5,
    "type": "stat",
-   "title": "Builds live",
+   "title": "Builds live (showcase)",
    "gridPos": {
     "x": 16,
     "y": 0,
     "w": 4,
     "h": 4
    },
-   "description": "Distinct builds among fleet bots seen in the last hour. Two while a canary runs.",
+   "description": "Distinct builds among showcase bots in the last hour: 1, or 2 just after a release.",
    "targets": [
     {
      "refId": "A",
@@ -397,7 +398,7 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "max(mcai_builds_live{scope=\"fleet\"})",
+     "expr": "max(mcai_builds_live{scope=\"showcase\"})",
      "legendFormat": "__auto",
      "range": false,
      "instant": true,
@@ -420,11 +421,7 @@
        },
        {
         "color": "orange",
-        "value": 3
-       },
-       {
-        "color": "red",
-        "value": 4
+        "value": 2
        }
       ]
      },
@@ -462,7 +459,7 @@
     "w": 4,
     "h": 4
    },
-   "description": "Successful / all non-internal skill rows, last 24 h. Neutral colour: no baseline has been measured to judge it against.",
+   "description": "Successful / all non-internal skill rows, last 24 h (showcase).",
    "targets": [
     {
      "refId": "A",
@@ -608,7 +605,7 @@
   {
    "id": 7,
    "type": "barchart",
-   "title": "Bag fullness (fleet)",
+   "title": "Bag fullness (showcase)",
    "gridPos": {
     "x": 0,
     "y": 4,
@@ -626,7 +623,7 @@
      "type": "json",
      "source": "url",
      "format": "table",
-     "url": "http://10.0.0.31:9188/bagbands-fleet.json",
+     "url": "http://10.0.0.40:9188/bagbands-showcase.json",
      "url_options": {
       "method": "GET",
       "data": ""
@@ -683,241 +680,15 @@
   },
   {
    "id": 8,
-   "type": "table",
-   "title": "Towns (fleet pools)",
+   "type": "timeseries",
+   "title": "Median bag slots",
    "gridPos": {
     "x": 8,
     "y": 4,
     "w": 16,
     "h": 8
    },
-   "description": "",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "yesoreyeram-infinity-datasource",
-      "uid": "mcai-infinity"
-     },
-     "type": "json",
-     "source": "url",
-     "format": "table",
-     "url": "http://10.0.0.31:9188/pools-fleet.json",
-     "url_options": {
-      "method": "GET",
-      "data": ""
-     },
-     "parser": "backend",
-     "root_selector": "",
-     "filters": [],
-     "columns": [
-      {
-       "selector": "pool",
-       "text": "Town",
-       "type": "string"
-      },
-      {
-       "selector": "bots",
-       "text": "Bots",
-       "type": "number"
-      },
-      {
-       "selector": "reporting",
-       "text": "Reporting",
-       "type": "number"
-      },
-      {
-       "selector": "avg_bag_slots",
-       "text": "Avg bag slots",
-       "type": "number"
-      },
-      {
-       "selector": "bag_full",
-       "text": "Bags full",
-       "type": "number"
-      },
-      {
-       "selector": "avg_health",
-       "text": "Avg health",
-       "type": "number"
-      },
-      {
-       "selector": "tail_deaths",
-       "text": "Recent deaths",
-       "type": "number"
-      }
-     ]
-    }
-   ],
-   "datasource": {
-    "type": "yesoreyeram-infinity-datasource",
-    "uid": "mcai-infinity"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "filterable": true,
-      "inspect": true,
-      "cellOptions": {
-       "type": "auto"
-      }
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": [
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Avg bag slots"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "green",
-           "value": null
-          },
-          {
-           "color": "yellow",
-           "value": 30
-          },
-          {
-           "color": "red",
-           "value": 34
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 36
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Avg health"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "red",
-           "value": null
-          },
-          {
-           "color": "orange",
-           "value": 8
-          },
-          {
-           "color": "green",
-           "value": 14
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 20
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       }
-      ]
-     }
-    ]
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false
-    }
-   },
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "indexByName": {
-       "Town": 0,
-       "Bots": 1,
-       "Reporting": 2,
-       "Avg bag slots": 3,
-       "Bags full": 4,
-       "Avg health": 5,
-       "Recent deaths": 6
-      },
-      "excludeByName": {},
-      "renameByName": {}
-     }
-    }
-   ]
-  },
-  {
-   "id": 9,
-   "type": "timeseries",
-   "title": "Average bag slots by town",
-   "gridPos": {
-    "x": 0,
-    "y": 12,
-    "w": 12,
-    "h": 8
-   },
-   "description": "",
+   "description": "Showcase and test world. Line under 28 = bots can take a building visit (8 free).",
    "targets": [
     {
      "refId": "A",
@@ -925,8 +696,8 @@
       "type": "prometheus",
       "uid": "mcai-prom"
      },
-     "expr": "avg by (pool) (mcai_bot_bag_slots)",
-     "legendFormat": "{{pool}}",
+     "expr": "quantile by (scope) (0.5, mcai_bot_bag_slots)",
+     "legendFormat": "{{scope}}",
      "range": true,
      "instant": false,
      "editorMode": "code"
@@ -966,6 +737,10 @@
         "value": null
        },
        {
+        "color": "yellow",
+        "value": 28
+       },
+       {
         "color": "red",
         "value": 34
        }
@@ -983,7 +758,7 @@
      "showLegend": true,
      "calcs": [
       "lastNotNull",
-      "max"
+      "min"
      ]
     },
     "tooltip": {
@@ -993,903 +768,16 @@
    }
   },
   {
-   "id": 10,
-   "type": "timeseries",
-   "title": "Action success rate",
-   "gridPos": {
-    "x": 12,
-    "y": 12,
-    "w": 12,
-    "h": 8
-   },
-   "description": "Hourly successful / all non-internal skill rows.",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "mcai-es"
-     },
-     "query": "NOT skill.name:_* AND skill.status:success",
-     "alias": "",
-     "timeField": "@timestamp",
-     "metrics": [
-      {
-       "type": "count",
-       "id": "1"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "type": "date_histogram",
-       "id": "2",
-       "field": "@timestamp",
-       "settings": {
-        "interval": "1h",
-        "min_doc_count": "0",
-        "trimEdges": "0"
-       }
-      }
-     ],
-     "hide": true
-    },
-    {
-     "refId": "B",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "mcai-es"
-     },
-     "query": "NOT skill.name:_*",
-     "alias": "",
-     "timeField": "@timestamp",
-     "metrics": [
-      {
-       "type": "count",
-       "id": "1"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "type": "date_histogram",
-       "id": "2",
-       "field": "@timestamp",
-       "settings": {
-        "interval": "1h",
-        "min_doc_count": "0",
-        "trimEdges": "0"
-       }
-      }
-     ],
-     "hide": true
-    },
-    {
-     "refId": "C",
-     "datasource": {
-      "type": "__expr__",
-      "uid": "__expr__"
-     },
-     "type": "math",
-     "expression": "$A / $B * 100"
-    }
-   ],
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "mcai-es"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "percent",
-     "custom": {
-      "drawStyle": "line",
-      "lineWidth": 2,
-      "fillOpacity": 10,
-      "gradientMode": "opacity",
-      "showPoints": "never",
-      "spanNulls": true,
-      "stacking": {
-       "mode": "none",
-       "group": "A"
-      },
-      "axisSoftMin": 0,
-      "thresholdsStyle": {
-       "mode": "off"
-      }
-     },
-     "color": {
-      "mode": "palette-classic"
-     },
-     "min": 0,
-     "max": 100
-    },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "list",
-     "placement": "bottom",
-     "showLegend": true,
-     "calcs": []
-    },
-    "tooltip": {
-     "mode": "multi",
-     "sort": "desc"
-    }
-   }
-  },
-  {
-   "id": 11,
-   "type": "table",
-   "title": "Top failing actions",
-   "gridPos": {
-    "x": 0,
-    "y": 20,
-    "w": 8,
-    "h": 9
-   },
-   "description": "Failed skill rows by skill, current time range.",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "mcai-es"
-     },
-     "query": "NOT skill.name:_* AND NOT skill.status:success",
-     "alias": "",
-     "timeField": "@timestamp",
-     "metrics": [
-      {
-       "type": "count",
-       "id": "1"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "type": "terms",
-       "id": "3",
-       "field": "skill.name",
-       "settings": {
-        "size": "15",
-        "order": "desc",
-        "orderBy": "_count",
-        "min_doc_count": "1"
-       }
-      }
-     ]
-    }
-   ],
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "mcai-es"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "filterable": true,
-      "inspect": true,
-      "cellOptions": {
-       "type": "auto"
-      }
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": [
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Count"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "orange",
-           "value": null
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 1000
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       }
-      ]
-     }
-    ]
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false
-    },
-    "sortBy": [
-     {
-      "displayName": "Count",
-      "desc": true
-     }
-    ]
-   },
-   "transformations": []
-  },
-  {
-   "id": 12,
-   "type": "table",
-   "title": "Top failure reasons",
-   "gridPos": {
-    "x": 8,
-    "y": 20,
-    "w": 8,
-    "h": 9
-   },
-   "description": "",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "mcai-es"
-     },
-     "query": "NOT skill.name:_* AND NOT skill.status:success",
-     "alias": "",
-     "timeField": "@timestamp",
-     "metrics": [
-      {
-       "type": "count",
-       "id": "1"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "type": "terms",
-       "id": "3",
-       "field": "skill.fail_class",
-       "settings": {
-        "size": "15",
-        "order": "desc",
-        "orderBy": "_count",
-        "min_doc_count": "1"
-       }
-      }
-     ]
-    }
-   ],
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "mcai-es"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "filterable": true,
-      "inspect": true,
-      "cellOptions": {
-       "type": "auto"
-      }
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false
-    },
-    "sortBy": [
-     {
-      "displayName": "Count",
-      "desc": true
-     }
-    ]
-   },
-   "transformations": []
-  },
-  {
-   "id": 13,
-   "type": "timeseries",
-   "title": "Most-used actions (successes / h)",
-   "gridPos": {
-    "x": 16,
-    "y": 20,
-    "w": 8,
-    "h": 9
-   },
-   "description": "",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "mcai-es"
-     },
-     "query": "NOT skill.name:_* AND skill.status:success",
-     "alias": "",
-     "timeField": "@timestamp",
-     "metrics": [
-      {
-       "type": "count",
-       "id": "1"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "type": "terms",
-       "id": "3",
-       "field": "skill.name",
-       "settings": {
-        "size": "8",
-        "order": "desc",
-        "orderBy": "_count",
-        "min_doc_count": "1"
-       }
-      },
-      {
-       "type": "date_histogram",
-       "id": "2",
-       "field": "@timestamp",
-       "settings": {
-        "interval": "1h",
-        "min_doc_count": "0",
-        "trimEdges": "0"
-       }
-      }
-     ]
-    }
-   ],
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "mcai-es"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "none",
-     "custom": {
-      "drawStyle": "bars",
-      "lineWidth": 1,
-      "fillOpacity": 80,
-      "gradientMode": "none",
-      "showPoints": "never",
-      "spanNulls": true,
-      "stacking": {
-       "mode": "normal",
-       "group": "A"
-      },
-      "axisSoftMin": 0,
-      "thresholdsStyle": {
-       "mode": "off"
-      }
-     },
-     "color": {
-      "mode": "palette-classic"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "list",
-     "placement": "bottom",
-     "showLegend": true,
-     "calcs": []
-    },
-    "tooltip": {
-     "mode": "multi",
-     "sort": "desc"
-    }
-   }
-  },
-  {
-   "id": 14,
-   "type": "table",
-   "title": "Fleet bots",
-   "gridPos": {
-    "x": 0,
-    "y": 29,
-    "w": 24,
-    "h": 18
-   },
-   "description": "Newest row of each bot's live log on 10.0.0.31 (refreshed every minute). Bag slots are estimated from counts.",
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "yesoreyeram-infinity-datasource",
-      "uid": "mcai-infinity"
-     },
-     "type": "json",
-     "source": "url",
-     "format": "table",
-     "url": "http://10.0.0.31:9188/bots-fleet.json",
-     "url_options": {
-      "method": "GET",
-      "data": ""
-     },
-     "parser": "backend",
-     "root_selector": "",
-     "filters": [],
-     "columns": [
-      {
-       "selector": "bot",
-       "text": "Bot",
-       "type": "string"
-      },
-      {
-       "selector": "pool",
-       "text": "Town",
-       "type": "string"
-      },
-      {
-       "selector": "role",
-       "text": "Role",
-       "type": "string"
-      },
-      {
-       "selector": "health",
-       "text": "Health",
-       "type": "number"
-      },
-      {
-       "selector": "hunger",
-       "text": "Food",
-       "type": "number"
-      },
-      {
-       "selector": "bag_slots",
-       "text": "Bag slots",
-       "type": "number"
-      },
-      {
-       "selector": "top_items",
-       "text": "Carrying most",
-       "type": "string"
-      },
-      {
-       "selector": "held",
-       "text": "Held",
-       "type": "string"
-      },
-      {
-       "selector": "y",
-       "text": "Y",
-       "type": "number"
-      },
-      {
-       "selector": "last_skill",
-       "text": "Doing",
-       "type": "string"
-      },
-      {
-       "selector": "last_status",
-       "text": "Status",
-       "type": "string"
-      },
-      {
-       "selector": "version",
-       "text": "Build",
-       "type": "string"
-      },
-      {
-       "selector": "last_seen",
-       "text": "Last row",
-       "type": "timestamp"
-      }
-     ]
-    }
-   ],
-   "datasource": {
-    "type": "yesoreyeram-infinity-datasource",
-    "uid": "mcai-infinity"
-   },
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "filterable": true,
-      "inspect": true,
-      "cellOptions": {
-       "type": "auto"
-      }
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": [
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Bag slots"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "green",
-           "value": null
-          },
-          {
-           "color": "yellow",
-           "value": 30
-          },
-          {
-           "color": "red",
-           "value": 34
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 36
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       },
-       {
-        "id": "custom.width",
-        "value": 140
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Health"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "red",
-           "value": null
-          },
-          {
-           "color": "orange",
-           "value": 8
-          },
-          {
-           "color": "green",
-           "value": 14
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 20
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       },
-       {
-        "id": "custom.width",
-        "value": 110
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Food"
-      },
-      "properties": [
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
-       {
-        "id": "thresholds",
-        "value": {
-         "mode": "absolute",
-         "steps": [
-          {
-           "color": "red",
-           "value": null
-          },
-          {
-           "color": "orange",
-           "value": 8
-          },
-          {
-           "color": "green",
-           "value": 14
-          }
-         ]
-        }
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 20
-       },
-       {
-        "id": "color",
-        "value": {
-         "mode": "thresholds"
-        }
-       },
-       {
-        "id": "custom.width",
-        "value": 110
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Bot"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 150
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Town"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 90
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Role"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 90
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Y"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 60
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Build"
-      },
-      "properties": [
-       {
-        "id": "custom.width",
-        "value": 90
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Status"
-      },
-      "properties": [
-       {
-        "id": "mappings",
-        "value": [
-         {
-          "type": "value",
-          "options": {
-           "success": {
-            "color": "green",
-            "index": 0,
-            "text": "success"
-           },
-           "failure": {
-            "color": "red",
-            "index": 1,
-            "text": "failure"
-           },
-           "fail": {
-            "color": "red",
-            "index": 2,
-            "text": "fail"
-           }
-          }
-         }
-        ]
-       },
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "color-text",
-         "mode": "basic"
-        }
-       },
-       {
-        "id": "custom.width",
-        "value": 80
-       }
-      ]
-     },
-     {
-      "matcher": {
-       "id": "byName",
-       "options": "Last row"
-      },
-      "properties": [
-       {
-        "id": "unit",
-        "value": "dateTimeFromNow"
-       },
-       {
-        "id": "custom.width",
-        "value": 110
-       }
-      ]
-     }
-    ]
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false
-    },
-    "sortBy": [
-     {
-      "displayName": "Bag slots",
-      "desc": true
-     }
-    ]
-   },
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "indexByName": {
-       "Bot": 0,
-       "Town": 1,
-       "Role": 2,
-       "Health": 3,
-       "Food": 4,
-       "Bag slots": 5,
-       "Carrying most": 6,
-       "Held": 7,
-       "Y": 8,
-       "Doing": 9,
-       "Status": 10,
-       "Build": 11,
-       "Last row": 12
-      },
-      "excludeByName": {},
-      "renameByName": {}
-     }
-    }
-   ]
-  },
-  {
-   "id": 15,
+   "id": 9,
    "type": "table",
    "title": "Showcase bots",
    "gridPos": {
     "x": 0,
-    "y": 47,
+    "y": 12,
     "w": 24,
-    "h": 12
+    "h": 13
    },
-   "description": "",
+   "description": "Newest row of each bot's live log on the showcase (refreshed every minute). Bag slots are estimated.",
    "targets": [
     {
      "refId": "A",
@@ -2330,16 +1218,466 @@
    ]
   },
   {
-   "id": 16,
-   "type": "timeseries",
-   "title": "Deaths by town",
+   "id": 10,
+   "type": "table",
+   "title": "Test world bots",
    "gridPos": {
     "x": 0,
-    "y": 59,
-    "w": 12,
-    "h": 8
+    "y": 25,
+    "w": 24,
+    "h": 12
    },
-   "description": "",
+   "description": "The test world on block2-bots (/srv/testworld): same names as the showcase, a different world.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/bots-testworld.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "bot",
+       "text": "Bot",
+       "type": "string"
+      },
+      {
+       "selector": "pool",
+       "text": "Town",
+       "type": "string"
+      },
+      {
+       "selector": "role",
+       "text": "Role",
+       "type": "string"
+      },
+      {
+       "selector": "health",
+       "text": "Health",
+       "type": "number"
+      },
+      {
+       "selector": "hunger",
+       "text": "Food",
+       "type": "number"
+      },
+      {
+       "selector": "bag_slots",
+       "text": "Bag slots",
+       "type": "number"
+      },
+      {
+       "selector": "top_items",
+       "text": "Carrying most",
+       "type": "string"
+      },
+      {
+       "selector": "held",
+       "text": "Held",
+       "type": "string"
+      },
+      {
+       "selector": "y",
+       "text": "Y",
+       "type": "number"
+      },
+      {
+       "selector": "last_skill",
+       "text": "Doing",
+       "type": "string"
+      },
+      {
+       "selector": "last_status",
+       "text": "Status",
+       "type": "string"
+      },
+      {
+       "selector": "version",
+       "text": "Build",
+       "type": "string"
+      },
+      {
+       "selector": "last_seen",
+       "text": "Last row",
+       "type": "timestamp"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Bag slots"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "yellow",
+           "value": 30
+          },
+          {
+           "color": "red",
+           "value": 34
+          }
+         ]
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 36
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 140
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Health"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "red",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 8
+          },
+          {
+           "color": "green",
+           "value": 14
+          }
+         ]
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 20
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Food"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "red",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 8
+          },
+          {
+           "color": "green",
+           "value": 14
+          }
+         ]
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 20
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Bot"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 150
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Town"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Role"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Y"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 60
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Build"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Status"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "success": {
+            "color": "green",
+            "index": 0,
+            "text": "success"
+           },
+           "failure": {
+            "color": "red",
+            "index": 1,
+            "text": "failure"
+           },
+           "fail": {
+            "color": "red",
+            "index": 2,
+            "text": "fail"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 80
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Last row"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeFromNow"
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "Bot",
+      "desc": false
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "Bot": 0,
+       "Town": 1,
+       "Role": 2,
+       "Health": 3,
+       "Food": 4,
+       "Bag slots": 5,
+       "Carrying most": 6,
+       "Held": 7,
+       "Y": 8,
+       "Doing": 9,
+       "Status": 10,
+       "Build": 11,
+       "Last row": 12
+      },
+      "excludeByName": {},
+      "renameByName": {}
+     }
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "type": "table",
+   "title": "Top failing actions",
+   "gridPos": {
+    "x": 0,
+    "y": 37,
+    "w": 8,
+    "h": 9
+   },
+   "description": "Failed skill rows by skill, current time range.",
    "targets": [
     {
      "refId": "A",
@@ -2347,7 +1685,7 @@
       "type": "elasticsearch",
       "uid": "mcai-es"
      },
-     "query": "skill.name:_death",
+     "query": "NOT skill.name:_* AND NOT skill.status:success",
      "alias": "",
      "timeField": "@timestamp",
      "metrics": [
@@ -2360,9 +1698,228 @@
       {
        "type": "terms",
        "id": "3",
-       "field": "exp.pool",
+       "field": "skill.name",
        "settings": {
-        "size": "16",
+        "size": "15",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Count"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "orange",
+           "value": null
+          }
+         ]
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 1000
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "Count",
+      "desc": true
+     }
+    ]
+   },
+   "transformations": []
+  },
+  {
+   "id": 12,
+   "type": "table",
+   "title": "Top failure reasons",
+   "gridPos": {
+    "x": 8,
+    "y": 37,
+    "w": 8,
+    "h": 9
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "NOT skill.name:_* AND NOT skill.status:success",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "terms",
+       "id": "3",
+       "field": "skill.fail_class",
+       "settings": {
+        "size": "15",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "Count",
+      "desc": true
+     }
+    ]
+   },
+   "transformations": []
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Most-used actions (successes / h)",
+   "gridPos": {
+    "x": 16,
+    "y": 37,
+    "w": 8,
+    "h": 9
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "NOT skill.name:_* AND skill.status:success",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "terms",
+       "id": "3",
+       "field": "skill.name",
+       "settings": {
+        "size": "8",
         "order": "desc",
         "orderBy": "_count",
         "min_doc_count": "1"
@@ -2373,7 +1930,7 @@
        "id": "2",
        "field": "@timestamp",
        "settings": {
-        "interval": "6h",
+        "interval": "1h",
         "min_doc_count": "0",
         "trimEdges": "0"
        }
@@ -2424,12 +1981,136 @@
    }
   },
   {
-   "id": 17,
+   "id": 14,
+   "type": "timeseries",
+   "title": "Action success rate",
+   "gridPos": {
+    "x": 0,
+    "y": 46,
+    "w": 12,
+    "h": 8
+   },
+   "description": "Hourly successful / all non-internal skill rows.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "NOT skill.name:_* AND skill.status:success",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ],
+     "hide": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "NOT skill.name:_*",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ],
+     "hide": true
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$A / $B * 100"
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "max": 100
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 15,
    "type": "timeseries",
    "title": "Town deposits",
    "gridPos": {
     "x": 12,
-    "y": 59,
+    "y": 46,
     "w": 12,
     "h": 8
    },
@@ -2516,6 +2197,595 @@
      "sort": "desc"
     }
    }
+  },
+  {
+   "id": 18,
+   "type": "row",
+   "title": "Fleet (stopped 11-18 by the owner; kept for history)",
+   "gridPos": {
+    "x": 0,
+    "y": 54,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": true,
+   "panels": [
+    {
+     "id": 16,
+     "type": "table",
+     "title": "Fleet bots (last rows before the stop)",
+     "gridPos": {
+      "x": 0,
+      "y": 55,
+      "w": 24,
+      "h": 14
+     },
+     "description": "",
+     "targets": [
+      {
+       "refId": "A",
+       "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "mcai-infinity"
+       },
+       "type": "json",
+       "source": "url",
+       "format": "table",
+       "url": "http://10.0.0.31:9188/bots-fleet.json",
+       "url_options": {
+        "method": "GET",
+        "data": ""
+       },
+       "parser": "backend",
+       "root_selector": "",
+       "filters": [],
+       "columns": [
+        {
+         "selector": "bot",
+         "text": "Bot",
+         "type": "string"
+        },
+        {
+         "selector": "pool",
+         "text": "Town",
+         "type": "string"
+        },
+        {
+         "selector": "role",
+         "text": "Role",
+         "type": "string"
+        },
+        {
+         "selector": "health",
+         "text": "Health",
+         "type": "number"
+        },
+        {
+         "selector": "hunger",
+         "text": "Food",
+         "type": "number"
+        },
+        {
+         "selector": "bag_slots",
+         "text": "Bag slots",
+         "type": "number"
+        },
+        {
+         "selector": "top_items",
+         "text": "Carrying most",
+         "type": "string"
+        },
+        {
+         "selector": "held",
+         "text": "Held",
+         "type": "string"
+        },
+        {
+         "selector": "y",
+         "text": "Y",
+         "type": "number"
+        },
+        {
+         "selector": "last_skill",
+         "text": "Doing",
+         "type": "string"
+        },
+        {
+         "selector": "last_status",
+         "text": "Status",
+         "type": "string"
+        },
+        {
+         "selector": "version",
+         "text": "Build",
+         "type": "string"
+        },
+        {
+         "selector": "last_seen",
+         "text": "Last row",
+         "type": "timestamp"
+        }
+       ]
+      }
+     ],
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "custom": {
+        "align": "auto",
+        "filterable": true,
+        "inspect": true,
+        "cellOptions": {
+         "type": "auto"
+        }
+       },
+       "mappings": [],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         }
+        ]
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Bag slots"
+        },
+        "properties": [
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "gauge",
+           "mode": "basic",
+           "valueDisplayMode": "text"
+          }
+         },
+         {
+          "id": "thresholds",
+          "value": {
+           "mode": "absolute",
+           "steps": [
+            {
+             "color": "green",
+             "value": null
+            },
+            {
+             "color": "yellow",
+             "value": 30
+            },
+            {
+             "color": "red",
+             "value": 34
+            }
+           ]
+          }
+         },
+         {
+          "id": "min",
+          "value": 0
+         },
+         {
+          "id": "max",
+          "value": 36
+         },
+         {
+          "id": "color",
+          "value": {
+           "mode": "thresholds"
+          }
+         },
+         {
+          "id": "custom.width",
+          "value": 140
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Health"
+        },
+        "properties": [
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "gauge",
+           "mode": "basic",
+           "valueDisplayMode": "text"
+          }
+         },
+         {
+          "id": "thresholds",
+          "value": {
+           "mode": "absolute",
+           "steps": [
+            {
+             "color": "red",
+             "value": null
+            },
+            {
+             "color": "orange",
+             "value": 8
+            },
+            {
+             "color": "green",
+             "value": 14
+            }
+           ]
+          }
+         },
+         {
+          "id": "min",
+          "value": 0
+         },
+         {
+          "id": "max",
+          "value": 20
+         },
+         {
+          "id": "color",
+          "value": {
+           "mode": "thresholds"
+          }
+         },
+         {
+          "id": "custom.width",
+          "value": 110
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Food"
+        },
+        "properties": [
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "gauge",
+           "mode": "basic",
+           "valueDisplayMode": "text"
+          }
+         },
+         {
+          "id": "thresholds",
+          "value": {
+           "mode": "absolute",
+           "steps": [
+            {
+             "color": "red",
+             "value": null
+            },
+            {
+             "color": "orange",
+             "value": 8
+            },
+            {
+             "color": "green",
+             "value": 14
+            }
+           ]
+          }
+         },
+         {
+          "id": "min",
+          "value": 0
+         },
+         {
+          "id": "max",
+          "value": 20
+         },
+         {
+          "id": "color",
+          "value": {
+           "mode": "thresholds"
+          }
+         },
+         {
+          "id": "custom.width",
+          "value": 110
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Bot"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 150
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Town"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 90
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Role"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 90
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Y"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 60
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Build"
+        },
+        "properties": [
+         {
+          "id": "custom.width",
+          "value": 90
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Status"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "value",
+            "options": {
+             "success": {
+              "color": "green",
+              "index": 0,
+              "text": "success"
+             },
+             "failure": {
+              "color": "red",
+              "index": 1,
+              "text": "failure"
+             },
+             "fail": {
+              "color": "red",
+              "index": 2,
+              "text": "fail"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "custom.cellOptions",
+          "value": {
+           "type": "color-text",
+           "mode": "basic"
+          }
+         },
+         {
+          "id": "custom.width",
+          "value": 80
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "Last row"
+        },
+        "properties": [
+         {
+          "id": "unit",
+          "value": "dateTimeFromNow"
+         },
+         {
+          "id": "custom.width",
+          "value": 110
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "showHeader": true,
+      "cellHeight": "sm",
+      "footer": {
+       "show": false,
+       "reducer": [
+        "sum"
+       ],
+       "countRows": false
+      },
+      "sortBy": [
+       {
+        "displayName": "Bag slots",
+        "desc": true
+       }
+      ]
+     },
+     "transformations": [
+      {
+       "id": "organize",
+       "options": {
+        "indexByName": {
+         "Bot": 0,
+         "Town": 1,
+         "Role": 2,
+         "Health": 3,
+         "Food": 4,
+         "Bag slots": 5,
+         "Carrying most": 6,
+         "Held": 7,
+         "Y": 8,
+         "Doing": 9,
+         "Status": 10,
+         "Build": 11,
+         "Last row": 12
+        },
+        "excludeByName": {},
+        "renameByName": {}
+       }
+      }
+     ]
+    },
+    {
+     "id": 17,
+     "type": "table",
+     "title": "Towns (fleet pools)",
+     "gridPos": {
+      "x": 0,
+      "y": 69,
+      "w": 24,
+      "h": 8
+     },
+     "description": "",
+     "targets": [
+      {
+       "refId": "A",
+       "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "mcai-infinity"
+       },
+       "type": "json",
+       "source": "url",
+       "format": "table",
+       "url": "http://10.0.0.31:9188/pools-fleet.json",
+       "url_options": {
+        "method": "GET",
+        "data": ""
+       },
+       "parser": "backend",
+       "root_selector": "",
+       "filters": [],
+       "columns": [
+        {
+         "selector": "pool",
+         "text": "Town",
+         "type": "string"
+        },
+        {
+         "selector": "bots",
+         "text": "Bots",
+         "type": "number"
+        },
+        {
+         "selector": "reporting",
+         "text": "Reporting",
+         "type": "number"
+        },
+        {
+         "selector": "avg_bag_slots",
+         "text": "Avg bag slots",
+         "type": "number"
+        },
+        {
+         "selector": "bag_full",
+         "text": "Bags full",
+         "type": "number"
+        },
+        {
+         "selector": "avg_health",
+         "text": "Avg health",
+         "type": "number"
+        },
+        {
+         "selector": "tail_deaths",
+         "text": "Recent deaths",
+         "type": "number"
+        }
+       ]
+      }
+     ],
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "custom": {
+        "align": "auto",
+        "filterable": true,
+        "inspect": true,
+        "cellOptions": {
+         "type": "auto"
+        }
+       },
+       "mappings": [],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         }
+        ]
+       }
+      },
+      "overrides": []
+     },
+     "options": {
+      "showHeader": true,
+      "cellHeight": "sm",
+      "footer": {
+       "show": false,
+       "reducer": [
+        "sum"
+       ],
+       "countRows": false
+      }
+     },
+     "transformations": [
+      {
+       "id": "organize",
+       "options": {
+        "indexByName": {
+         "Town": 0,
+         "Bots": 1,
+         "Reporting": 2,
+         "Avg bag slots": 3,
+         "Bags full": 4,
+         "Avg health": 5,
+         "Recent deaths": 6
+        },
+        "excludeByName": {},
+        "renameByName": {}
+       }
+      }
+     ]
+    }
+   ]
   }
  ]
 }

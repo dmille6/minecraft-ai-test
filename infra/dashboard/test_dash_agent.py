@@ -133,6 +133,35 @@ def main():
            lambda M: crit_count(M, [dict(ACK, until='2099-01-01T00:00:00')]) == 2)
     mutant('non-list acks crash', "    if not isinstance(rows, list):      # Codex r1: {\"acks\": 1} raised and took the whole alarm list with it\n        return []\n", "",
            lambda M: raises(lambda: crit_count(M, '{"acks": 1}')))
+
+    # STALE BOTS (11-18): the fleet was stopped on purpose; its bots' last rows (bags 34-36) kept the 'Many bags full' rule
+    # firing and the bag panels showing 30 full fleet bots. Only bots with a row in the last hour count.
+    def mval(m, name):
+        return sum(v for _, v in m.rows.get(name, (None, None, []))[2])
+    rowf = lambda bot, age_s, bag: {'bot': bot, 'pool': 'p', 'bag_slots': bag, 'health': 20, 'hunger': 20, 'y': 70,
+                                    'age_s': age_s, 'version': 'v1'}
+    rows = [rowf('a', 30, 36), rowf('b', 300, 35), rowf('c', 7200, 36), rowf('d', None, 36), rowf('e', 59, 10)]
+    m = A.Metrics(); A.bot_metrics(m, rows, 'x')
+    check('only bots seen within the hour count as full', mval(m, 'mcai_bots_bag_full') == 2, mval(m, 'mcai_bots_bag_full'))
+    check('stale bots have no bag gauge', len(m.rows['mcai_bot_bag_slots'][2]) == 3, len(m.rows['mcai_bot_bag_slots'][2]))
+    check('reporting still means a row in 10 min', mval(m, 'mcai_bots_reporting') == 3, mval(m, 'mcai_bots_reporting'))
+    m0 = A.Metrics(); A.bot_metrics(m0, [rowf('c', 7200, 36)], 'x')
+    check('a stopped fleet reports zero full bags, not its last ones', mval(m0, 'mcai_bots_bag_full') == 0)
+    mutant('stale bots counted', "    rows = [r for r in rows if age(r) < FRESH_S]\n", "",
+           lambda M: (lambda mm: (M.bot_metrics(mm, rows, 'x'), mval(mm, 'mcai_bots_bag_full'))[1])(M.Metrics()) == 4)
+
+    # FLEET STOPPED: no expected-bots metric while the owner's marker exists, so 'Fleet bots not running' has no data.
+    d = tempfile.mkdtemp()
+    o = type('O', (), {'expected_bots': 80, 'fleet_stopped': os.path.join(d, 'FLEET_STOPPED')})()
+    ag = A.Agent('fleet', o)
+    A.units = lambda pattern: [{'unit': 'mcbot@x.service', 'bot': 'x', 'load': 'loaded', 'active': 'inactive', 'sub': 'dead'}]
+    m1 = A.Metrics(); ag._units(m1, 'mcbot@*', 'fleet')
+    check('fleet running (no marker): 80 expected', mval(m1, 'mcai_bot_units_expected') == 80)
+    open(o.fleet_stopped, 'w').write('{"why": "owner"}')
+    m2 = A.Metrics(); ag._units(m2, 'mcbot@*', 'fleet')
+    check('fleet stopped (marker): no expected metric', 'mcai_bot_units_expected' not in m2.rows)
+    m3 = A.Metrics(); ag._units(m3, 'mctest@*', 'testworld')
+    check('the test world has no expected metric', 'mcai_bot_units_expected' not in m3.rows and mval(m3, 'mcai_bot_units_running') == 0)
     print(f'\n{len(FAILS)} failed' if FAILS else '\nall passed')
     return 1 if FAILS else 0
 

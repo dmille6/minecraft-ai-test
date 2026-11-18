@@ -257,7 +257,11 @@ def age(r):
     return r['age_s'] if r['age_s'] is not None else 1e9
 
 
+FRESH_S = 3600   # a bot with no row for an hour is stopped, not full: its last bag must not count (11-18, fleet stopped)
+
+
 def bot_metrics(m, rows, scope):
+    rows = [r for r in rows if age(r) < FRESH_S]
     for r in rows:
         lab = {'bot': r['bot'], 'pool': r['pool'], 'scope': scope}
         m.add('mcai_bot_bag_slots', r['bag_slots'], lab, 'estimated inventory slots in use (of 36)')
@@ -835,7 +839,10 @@ class Agent:
                 ('manifest', self._manifest),
                 ('alarms', lambda m: self._alarms(m, os.path.join(o.digest, 'ALARMS.log'), 'fleet')),
                 ('goals', lambda m: self._goals(m, os.path.join(o.digest, 'goalwatch-fleet.json'), 'fleet')),
-                ('digest', self._digest)]
+                ('digest', self._digest),
+                # the TEST WORLD (11-18): a copy of the showcase town on this host, 14 bots soaking a candidate release
+                ('testworld-units', lambda m: self._units(m, 'mctest@*', 'testworld')),
+                ('testworld-bots', lambda m: self._bots(m, o.testworld_log, 'showcase-', 'testworld'))]
         if slow:
             jobs += [('journal', self._journal), ('queue', self._queue), ('goalboard', self._goalboard)]
         return jobs
@@ -846,7 +853,9 @@ class Agent:
         failed = [u for u in us if u['active'] == 'failed']
         m.add('mcai_bot_units_running', len(running), {'scope': scope}, 'bot systemd units in state running')
         m.add('mcai_bot_units_failed', len(failed), {'scope': scope}, 'bot systemd units in state failed')
-        if scope == 'fleet':   # the showcase's size changes with each release; only the fleet has a fixed 80
+        # the showcase's size changes with each release; only the fleet has a fixed 80, and none while the owner has it
+        # stopped (11-18: the marker file, written by hand, says so; the 'Fleet bots not running' rule then has no data)
+        if scope == 'fleet' and not os.path.exists(self.o.fleet_stopped):
             m.add('mcai_bot_units_expected', self.o.expected_bots, {'scope': scope}, 'bots the fleet should be running')
         self.put(f'units-{scope}', us)
 
@@ -1023,6 +1032,10 @@ class Agent:
             d = json.load(open(self.o.trip_last))
         except (OSError, ValueError):
             d = {}
+        lvl = {'TRIP': 2, 'REPORT': 1}.get(str(d.get('verdict') or '').upper(), 0)
+        m.add('mcai_trip_level', lvl, {'verdict': str(d.get('verdict') or 'none')},
+              'the showcase tripwire verdict: 0 WATCH/clear, 1 REPORT, 2 TRIP (bots stopped)')
+        self.keep_slow(m, ['mcai_trip_level'])
         self.put('trip', {'t': d.get('t'), 'verdict': d.get('verdict'), 'why': (d.get('why') or [])[:8],
                           'quarantine': d.get('quarantine') or [],
                           'quarantined': sorted((d.get('facts') or {}).get('quarantined') or [])})
@@ -1105,6 +1118,9 @@ def main():
     ap.add_argument('--sched', default=os.path.join(HOME, 'canary-sched.py'))
     ap.add_argument('--goalboard', default=os.path.join(HOME, 'goalboard', 'out'))
     ap.add_argument('--expected-bots', type=int, default=80)
+    ap.add_argument('--fleet-stopped', default=os.path.join(HOME, 'digest', 'FLEET_STOPPED'),
+                    help='while this file exists the fleet is stopped on purpose: no expected-bots metric')
+    ap.add_argument('--testworld-log', default='/srv/testworld/log')
     ap.add_argument('--world-root', default='/srv/block2')
     ap.add_argument('--showcase-props', default='/srv/showcase/server/server.properties')
     ap.add_argument('--pieces', default='/srv/showcase/PIECES.jsonl')
