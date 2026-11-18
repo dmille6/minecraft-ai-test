@@ -7,6 +7,8 @@
 //   scripts/host/test_soakread.py -- the soak read: a release that keeps ~18 MB per reconnect FAILS the load step (the 11-18
 //     leak), a bot near its ceiling FAILS the untouched hours (the 11-17 defect), and anything the read could not see is
 //     INCONCLUSIVE, never a pass.
+//   scripts/host/test_buildfirstread.py -- the read of buildfirst-01show asked for beside its soak: blocks by project and hour,
+//     the bag-room remedies, holds by reason, idle orders, visits ended no_material, a bot stuck at the well.
 // Every anchored mutant must be killed.
 import assert from 'node:assert'
 import { spawnSync } from 'node:child_process'
@@ -14,7 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-for (const [file, minPass, minKilled] of [['test_testworld.py', 80, 11], ['test_soakread.py', 69, 12]]) {
+for (const [file, minPass, minKilled] of [['test_testworld.py', 80, 11], ['test_soakread.py', 69, 12], ['test_buildfirstread.py', 30, 6]]) {
   const r = spawnSync('python3', ['-B', path.join(REPO, 'scripts/host', file)], { encoding: 'utf8', timeout: 120_000 })
   const out = (r.stdout || '') + (r.stderr || '')
   console.log(out.split('\n').filter(l => /^ {2}FAIL|Error|Traceback/.test(l)).join('\n'))

@@ -11,12 +11,12 @@ TOP=$(git rev-parse --show-toplevel)
 cd "$TOP"
 [ "$(ssh "${O[@]}" "$H" hostname)" = block2-bots ] || { echo "REFUSED: $H is not block2-bots"; exit 2; }
 T=$(ssh "${O[@]}" "$H" 'mktemp -d /tmp/tw-install.XXXXXX')
-COPYFILE_DISABLE=1 tar --no-xattrs -cf - scripts/host/testworld.py scripts/host/soakread.py infra/showcase/make_env.py infra/showcase/rcon.py \
+COPYFILE_DISABLE=1 tar --no-xattrs -cf - scripts/host/testworld.py scripts/host/soakread.py scripts/host/buildfirstread.py infra/showcase/make_env.py infra/showcase/rcon.py \
     scripts/lib/telemetry.py scripts/lib/estelemetry.py infra/testworld | ssh "${O[@]}" "$H" "tar -C $T -xf -"
 ssh "${O[@]}" "$H" "set -e
 sudo -n install -d -m 755 /srv/testworld/bin /srv/testworld/lib /srv/testworld/secrets
 sudo -n chmod 700 /srv/testworld/secrets
-sudo -n install -m 755 $T/scripts/host/testworld.py $T/scripts/host/soakread.py /srv/testworld/bin/
+sudo -n install -m 755 $T/scripts/host/testworld.py $T/scripts/host/soakread.py $T/scripts/host/buildfirstread.py /srv/testworld/bin/
 sudo -n install -m 644 $T/infra/showcase/make_env.py $T/infra/showcase/rcon.py $T/infra/testworld/leaseprune4h.py /srv/testworld/bin/
 sudo -n install -m 644 $T/scripts/lib/telemetry.py $T/scripts/lib/estelemetry.py /srv/testworld/lib/
 for u in testworld.slice testworld-paper.service 'mctest@.service' testworld-sample.service testworld-sample.timer testworld-leaseprune.service testworld-leaseprune.timer; do

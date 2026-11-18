@@ -810,6 +810,7 @@ const REQUIRED = [
   'docs/reports/camera-design-2026-11-14.md',   // owner 11-14: cameras from a world's first moment, project cameras that stop, isometric + 4K (design, not built)
   // testworld (owner 11-18): one copy of the showcase town on block2-bots where every release soaks 3 hours before the showcase gets it
   'scripts/host/testworld.py', 'scripts/host/test_testworld.py', 'scripts/host/soakread.py', 'scripts/host/test_soakread.py',
+  'scripts/host/buildfirstread.py', 'scripts/host/test_buildfirstread.py',
   'bots/test/testworld.test.mjs', 'docs/runbooks/testworld.md', 'docs/reports/testworld-plan-2026-11-18.md',
   'infra/testworld/install.sh', 'infra/testworld/push-world.sh', 'infra/testworld/mctest@.service', 'infra/testworld/testworld-paper.service', 'infra/testworld/testworld.slice',
   'infra/testworld/testworld-sample.service', 'infra/testworld/testworld-sample.timer',
