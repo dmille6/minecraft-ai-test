@@ -57,16 +57,14 @@ await t('THE CHAIN with no dirt: a top fill is never laid with stone, is passed 
 })
 const grey = (extra = {}) => world({ '0,64,0': 'cobblestone', ...extra })
 const rec0 = (cells, more = {}) => ({ home: { x: 0, z: 0 }, cells, cut: [], ...more })
-await t('retopCells: a grey top fill beside grass becomes topsoil with a tidy cut of its block on the same cell', () => {
+await t('retopCells: a grey top fill beside grass becomes topsoil (retop stamped); its grey block reads open, dirt reads done', () => {
   const { rec, n } = TT.retopCells(rec0([{ at: [0, 64, 0], role: 'earth', seg: 'T-00-0' }, { at: [0, 63, 0], role: 'core', seg: 'T-00-0' }]), grey(), { now: 7 })
   assert.strictEqual(n, 1)
   assert.deepStrictEqual(rec.cells.map(c => c.role), ['topsoil', 'core'])
-  assert.deepStrictEqual(rec.cut, [{ at: [0, 64, 0], kind: 'tidy', name: 'cobblestone', retop: 7 }])
-  // the cut stands while the cobble does; once dug and laid with dirt it reads done, and the cell too
-  assert.strictEqual(T.cutStanding(grey(), rec.cut[0]), true)
-  const after = world({ '0,64,0': 'dirt' })
-  assert.strictEqual(T.cutStanding(after, rec.cut[0]), false)
-  assert.strictEqual(cellDone(after(0, 64, 0), T.TIDY_PALETTE, 'topsoil'), true)
+  assert.strictEqual(rec.cells[0].retop, 7)
+  assert.deepStrictEqual(rec.cut, [])
+  assert.strictEqual(cellDone({ name: 'cobblestone', boundingBox: 'block' }, T.TIDY_PALETTE, 'topsoil'), false)
+  assert.strictEqual(cellDone({ name: 'dirt', boundingBox: 'block' }, T.TIDY_PALETTE, 'topsoil'), true)
 })
 await t('retopCells: a surface core cell (its earth above waived) is re-topped; a buried one under an open fill is not', () => {
   const r = rec0([{ at: [0, 64, 0], role: 'core' }, { at: [0, 65, 0], role: 'earth' }], { waived: { '0,65,0': { why: 'x' } } })
@@ -99,7 +97,7 @@ await t('retopCells: nearest home first, at most `max`; a complete record is nev
   const rd = world({ '9,64,0': 'cobblestone', '1,64,0': 'cobblestone', '5,64,0': 'cobblestone' })
   const { rec, n, skipped } = TT.retopCells(rec0(cells), rd, { max: 2 })
   assert.strictEqual(n, 2); assert.strictEqual(skipped.retop_max, 1)
-  assert.deepStrictEqual(rec.cut.map(c => c.at[0]).sort((a, b) => a - b), [1, 5])
+  assert.deepStrictEqual(rec.cells.filter(c => c.retop).map(c => c.at[0]).sort((a, b) => a - b), [1, 5])
   assert.strictEqual(TT.retopCells({ ...rec0(cells), structure_complete: true }, rd).n, 0)
 })
 await t('MUTANT: without the soil-beside test a grey fill in a stone yard is re-topped (the test above sees it)', async () => {
@@ -123,5 +121,51 @@ await t('WIRED: the keeper\'s refresh runs retopCells inside its publish; coreFi
   assert.ok(/return tidyTopOn\(\) \? surfaceFills\(cored\) : cored/.test(td))
 })
 
+const twoGrey = async () => {
+  const B = await import('./helpers/buildfake.mjs')
+  const srv = B.server({ [`0,${B.G},0`]: 'cobblestone', [`4,${B.G},0`]: 'cobblestone' })
+  const { rec } = TT.retopCells({ cells: [{ at: [0, B.G, 0], role: 'earth', seg: 'T' }, { at: [4, B.G, 0], role: 'earth', seg: 'T' }], segments: [{ seg: 'T', after: [] }], cut: [], clear: [], replant: [] }, srv.read)
+  return { B, srv, rec }
+}
+const visit = async (M, dirt) => {
+  const { B, srv, rec } = await twoGrey()
+  const { p } = B.project(rec)
+  const e = B.bot(srv, 'A', { inv: { dirt, cobblestone: 64 } })
+  const passed = q => T.soilSkip(q, e.has)
+  const held = M.retopHeld(rec.cells, srv.read, dirt)
+  await B.R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, alsoDone: q => passed(q) || held.has(q.at.join(',')), blockLayer: false, domain: () => true, walkR: 20 }, e, { maxSteps: 100 })
+  const done = q => TT.soilPassDone(passed(q), srv.read(...q.at)) || cellDone(srv.read(...q.at), T.TIDY_PALETTE, q.role)
+  return { names: rec.cells.map(q => srv.read(...q.at).name).sort(), prog: T.tidyProgress(rec, srv.read, { fillDone: done }) }
+}
+await t('Codex r1 BLOCKER: two grey tops, one dirt -> one swapped, one left grey (never a hole); the record stays open', async () => {
+  const one = await visit(TT, 1)
+  assert.deepStrictEqual(one.names, ['cobblestone', 'dirt'])
+  assert.strictEqual(one.prog.fillLeft, 1)
+  const two = await visit(TT, 2)
+  assert.deepStrictEqual(two.names, ['dirt', 'dirt'])
+  assert.strictEqual(two.prog.fillLeft, 0)
+  const none = await visit(TT, 0)
+  assert.deepStrictEqual(none.names, ['cobblestone', 'cobblestone'])
+  assert.strictEqual(none.prog.fillLeft, 2)
+  // a hole is never read done by the no-dirt pass; a block that is not air is (the lawn rule as before)
+  assert.strictEqual(TT.soilPassDone(true, { name: 'air' }), false)
+  assert.strictEqual(TT.soilPassDone(true, null), false)
+  assert.strictEqual(TT.soilPassDone(true, { name: 'cobblestone' }), false)
+  assert.strictEqual(TT.soilPassDone(true, { name: 'oak_planks' }), true)
+  assert.strictEqual(TT.soilPassDone(false, { name: 'cobblestone' }), false)
+})
+await t('MUTANT: re-tops not held by the dirt budget -> one dirt digs both greys and leaves a hole', async () => {
+  await withMutant(P('tidytop.mjs'), '    if (left > 0) { left--; continue }\n    out.add(kOf(c.at))', '    continue', async M => {
+    const r = await visit(M, 1)
+    assert.deepStrictEqual(r.names, ['air', 'dirt'])
+  })
+})
+await t('WIRED: the visit holds re-tops by dirt in its alsoDone and the completion uses soilPassDone (comments stripped)', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
+  assert.ok(/retopHeld\(visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\)\)/.test(sk))
+  assert.ok(/alsoDone: q => [^\n]*retopPass\.has\(q\.at\.join\(','\)\)/.test(sk))
+  assert.ok(/soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\)\)/.test(sk))
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

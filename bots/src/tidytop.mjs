@@ -8,8 +8,8 @@
 //      only, never `*solid`). The visit already bills topsoil as DIRT drawn from the town (skills.mjs `wantSoil`), and a topsoil cell
 //      the bag holds no dirt for is PASSED, not stoned (tidy.mjs soilSkip): the remedy is the next draw, or the dirt the visit's own
 //      cuts hand the bag mid-visit (alsoDone is read per cell). The buried cells keep `core` (cobblestone first: the sink).
-//   2. retopCells: the grey tops already laid go back on the work list -- the cell's role becomes `topsoil` and the block is a tidy CUT
-//      of the same cell (roughground's re-soil pattern: dig the cobble, lay dirt), only on a top fill cell with air above and grass
+//   2. retopCells: the grey tops already laid go back on the work list -- the cell's role becomes `topsoil`, so its grey block reads
+//      open and the visit digs it and lays dirt (only with dirt in the bag: retopHeld), only on a top fill cell with air above and grass
 //      or dirt beside it, never a waived, guarded, carried, planned or kept-off cell; nearest home first, RETOP.max a refresh.
 //
 // A bot cannot place grass_block (no silk touch, no /give): it lays dirt, and dirt beside grass in the light greens on its own.
@@ -108,6 +108,26 @@ export function retopCells (rec, read, { guard = new Set(), keepOff = () => null
   if (!pick.length) return { rec, n: 0, skipped }
   const take = new Set(pick)
   const cells = rec.cells.map((c, i) => (take.has(i) ? { ...c, role: 'topsoil', retop: now } : c))
-  const cut = [...(rec.cut ?? []), ...pick.map(i => ({ at: [...rec.cells[i].at], kind: 'tidy', name: nm(read(...rec.cells[i].at)), retop: now }))]
-  return { rec: { ...rec, cells, cut }, n: pick.length, skipped }
+  return { rec: { ...rec, cells }, n: pick.length, skipped }
 }
+
+/** Codex r1 BLOCKER: the visit digs a re-topped cell's grey block itself (buildrun.mjs: an open record cell holding a scaffold-class
+ *  foreign block is dug before it is laid). -> the keys of the re-topped cells this visit PASSES (read done by its alsoDone, so never
+ *  dug): every grey one past the first `dirt` (the dirt the bag holds for them now), in record order. A visit never digs a surface
+ *  block it has no dirt to put back; the completion still reads the passed ones open (a grey block is not topsoil). Pure over `read`. */
+export function retopHeld (cells, read, dirt = 0) {
+  let left = Math.max(0, Math.floor(Number(dirt) || 0))
+  const out = new Set()
+  for (const c of cells ?? []) {
+    if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at)) continue
+    const n = nm(read(...c.at))
+    if (!n || AIRY.test(n) || SOIL_NEAR.test(n)) continue
+    if (left > 0) { left--; continue }
+    out.add(kOf(c.at))
+  }
+  return out
+}
+/** Codex r1 BLOCKER: a topsoil cell passed for want of dirt (tidy.mjs soilSkip) reads done for the COMPLETION only while it is not a
+ *  hole and not grey -> bool. Pure. `b` the block on the cell now. An air (or unread) cell, or one still holding the grey fill a re-top
+ *  is for, stays open: the record never closes over a hole or a grey top; the next visit's dirt draw fills it. */
+export const soilPassDone = (passed, b) => !!passed && !!b && !AIRY.test(nm(b)) && !GREY_FILL.test(nm(b))
