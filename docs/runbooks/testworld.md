@@ -38,6 +38,11 @@ every unit asserts the host is block2-bots, the bot unit and the loader refuse a
   latency first and refuses if it is past the limit or cannot be read. `soak` reads it every 10 minutes from the
   telemetry store, through the load step too, and stops the test bots if its 30-minute p95 passes 6 s or if it cannot
   see the showcase for 30 minutes. Outside a soak nothing watches it: do not leave the bots running unwatched.
+- **If the showcase is stopped on purpose** (a tripwire stop, a planned stop), its rows are missing and the guard would
+  stop every run. Say so, with the reason and whose word it is: `start --showcase-stopped "<why>"` and
+  `soak --run <run> --showcase-stopped "<why>"`. The guard is then off until a check sees the showcase's rows again;
+  from that moment it is armed as usual. The read names it ("THE SHOWCASE GUARD WAS OFF"). A reading past the limit
+  still refuses a start.
 - No admin world edits here either: a soak measures the bots. The driver uses RCON only for `list`, `save-off`,
   `save-all flush` and `save-on`.
 - Nothing here pages, and nothing reads it but the soak read. An idle or stopped test world is not an alarm.
@@ -120,6 +125,10 @@ To rebuild the read from what is on disk: `ssh $TW sudo /srv/testworld/bin/soakr
 on another version, thin memory samples, too few forced reconnects, a run the guard stopped). PASS is neither. The
 table puts each bot's memory beside its reconnect count; the load step fails a release that keeps more than 8 MB of
 chunk buffers per forced reconnect (the fixed build keeps under 4; the 11-18 leak kept 14 to 22).
+
+The read also counts **saplings against the showcase's protected village** (x 49..157, z -59..45; on 11-18 a sapling
+that grew into a tree there tripped the showcase's tripwire): plant spots chosen, orders to plant, and saplings placed
+by the bots' rows and by the block history, each with how many fell inside. Reported, never part of the verdict.
 
 Stopping a soak (`systemctl stop testworld-soak-<run>`) puts the CPU quota back and continues every paused bot by
 itself. If the host went down mid-step, or to be sure:
