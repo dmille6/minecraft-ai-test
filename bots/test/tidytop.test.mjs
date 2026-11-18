@@ -151,7 +151,9 @@ await t('Codex r1 BLOCKER: two grey tops, one dirt -> one swapped, one left grey
   assert.strictEqual(TT.soilPassDone(true, { name: 'air' }), false)
   assert.strictEqual(TT.soilPassDone(true, null), false)
   assert.strictEqual(TT.soilPassDone(true, { name: 'cobblestone' }), false)
-  assert.strictEqual(TT.soilPassDone(true, { name: 'oak_planks' }), true)
+  assert.strictEqual(TT.soilPassDone(true, { name: 'oak_planks', boundingBox: 'block' }), true)
+  assert.strictEqual(TT.soilPassDone(true, { name: 'water', boundingBox: 'empty' }), false)
+  assert.strictEqual(TT.soilPassDone(true, { name: 'short_grass', boundingBox: 'empty' }), false)
   assert.strictEqual(TT.soilPassDone(false, { name: 'cobblestone' }), false)
 })
 await t('MUTANT: re-tops not held by the dirt budget -> one dirt digs both greys and leaves a hole', async () => {
@@ -163,7 +165,7 @@ await t('MUTANT: re-tops not held by the dirt budget -> one dirt digs both greys
 await t('WIRED: the visit holds re-tops by dirt in its alsoDone and the completion uses soilPassDone (comments stripped)', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/retopHeld\(visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\), \{ waived: rec\.waived \}\)/.test(sk))
+  assert.ok(/retopHeld\(visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\), \{ waived: rec\.waived, open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\) \}\)/.test(sk))
   assert.ok(/alsoDone: q => [^\n]*retopPass\.has\(q\.at\.join\(','\)\)/.test(sk))
   assert.ok(/soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\)\)/.test(sk))
 })
@@ -185,13 +187,13 @@ await t('Codex r2 BLOCKER 2: a cell waiting for dirt is never a strike toward a 
   assert.strictEqual(TT.dirtWait(true, false), true); assert.strictEqual(TT.dirtWait(false, true), true); assert.strictEqual(TT.dirtWait(false, false), false)
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/const town = strikes\(tidyTopOn\(\) \? tidyLeftKeys\(rw, read2, \{ \.\.\.progOpts, fillDone: leftDone\(flowFd, q => dirtWait\(noSoil\(q\), retopPass\.has\(q\.at\.join\(','\)\)\)\) \}\)/.test(sk))
+  assert.ok(/const town = strikes\(tidyTopOn\(\) \? tidyLeftKeys\(rw, read2, \{ \.\.\.progOpts, fillDone: q => !!progOpts\.fillDone\(q\) \|\| dirtWait\(noSoil\(q\), retopPass\.has\(q\.at\.join\(','\)\)\) \}\) : left\)/.test(sk))
 })
 await t('MUTANT: re-tops not charged for the other holes -> the grey is dug with the hole\'s dirt', async () => {
   const B = await import('./helpers/buildfake.mjs')
   const srv = B.server({ [`2,${B.G},0`]: 'air', [`4,${B.G},0`]: 'cobblestone' })
   const cells = [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
-  await withMutant(P('tidytop.mjs'), '    if (AIRY.test(nm(read(...c.at)))) left--\n', '', M => assert.strictEqual(M.retopHeld(cells, srv.read, 1).size, 0))
+  await withMutant(P('tidytop.mjs'), '    if (open(c, read)) left--\n', '', M => assert.strictEqual(M.retopHeld(cells, srv.read, 1).size, 0))
 })
 await t('Codex rel3 r1 BLOCKER 1: a re-top already dug (air) and a core hole are charged too; one dirt never digs a second grey', async () => {
   const B = await import('./helpers/buildfake.mjs')
@@ -201,6 +203,23 @@ await t('Codex rel3 r1 BLOCKER 1: a re-top already dug (air) and a core hole are
   const core = [{ at: [2, B.G, 0], role: 'core', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
   assert.deepStrictEqual([...TT.retopHeld(core, srv.read, 1)], [`4,${B.G},0`])
   const rec = { cells, segments: [{ seg: 'T', after: [] }], cut: [], clear: [], replant: [] }
+  const { p } = B.project(rec)
+  const e = B.bot(srv, 'A', { inv: { dirt: 1 } })
+  const held = TT.retopHeld(rec.cells, srv.read, 1)
+  await B.R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, alsoDone: q => T.soilSkip(q, e.has) || held.has(q.at.join(',')), blockLayer: false, domain: () => true, walkR: 20 }, e, { maxSteps: 100 })
+  assert.deepStrictEqual(rec.cells.map(q => srv.read(...q.at).name), ['dirt', 'cobblestone'])
+})
+await t('Codex rel3 r2 BLOCKER: a short-grass or water topsoil cell is charged too; one dirt never digs the grey', async () => {
+  const B = await import('./helpers/buildfake.mjs')
+  for (const fill of ['short_grass', 'water']) {
+    const srv = B.server({ [`2,${B.G},0`]: fill, [`4,${B.G},0`]: 'cobblestone' })
+    const cells = [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
+    assert.deepStrictEqual([...TT.retopHeld(cells, srv.read, 1)], [`4,${B.G},0`], fill)
+    // and with the visit's own done test
+    assert.deepStrictEqual([...TT.retopHeld(cells, srv.read, 1, { open: q => !cellDone(srv.read(...q.at), T.TIDY_PALETTE, q.role) })], [`4,${B.G},0`], fill)
+  }
+  const srv = B.server({ [`2,${B.G},0`]: 'short_grass', [`4,${B.G},0`]: 'cobblestone' })
+  const rec = { cells: [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }], segments: [{ seg: 'T', after: [] }], cut: [], clear: [], replant: [] }
   const { p } = B.project(rec)
   const e = B.bot(srv, 'A', { inv: { dirt: 1 } })
   const held = TT.retopHeld(rec.cells, srv.read, 1)

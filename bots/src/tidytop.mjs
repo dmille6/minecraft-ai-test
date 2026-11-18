@@ -115,15 +115,19 @@ export function retopCells (rec, read, { guard = new Set(), keepOff = () => null
  *  foreign block is dug before it is laid). -> the keys of the re-topped cells this visit PASSES (read done by its alsoDone, so never
  *  dug): every grey one past the first `dirt` (the dirt the bag holds for them now), in record order. A visit never digs a surface
  *  block it has no dirt to put back; the completion still reads the passed ones open (a grey block is not topsoil). Pure over `read`. */
-export function retopHeld (cells, read, dirt = 0, { waived = null } = {}) {
+/** An earth-laid cell NOT done now (default: its block is not soil, and for a non-topsoil role not the grey fill either). */
+const openFill = (c, read) => { const n = nm(read(...c.at)); return !SOIL_NEAR.test(n) && !(c.role !== 'topsoil' && GREY_FILL.test(n)) }
+export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFill } = {}) {
   let left = Math.max(0, Math.floor(Number(dirt) || 0))
   // Codex r2 BLOCKER 1: the visit's OTHER open earth cells (air, not waived: topsoil or earth, dirt first) spend the bag's dirt too, and
   // the foreign pass digs before any placement -- the re-tops get only the dirt left after them
   for (const c of cells ?? []) {
     // Codex rel3 r1 BLOCKER 1: EVERY open earth-laid hole may take dirt -- a re-top already dug (air) and a core cell (cobblestone
     // first, dirt when the bag has none) too
+    // Codex rel3 r2 BLOCKER: every OPEN cell (short grass, water, anything not done), not air alone; a grey re-top is the second loop's
     if (!Array.isArray(c?.at) || c.prev || !COLUMN_ROLES.has(c.role) || hasOwn(waived, kOf(c.at))) continue
-    if (AIRY.test(nm(read(...c.at)))) left--
+    if (c.retop && c.role === 'topsoil' && GREY_FILL.test(nm(read(...c.at)))) continue
+    if (open(c, read)) left--
   }
   const out = new Set()
   for (const c of cells ?? []) {
@@ -141,4 +145,4 @@ export function retopHeld (cells, read, dirt = 0, { waived = null } = {}) {
 /** Codex r2 BLOCKER 2: a topsoil cell WAITING FOR DIRT (passed for want of it, or a re-top held for it) -> bool. Pure. Such a cell is
  *  open work but never a strike toward a waiver (gkwork.mjs leftWaiveDue): an empty bag is not "nobody can lay it". */
 export const dirtWait = (passed, held) => !!passed || !!held
-export const soilPassDone = (passed, b) => !!passed && !!b && !AIRY.test(nm(b)) && !GREY_FILL.test(nm(b))
+export const soilPassDone = (passed, b) => !!passed && !!b && b.boundingBox === 'block' && !AIRY.test(nm(b)) && !GREY_FILL.test(nm(b))   // Codex rel3 r3: a full block only (never water, short grass)

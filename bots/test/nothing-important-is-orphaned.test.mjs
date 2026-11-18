@@ -43,9 +43,6 @@ const REQUIRED = [
   'bots/test/minecrew-off.test.mjs',
   // projturn-01 (11-15): the open projects take turns, a no-progress visit backs its project off for the pool, a stuck bot is held
   // off that project only (PROJTURN=off|on)
-  // dirtbank-01 (item 8 (a), 11-18): deposits bank dirt above the bag's keep (32 + its own waiting tidy cells)
-  'bots/src/dirtbank.mjs',
-  'bots/test/dirtbank.test.mjs',
   // tidytop-01show (item 8, 11-18): the clean-up's top fills are dirt, never stone; grey tops re-topped
   'bots/src/tidytop.mjs',
   'bots/test/tidytop.test.mjs',

@@ -30723,7 +30723,7 @@ async function buildTidyVisit (ctx, args, signal) {
     })
     bot.shopUnknown ??= new Set()
     // tidytop-01show (Codex r1 BLOCKER): a re-topped cell's grey block is dug only with dirt in the bag to lay in its place (tidytop.mjs retopHeld)
-    const retopPass = tidyTopOn() ? retopHeld(visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived }) : new Set()
+    const retopPass = tidyTopOn() ? retopHeld(visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived, open: q => !buildCellDone(read(...q.at), palette, q.role) }) : new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
     const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
