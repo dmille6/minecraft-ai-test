@@ -54,6 +54,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { Vec3 } from 'vec3'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { digPurpose, currentDigScope } from './digtown.mjs'
 
 export const ZONES_FILE = 'protected-zones.json'
@@ -378,6 +379,21 @@ export function placeBlocked (zones, x, y, z, feet = null) {
          blocked(zones, x + 1, y - 1, z, feet, true) || blocked(zones, x - 1, y - 1, z, feet, true) || blocked(zones, x, y - 1, z + 1, feet, true) || blocked(zones, x, y - 1, z - 1, feet, true)
 }
 
+/**
+ * ZONEPLANT-01SHOW: HOW FAR A PLANTED THING GROWS SIDEWAYS from its cell. A zone runs from bedrock to sky, so only the horizontal
+ * reach matters. Spruce/pine: leaves to radius 2-3 around the trunk. The 2x2 trees (big spruce, dark oak, jungle) grow from
+ * the sapling's corner: trunk +1, canopy radius to ~4-5. Acacia leans its trunk up to ~4 then a radius-2-3 canopy (~6).
+ * Cherry: branches out to ~4 plus a radius-~4 canopy (~8). One bound for every kind (the 2x2 is decided by neighbours the
+ * planter does not control: another bot's sapling beside it), the widest: 8.
+ */
+export const GROWTH_MARGIN = 8
+/** May something be planted in this cell? -> the zone whose box, grown by GROWTH_MARGIN on x and z, holds it | null. Pure. */
+export function plantNearZone (zones, x, z, margin = GROWTH_MARGIN) {
+  if (!zones || !zones.length) return null
+  const p = { x, z }
+  return zones.find(q => overFootprint(q, p, margin)) ?? null
+}
+
 /** Is the bot's column (any y) inside this zone's footprint, grown by `margin`? Pure. */
 export function overFootprint (zone, p, margin = 0) {
   return !!zone && !!p && Math.floor(p.x) >= zone.x0 - margin && Math.floor(p.x) <= zone.x1 + margin &&
@@ -477,14 +493,40 @@ export class ProtectedZoneError extends Error {
   }
 }
 
-/** Ops a survival purpose may still perform inside a zone (a reflex's air, pillar or wall). Never open/sleep/craft. */
-export const SURVIVAL_OPS = new Set(['dig', 'place', 'use'])
+/** Ops a survival purpose may still perform inside a zone. Never open/sleep/craft.
+ *  ZONEPLANT-01SHOW (11-18, S4 BREACH 15:13:54Z): `place` is NO LONGER here. Alpha, marooned inside village-taiga-6_1 at
+ *  123,68,-6, had its pillar refused (a baseline cell) -- and then the plant work order, run while the reflex held the body (so
+ *  digPurpose called it `survival`), put a spruce_sapling at 121,67,-8. The tree grew 40 min later; its leaves covered the
+ *  village's dirt_path and turned 4 cells to dirt. A placement inside a zone is refused whatever its purpose: a sapling, a seed,
+ *  a pillar block all change the zone, and what they grow into is not the guard's to predict. A survival DIG still passes (the
+ *  ramp, the air) -- the escape the reflex had is the one it keeps. */
+export const SURVIVAL_OPS = new Set(['dig', 'use'])
+/** ZONEPLANT-01SHOW: a survival `use` inside a zone passes only with a hand that cannot change the block: empty, a pickaxe, a
+ *  sword, a stick. With a block, a sapling, seeds, bone meal, a hoe, a shovel, an axe, a bucket or flint in hand, Paper treats
+ *  use-item-on as a placement or a conversion (bone meal grows a sapling into a tree; a block in hand is placed). Pure. */
+export const USE_SAFE_HELD = /^(|(wooden|stone|iron|golden|diamond|netherite)_(pickaxe|sword)|stick)$/
+export const useHeldSafe = held => USE_SAFE_HELD.test(bare(held ?? ''))
+/** ZONEPLANT-01SHOW (Claude r1): AIR FIRST. A drowning bot's air pocket (airpocket.mjs) is placements; the owner's rule is that
+ *  the one water reflex is getting air, so a SURVIVAL placement inside a zone passes while the bot needs air (in water, or short
+ *  of breath) -- and never of a thing that grows. Baseline cells and a path's cover stay refused (structAt, checked first). */
+export const GROWS = /(_sapling|_propagule|_seeds|^bone_meal|^(azalea|flowering_azalea|bamboo|sugar_cane|cactus|kelp|sweet_berries|glow_berries|cocoa_beans|carrot|potato|melon_seeds|pumpkin_seeds|nether_wart|chorus_flower|vine|glow_lichen|moss_block|moss_carpet|lily_pad|short_grass|tall_grass|fern|large_fern|brown_mushroom|red_mushroom|crimson_fungus|warped_fungus|twisting_vines|weeping_vines|sea_pickle|seagrass|torchflower_seeds|pitcher_pod))$/
+export const airPlaceOk = held => !!held && !GROWS.test(bare(held))
+/** ZONEPLANT-01SHOW (Codex r1): THE WALK-OUT'S OWN BRIDGE (reflex.mjs zoneWalkTry). The escape out of a zone may scaffold a gap
+ *  with ordinary ground; it marks its own call with zoneEscapePlace, so a SKILL that merely runs while a reflex holds the body
+ *  (the 11-18 sapling) is never mistaken for it. Survival purpose and a thing that does not grow are still required. */
+const escapeStore = new AsyncLocalStorage()
+export const zoneEscapePlace = fn => escapeStore.run(true, fn)
+export const inZoneEscape = () => escapeStore.getStore() === true
+/** Claude r5: the reflex TICK runs in digScoped({ purpose: 'survival', by: 'reflex' }) (reflex.mjs) -- everything its handlers
+ *  await inherits that scope, so a reflex placement no file marked is still the escape's own. A skill's chain (the work order that
+ *  planted 11-18) never carries it: its survival purpose came from the holder, not from this scope. */
+export const reflexTickScope = () => { const s = currentDigScope(); return s?.purpose === 'survival' && s?.by === 'reflex' }
 
 /**
  * THE GUARD'S ONE DECISION -> null (allowed) | { zone }. Pure. `op` in dig | place | use | open | sleep | craft; `cell` the
  * block's cell; `purpose` digPurpose's answer for this call.
  */
-export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, role = null, name = null, nameRule = true }) {
+export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, role = null, name = null, nameRule = true, held = null, air = false, escape = false }) {
   if (!cell) return null
   // ZONEGUARD-01SHOW 1: THE TRIPWIRE'S CELLS, before the deep exemption and before the survival pass -- never changed by a bot
   const mask = structMask(op, role)
@@ -497,7 +539,8 @@ export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, ro
   }
   const z = blocked(zones, cell.x, cell.y, cell.z, feet, true)
   if (!z) return null
-  if (purpose === 'survival' && SURVIVAL_OPS.has(op)) return null
+  if (purpose === 'survival' && SURVIVAL_OPS.has(op) && (op !== 'use' || useHeldSafe(held))) return null
+  if (purpose === 'survival' && op === 'place' && (air || escape) && airPlaceOk(held)) return null   // AIR FIRST / the walk-out's bridge (never a thing that grows)
   return { zone: z }
 }
 
@@ -672,6 +715,22 @@ export function standableY (bot, x, z, y0) {
   return null
 }
 
+/** block_place's direction -> the face offset (0 down, 1 up, 2 north, 3 south, 4 west, 5 east). */
+/** Blocks a click always USES rather than builds on, whatever is held (Codex r7: never an iron door or trapdoor -- a hand
+ *  click on one PASSES and the held block is placed; nor a composter, lectern or other block that passes on some items). */
+const OPENS = /^((trapped_)?chest|ender_chest|barrel|(\w+_)?shulker_box|crafting_table|(blast_)?furnace|smoker|hopper|(?!iron_)\w+_(door|trapdoor|fence_gate))$/
+const PLACE_FACE = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]]
+/** Does the bot need air now? -> bool. Short of breath, or its feet or head cell is water. Never throws. */
+export function needsAir (bot) {
+  try {
+    if (Number.isFinite(bot?.oxygenLevel) && bot.oxygenLevel < 20) return true
+    const p = bot?.entity?.position
+    if (!p || typeof bot.blockAt !== 'function') return false
+    const wet = b => /^(water|bubble_column)$/.test(b?.name ?? '') || b?.getProperties?.()?.waterlogged === true
+    return wet(bot.blockAt(p.floored ? p.floored() : p)) || wet(bot.blockAt(p.offset(0, 1, 0)))
+  } catch { return false }
+}
+
 /**
  * INSTALL THE GUARD on one bot -> { stop } | null. `zones()` the live list; `context()` { skill, args, holder, reflex }
  * (as digtown reads it); `onRefuse({ op, zone, at, purpose, by, remedy })` telemetry. Installed AFTER attachDigTown so a
@@ -714,8 +773,11 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
                 (op === 'dig' && deepNameBlocked(list, cell.x, cell.y, cell.z, cell.name, feet, { on: guardOn })) ||
                 blocked(list, cell.x, cell.y, cell.z, feet, true)
     if (!any) return null
-    const purpose = SURVIVAL_OPS.has(op) ? purposeOf().purpose : null
-    const d = zoneDecision({ zones: list, op, cell, purpose, feet, role: cell.role ?? null, name: cell.name ?? null, nameRule: guardOn })
+    const purpose = (SURVIVAL_OPS.has(op) || op === 'place') ? purposeOf().purpose : null
+    let held = null, air = false
+    try { held = bot.heldItem?.name ?? null } catch { held = null }
+    if (op === 'place' && purpose === 'survival') air = needsAir(bot)
+    const d = zoneDecision({ zones: list, op, cell, purpose, feet, role: cell.role ?? null, name: cell.name ?? null, nameRule: guardOn, held, air, escape: op === 'place' && (inZoneEscape() || reflexTickScope()) })
     if (!d) { noteProtectZone(bot, 'survival_allowed'); return null }
     if (d.struct) noteProtectZone(bot, 'struct_refused')
     return refuse(op, d.zone, cell, !!d.struct)
@@ -764,6 +826,47 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
   wrap('openBlock', 'open', b => [cellOf(b)], { approve: true })
   wrap('sleep', 'sleep', b => [cellOf(b)], { approve: true })
   wrap('craft', 'craft', (_r, _n, table) => [cellOf(table)], { approve: true })
+  // ZONEPLANT-01SHOW (Codex r4, r5): THE HELD ITEM AT THE PACKET. mineflayer's _genericPlace and activateBlock await a lookAt
+  // after the guard has judged them, and a skill can equip something else in that gap. The last word, for a block_place (a
+  // placement or a use-item-on) AT or ONTO a zone cell: sent only with a hand that cannot change the block (useHeldSafe), or by the
+  // escape's own code (marked, the reflex tick, or a bot that needs air) holding a thing that does not grow. Dropped, not thrown:
+  // the caller's own read-back sees nothing land.
+  const client = bot._client
+  if (client && typeof client.write === 'function' && !client.write.__protectZone) {
+    const origWrite = client.write
+    const w = function (name, params, ...rest) {
+      try {
+        if (name === 'block_place' && params?.location) {
+          const list = zones()
+          if (list && list.length) {
+            const L = params.location, f = PLACE_FACE[params.direction] ?? [0, 0, 0], feet = bot.entity?.position ?? null
+            // Claude r6: a click on a block that OPENS (a chest, a door) uses it and places nothing at the face's cell -- only its own
+            // cell is judged then, so a chest just outside a zone still opens with cobblestone in hand
+            let refName = ''
+            try { refName = bot.blockAt?.(new Vec3(L.x, L.y, L.z))?.name ?? '' } catch { refName = '' }
+            // ...unless the bot sneaks (Codex r6): a sneaking click on a chest PLACES the held block at the face's cell
+            let sneak = true
+            try { sneak = typeof bot.getControlState === 'function' ? !!bot.getControlState('sneak') : !!bot.controlState?.sneak } catch { sneak = true }
+            const z = blocked(list, L.x, L.y, L.z, feet, true) || ((sneak || !OPENS.test(refName)) && blocked(list, L.x + f[0], L.y + f[1], L.z + f[2], feet, true))
+            if (z) {
+              let held = null
+              try { held = bot.heldItem?.name ?? null } catch { held = null }
+              const ok = useHeldSafe(held) || (airPlaceOk(held) && (inZoneEscape() || reflexTickScope() || (purposeOf().purpose === 'survival' && needsAir(bot))))
+              if (!ok) {
+                noteProtectZone(bot, 'place')
+                try { onRefuse({ op: 'place', zone: z.id, at: { x: L.x, y: L.y, z: L.z }, purpose: purposeOf().purpose, by: purposeOf().by, struct: false,
+                  remedy: `protected zone: ${z.label} -- a block_place holding ${held} was not sent (the hand changed after the guard judged it); walk out and work beyond it` }) } catch { /* telemetry */ }
+                return false
+              }
+            }
+          }
+        }
+      } catch { /* the guard never breaks the connection */ }
+      return origWrite.call(this, name, params, ...rest)
+    }
+    w.__protectZone = origWrite
+    client.write = w
+  }
   // ZONEGUARD-01SHOW (Codex r1 blocker 2): A POUR IS NO PLACEMENT this guard sees (bucket.mjs: equip -> lookAt -> activateItem).
   // With a liquid in hand, a use from where its flow could reach a baseline cell is not sent (the reach covers the bot's own
   // flow is traced from the feet, the head and the aimed face: liquidFlowReaches). activateItem is synchronous in mineflayer and every pour verifies the world afterwards, so a

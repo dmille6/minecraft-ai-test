@@ -1124,6 +1124,12 @@ def selftest():
     assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
     assert verdict(dict(base, integrity={'v': {'status': 'BREACH', 'removed_n': 1, 'changed_n': 0, 'removed': ['x'], 'changed': []}}))[0] == 'TRIP'
     assert verdict(dict(base, integrity={'v': {'status': 'UNKNOWN (chunks)'}}))[0] == 'WATCH', 'an unreadable zone is never OK'
+    # zoneplant-01show (11-18 S4 BREACH): PLANTED GROWTH -- a sapling a bot planted in the village grew; its leaves over the path
+    # turned dirt_path to dirt (not a structure block: REMOVED, a breach), while the tree's own log and leaves over air are only ADDED
+    _b = {'120,67,-6': 'minecraft:dirt_path', '121,67,-6': 'minecraft:dirt_path', '123,68,-7': 'minecraft:spruce_door'}
+    _n = {'123,68,-7': 'minecraft:spruce_door', '121,68,-8': 'minecraft:spruce_log', '120,68,-6': 'minecraft:spruce_leaves'}
+    _r, _c, _a = zone_diff(_b, _n)
+    assert _r == ['120,67,-6 minecraft:dirt_path', '121,67,-6 minecraft:dirt_path'] and _c == [] and len(_a) == 2, (_r, _c, _a)
     assert verdict(dict(base, integrity=None))[0] == 'WATCH', 'no integrity read is never OK'
     assert verdict(dict(base, integrity={'v': {'status': 'INTACT'}, 'far': {'status': 'NOT COVERED'}}))[0] == 'OK', 'a zone outside the copy belongs to the daily check'
     assert verdict(dict(base, integrity={'v': {'status': 'NO BASELINE'}}))[0] == 'WATCH'

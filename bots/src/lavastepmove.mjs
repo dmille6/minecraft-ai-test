@@ -22,6 +22,7 @@
 // at +1.5 s and the `end` state -- the read (scripts/host/lavastepread.py) recomputes every gate from those inputs.
 import { Vec3 } from 'vec3'
 import { haltPath } from './pathhalt.mjs'
+import { zoneEscapePlace } from './protectzone.mjs'   // zoneplant-01show: the danger mover's seal is the escape's own
 import { dangerCase, dangerMove, recordingAt, aimScores, chooseBearing, stepPlan, yawOf, stuckRelax, DANGER, WET, SEAL_ITEMS,
          REPLACEABLE, MOVE_MS, STEP_IN_MS, STEP_EDGE_MS, AIM_MS, SEAL_WITNESS_MS, REASSERT_MS, ARRIVE_R, RELAX_MS, STUCK_FIRINGS } from './lavastep.mjs'
 
@@ -426,7 +427,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         s.placeHeld = bot.heldItem?.name ?? null
         sealToken = true
         try {
-          const r = bot._genericPlace(ref, new Vec3(seal.face[0], seal.face[1], seal.face[2]), { swingArm: 'right', forceLook: 'ignore' })
+          const r = zoneEscapePlace(() => bot._genericPlace(ref, new Vec3(seal.face[0], seal.face[1], seal.face[2]), { swingArm: 'right', forceLook: 'ignore' }))   // zoneplant-01show (Claude r5)
           r?.catch?.(e => { s.why = `place: ${String(e?.message ?? e).slice(0, 60)}` })
         } catch (e) { s.why = `place: ${String(e?.message ?? e).slice(0, 60)}` }
         sealToken = false

@@ -12,7 +12,7 @@ t('the rung runs the side exit once, in shallow water (feet in water, head not w
   once(rung, "const stableHeadroom = [feetY + 1, feetY + 2].every(y =>", 'rung')
   once(rung, 'const why = await sideExitStep(feetY)', 'rung')
   once(rung, "return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''} | trail ${trail.join(' > ')}`)", 'rung')
-  assert.ok(rung.indexOf('const why = await sideExitStep(feetY)') < rung.indexOf('await bot.placeBlock(under, new Vec3(0, 1, 0))'), 'the exit is tried before the jump-place')
+  assert.ok(rung.indexOf('const why = await sideExitStep(feetY)') < rung.indexOf('await zoneEscapePlace(() => bot.placeBlock(under, new Vec3(0, 1, 0)))'), 'the exit is tried before the jump-place')
 })
 t('the step out swims up while pushing, releases both controls in finally, and checks abort on every poll', () => {
   once(rung, "bot.setControlState('forward', true); bot.setControlState('jump', true)", 'rung')

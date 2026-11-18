@@ -771,12 +771,15 @@ await t('LAVA BESIDE THE CEILING: never plugged, never cut (the rung adds no mov
 })
 
 // PURE, BY DESIGN (Claude r1 P3): the purpose is chosen here, not driven through attachProtectZone's runtime context; it pins
-// the two facts the plug relies on -- a reflex's place is `survival`, and a zone lets a survival place through.
-await t('PROTECTZONE COMPOSES: a plug is a survival placement under the entombed reflex, which a zone allows (and refuses for a skill)', () => {
+// ZONEPLANT-01SHOW (11-18): a zone now refuses EVERY placement, a survival plug included (a planted sapling under a reflex's
+// hold tripped S4). Below a zone's floor, for a bot already down there, the deep exemption still lets the plug through.
+await t('PROTECTZONE COMPOSES: a plug inside a zone is refused even under the entombed reflex; under the floor it passes', () => {
   const { zones } = PZ.parseZones({ version: 1, zones: [{ id: 'z', kind: 'village', box: [-10, -10, -10, 10, 10, 10] }] })
   assert.strictEqual(zones.length, 1)
   const cell = { x: 0, y: 2, z: -1 }
-  assert.strictEqual(PZ.zoneDecision({ zones, op: 'place', cell, purpose: digPurpose({ reflex: 'entombed' }).purpose }), null)
+  assert.ok(PZ.zoneDecision({ zones, op: 'place', cell, purpose: digPurpose({ reflex: 'entombed' }).purpose }), 'a survival plug in the zone is refused')
+  const deep = PZ.parseZones({ version: 1, zones: [{ id: 'z', kind: 'village', box: [-10, -64, -10, 10, 10, 10], floor_y: 5 }] }).zones
+  assert.strictEqual(PZ.zoneDecision({ zones: deep, op: 'place', cell, purpose: digPurpose({ reflex: 'entombed' }).purpose, feet: { x: 0, y: 1, z: 0 } }), null, 'under the floor, a deep bot plugs')
   assert.ok(PZ.zoneDecision({ zones, op: 'place', cell, purpose: digPurpose({ skill: 'gather' }).purpose }), 'POSITIVE CONTROL: the zone refuses a non-survival place')
 })
 

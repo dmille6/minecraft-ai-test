@@ -1,3 +1,4 @@
+import { zoneEscapePlace } from './protectzone.mjs'   // zoneplant-01show: the reflex's ladder is the escape's own
 /**
  * LADDERS: the capability this fleet already owns and has never once used.
  *
@@ -198,7 +199,7 @@ export async function climbLadder (bot, { need = 8, goals, maxRungs = MAX_RUNGS,
       try {
         await bot.equip(item, 'hand')
         // Face vector points from the ANCHOR back into the column.
-        await bot.placeBlock(anchor, { x: -wall.dx, y: 0, z: -wall.dz })
+        await zoneEscapePlace(() => bot.placeBlock(anchor, { x: -wall.dx, y: 0, z: -wall.dz }))   // zoneplant-01show
       } catch (e) {
         return { ok: false, placed, rose: (bot.entity?.position?.y ?? y0) - y0, why: `place failed: ${e?.message ?? e}` }
       }

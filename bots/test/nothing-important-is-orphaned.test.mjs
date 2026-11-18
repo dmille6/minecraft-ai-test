@@ -528,6 +528,9 @@ const REQUIRED = [
   'bots/test/reccache.test.mjs',
   // spentpick-01show (11-16): a placement never clicks a block that opens (Frost's table); the rebuild rule is in craftroom.mjs
   'bots/src/placeref.mjs',
+  // zoneplant-01show (11-18): no placement of any purpose in a protected zone; no planting within GROWTH_MARGIN of one
+  'bots/test/zoneplant.test.mjs',
+  'docs/reports/zoneplant-2026-11-18.md',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

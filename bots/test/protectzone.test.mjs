@@ -99,15 +99,15 @@ test('READER: zones() never touches the disk; refresh() reads an install or edit
 })
 
 // ---- the one decision ------------------------------------------------------------------------------------------------
-test('DECISION: inside a zone every op is refused; survival may dig, place and use, never open, sleep or craft; outside nothing is', () => {
+test('DECISION: inside a zone every op is refused; survival may dig and use (empty hand), never place, open, sleep or craft; outside nothing is', () => {
   const cell = { x: 100, y: 70, z: 0 }, out = { x: 10, y: 70, z: 0 }
   for (const op of ['dig', 'place', 'use', 'open', 'sleep', 'craft']) {
     assert.ok(zoneDecision({ zones: Z, op, cell, purpose: 'target' }), `${op} target refused`)
     assert.ok(zoneDecision({ zones: Z, op, cell, purpose: 'transit' }), `${op} transit refused`)
     assert.equal(zoneDecision({ zones: Z, op, cell: out, purpose: 'target' }), null, `${op} outside allowed`)
   }
-  for (const op of ['dig', 'place', 'use']) assert.equal(zoneDecision({ zones: Z, op, cell, purpose: 'survival' }), null, `survival ${op} allowed`)
-  for (const op of ['open', 'sleep', 'craft']) assert.ok(zoneDecision({ zones: Z, op, cell, purpose: 'survival' }), `survival ${op} still refused`)
+  for (const op of ['dig', 'use']) assert.equal(zoneDecision({ zones: Z, op, cell, purpose: 'survival' }), null, `survival ${op} allowed`)
+  for (const op of ['place', 'open', 'sleep', 'craft']) assert.ok(zoneDecision({ zones: Z, op, cell, purpose: 'survival' }), `survival ${op} still refused`)
 })
 test('REMEDY: names the zone, the box, and a goto outside it from where the bot stands', () => {
   const r = PZ.zoneRemedy(Z[0], 'dig', { x: 100, y: 70, z: 0 }, { x: 60.5, y: 72, z: 0.5 })
@@ -166,13 +166,13 @@ test('GUARD: a PLACEMENT is judged on the cell the block would occupy AND on its
   assert.equal(await bot._genericPlace(blk(47, 70, 0), V(1, 0, 0)), 'place-ok', 'both cells outside, the destination 1 from the edge')
   assert.equal(calls.length, 1)
 })
-test('GUARD: SURVIVAL keeps priority -- a reflex holding the body, or the reflex tick\'s scope, may dig and place (not open)', async () => {
+test('GUARD: SURVIVAL keeps priority -- a reflex holding the body, or the reflex tick\'s scope, may dig (not place, not open)', async () => {
   const held = fakeBot({ ctx: { skill: 'gather', holder: 'entombed' } })
   assert.equal(await held.bot.dig(blk(100, 70, 0)), 'dig-ok', 'a reflex holder digs its way out of a house wall')
   assert.equal(held.bot.protectZone.survival_allowed, 1)
   const scoped = fakeBot()
-  const r = await D.digScoped({ purpose: 'survival', by: 'reflex' }, () => scoped.bot._genericPlace(blk(100, 69, 0), V(0, 1, 0)))()
-  assert.equal(r, 'place-ok', 'the reflex tick\'s pillar block')
+  const r = D.digScoped({ purpose: 'survival', by: 'reflex' }, () => scoped.bot._genericPlace(blk(100, 69, 0), V(0, 1, 0)))()
+  await assert.rejects(r, ProtectedZoneError, 'zoneplant-01show: the reflex tick\'s pillar block is a placement in the zone -- refused')
   await assert.rejects(D.digScoped({ purpose: 'survival', by: 'reflex' }, () => scoped.bot.openBlock(blk(124, 64, -13, 'chest')))(), ProtectedZoneError, 'survival never opens a village chest')
   const goto = fakeBot()
   await assert.rejects(D.withDigScope(null, { purpose: 'transit', by: 'goto' }, () => goto.bot.dig(blk(100, 70, 0))), ProtectedZoneError, 'a goto\'s own dig (float, ride-floor-down) is transit: refused')
@@ -487,7 +487,7 @@ test('MUTANT KILLED (protectzone.mjs): findBlocks wrapper judging the palette bl
   })
 })
 test('MUTANT KILLED (protectzone.mjs): survival exempted for OPEN would let a reflex-held bot loot a village chest', async () => {
-  await withMutant(PZ_URL, "export const SURVIVAL_OPS = new Set(['dig', 'place', 'use'])\n", "export const SURVIVAL_OPS = new Set(['dig', 'place', 'use', 'open'])\n", async mod => {
+  await withMutant(PZ_URL, "export const SURVIVAL_OPS = new Set(['dig', 'use'])\n", "export const SURVIVAL_OPS = new Set(['dig', 'use', 'open'])\n", async mod => {
     const calls = []
     const bot = { entity: { position: V(60, 70, 0) }, openBlock: async b => { calls.push(b); return 'open-ok' }, pathfinder: {} }
     mod.attachProtectZone(bot, { zones: () => Z, context: () => ({ holder: 'entombed', skill: null }) })

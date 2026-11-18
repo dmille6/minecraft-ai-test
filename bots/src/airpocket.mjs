@@ -38,6 +38,7 @@ export const AP_SEAL_MS = 1500                // admission's price of ONE seal (
 
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
+import { zoneEscapePlace } from './protectzone.mjs'   // zoneplant-01show
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
@@ -627,7 +628,7 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       if (no) return `stopped:${no} (${placed} placed)`
       if (typeof bot._placeBlockWithOptions !== 'function') return `stopped:no place primitive (${placed} placed)`
       // SENT HERE, synchronously: forceLook 'ignore' leaves no await before mineflayer writes the place packet
-      const answer = bot._placeBlockWithOptions(ref, face, { swingArm: 'right', forceLook: 'ignore' })
+      const answer = zoneEscapePlace(() => bot._placeBlockWithOptions(ref, face, { swingArm: 'right', forceLook: 'ignore' }))   // zoneplant-01show: the reflex's own placement
       Promise.resolve(answer).catch(() => {})   // its 5-s answer timeout must not surface as an unhandled rejection
       try { await Promise.race([answer, sleep(1500)]) } catch { /* read back */ }
       if (!isSolid(bot.blockAt(new Vec3(fx, cellY, fz)))) return `stopped:y=${cellY} did not turn solid (${placed} placed)`
@@ -721,7 +722,7 @@ export async function sealRoof (bot, plan, { fx, fy, fz, Vec3, sleep, now = () =
       if (no) return done(false, no)
       if (typeof bot._placeBlockWithOptions !== 'function') return done(false, 'no place primitive')
       // SENT HERE, synchronously: forceLook 'ignore' leaves no await before mineflayer writes the place packet
-      const sent = bot._placeBlockWithOptions(ref, face, { forceLook: 'ignore', swingArm: 'right' })
+      const sent = zoneEscapePlace(() => bot._placeBlockWithOptions(ref, face, { forceLook: 'ignore', swingArm: 'right' }))
       Promise.resolve(sent).catch(() => {})     // the seal's 5-s answer timeout must not surface as an unhandled rejection
       try { await Promise.race([sent, sleep(1500)]) } catch { /* the read-back decides */ }
       const after = bot.blockAt(at)

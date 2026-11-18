@@ -70,6 +70,7 @@ import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plu
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
+import { zoneEscapePlace } from './protectzone.mjs'   // zoneplant-01show: the walk-out's bridge marks itself to the zone guard
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
 import { ceilEscapeOn, ceilingEscapeDecision, firstSwingEscalation, envSettled, envTag, dirName, swingFits, cellFloods,
          rescueRowDue, CE_SETTLE_SAMPLE_MS, CE_REPLANS } from './ceilescape.mjs'
@@ -5826,7 +5827,7 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
         if (!atPlace.ok) return done(r.steps ? 'progress' : 'refused', `at the place: ${atPlace.reason}`)
         if (!atPlace.place.length || atPlace.place[0].cell.join(',') !== q.cell.join(',') || atPlace.place[0].ref.join(',') !== q.ref.join(',')) continue
         const ref = bot.blockAt(feet.offset(...q.ref))
-        try { await bot.placeBlock(ref, new Vec3(...q.face)) } catch { /* verified below */ }
+        try { await zoneEscapePlace(() => bot.placeBlock(ref, new Vec3(...q.face))) } catch { /* verified below */ }
         if (gone()) return done('yielded', '')
         const got = bot.blockAt(feet.offset(...q.cell))
         if (!got || got.boundingBox !== 'block') return done(r.steps ? 'progress' : 'refused', `the ${q.why} did not take at ${q.cell.join(',')} (${got?.name ?? 'unknown'})`)
@@ -6299,7 +6300,8 @@ export async function zoneWalkTry (bot, { handler = '?', yieldTo = () => null, o
     const here = bot.entity.position.floored()
     const ref = bot.blockAt(here.offset(0, -1, 0))
     if (!ref || ref.boundingBox !== 'block') return false
-    try { await bot.placeBlock(ref, new Vec3(dir[0], 0, dir[2])) } catch { /* read back */ }
+    // zoneplant-01show (Codex r1): the bridge is the escape's own placement -- marked, so the zone guard lets it through
+    try { await zoneEscapePlace(() => bot.placeBlock(ref, new Vec3(dir[0], 0, dir[2]))) } catch { /* read back */ }
     await sleep(250)
     const got = bot.blockAt(new Vec3(...cell))
     return !!got && got.boundingBox === 'block'
@@ -6490,7 +6492,7 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     bot.setControlState('jump', true)
     await sleep(300)
     if (!alive()) { bot.setControlState('jump', false); return 'preempted' }   // airpocket-01 (Codex r3): never place after a yield
-    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed */ }
+    try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch { /* mistimed */ }
     bot.setControlState('jump', false)
     await sleep(250)
 
@@ -6634,7 +6636,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     const blk = scaffoldFor(bot, 'place_onto'); if (!blk) return 'out of placeable blocks'
     try { await bot.equip(blk, 'hand') } catch {}
     const a = abortIfNeeded(); if (a) return `abort after equipping: ${a}`   // the equip await can outlive a preemption (Codex code pass 2)
-    try { await bot.placeBlock(ref, new Vec3(0, 1, 0)) } catch (e) { return `place failed at ${rx},${ry + 1},${rz}: ${String(e?.message ?? e).slice(0, 50)}` }
+    try { await zoneEscapePlace(() => bot.placeBlock(ref, new Vec3(0, 1, 0))) } catch (e) { return `place failed at ${rx},${ry + 1},${rz}: ${String(e?.message ?? e).slice(0, 50)}` }
     if (B(rx, ry + 1, rz)?.boundingBox !== 'block') return `cell ${rx},${ry + 1},${rz} did not turn solid`
     spent++; return null
   }
@@ -6724,7 +6726,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     while (Date.now() < risenBy && bot.entity.position.y < feetY + 1.1) await sleep(50)
     const a1 = abortIfNeeded(); if (a1) { bot.setControlState('jump', false); return end(false, `abort before placing: ${a1}`) }
     let placed = false; const yAtPlace = bot.entity.position.y
-    try { await bot.placeBlock(under, new Vec3(0, 1, 0)); placed = true } catch (e) { lastPlaceErr = `${String(e?.message ?? e).slice(0, 60)} at y=${yAtPlace.toFixed(2)}` }
+    try { await zoneEscapePlace(() => bot.placeBlock(under, new Vec3(0, 1, 0))); placed = true } catch (e) { lastPlaceErr = `${String(e?.message ?? e).slice(0, 60)} at y=${yAtPlace.toFixed(2)}` }
     bot.setControlState('jump', false)
     const landedBy = Date.now() + 1_500
     while (Date.now() < landedBy && !bot.entity.onGround) await sleep(100)
@@ -6840,9 +6842,9 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
       if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the look'); return out(false, 'budget spent plugging') }
       const last = plan()
       if (!inFrame() || !last.ok || key3(last.plugs[0].cell) !== key3(q.cell) || key3(last.plugs[0].ref) !== key3(q.ref)) continue
-      try { await bot._placeBlockWithOptions(refB, faceV, { swingArm: 'right', forceLook: 'ignore' }) } catch { /* verified below */ }
+      try { await zoneEscapePlace(() => bot._placeBlockWithOptions(refB, faceV, { swingArm: 'right', forceLook: 'ignore' })) } catch { /* verified below */ }   // zoneplant-01show (Codex r2): the escape's own plug
     } else {
-      try { await bot.placeBlock(refB, faceV) } catch { /* verified below */ }
+      try { await zoneEscapePlace(() => bot.placeBlock(refB, faceV)) } catch { /* verified below */ }
     }
     // A PLACEMENT IS ALWAYS READ BACK AND WRITTEN, even when another owner took the body meanwhile (Codex r1 P2): a plug that
     // took and was never counted would hide from the read's death linkage. The settle touches no control.
@@ -6909,7 +6911,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
         bot.setControlState('jump', true)
         await sleep(300)
         if (!alive()) { bot.setControlState('jump', false); return 'preempted' }
-        try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch {}
+        try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch {}
         bot.setControlState('jump', false)
         await sleep(200)
       } else {

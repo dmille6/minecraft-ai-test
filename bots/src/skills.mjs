@@ -376,7 +376,7 @@ import { fillWater as obsFillWater, scoopLava as obsScoopLava, pourInto as obsPo
 import { isFull as obsIsFull } from './shaftgeom.mjs'   // obsidian-01: a basin cell still rock
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
-import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD, liquidFlowReaches } from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show liquidReaches)
+import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD, liquidFlowReaches, plantNearZone } from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show liquidReaches)
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
@@ -7425,6 +7425,9 @@ export function plantableSpotNear (bot, radius = 2, item = 'oak_sapling') {
         if (!PLANTABLE_SOIL.has(soil.name) || !PLANT_REPLACEABLE.has(cell.name)) continue
         // THE TOWN PLAN (townplan-01, build spec 1.6): never a plan cell, a stand, a plot or a path (a tree would grow into them)
         if (cell.position && planTierAt(bot, cell.position.x, cell.position.y, cell.position.z) !== null) continue
+        // NEVER IN OR NEAR A PROTECTED ZONE (zoneplant-01show): the zone's box grown by GROWTH_MARGIN -- the tree's canopy must
+        // not reach it (11-18: a spruce planted inside village-taiga-6_1 grew over its path and tripped S4)
+        if (cell.position && plantNearZone(bot.protectZones?.() ?? [], cell.position.x, cell.position.z)) continue
         // NEVER A PROJECT'S COLUMNS (fell-01): a tree there grows into the build (shop.mjs saplingBox)
         if (cell.position && !saplingAllowedAt(bot.shopSaplingBox, cell.position.x, cell.position.z)) continue
         const column = []
