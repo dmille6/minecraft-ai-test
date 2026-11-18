@@ -100,7 +100,7 @@ await t('gradeColumn: a crust over a hollow -> the crust cut, the hollow filled 
   const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air', [`0,${G - 1},0`]: 'air' })
   const w = GT.gradeColumn(srv.read, 0, 0, G, deps(srv.read))
   assert.deepStrictEqual(w.cut.map(c => c.at[1]), [G + 1])
-  assert.deepStrictEqual(w.fill, [{ at: [0, G - 1, 0], role: 'earth' }, { at: [0, G, 0], role: 'topsoil' }])
+  assert.deepStrictEqual(w.fill.map(f => ({ at: f.at, role: f.role })), [{ at: [0, G - 1, 0], role: 'earth' }, { at: [0, G, 0], role: 'topsoil' }])
   for (let y = G - 6; y <= G; y++) srv.set([1, y, 0], 'air'); srv.set([1, G + 1, 0], 'dirt')
   assert.strictEqual(GT.gradeColumn(srv.read, 1, 0, G, deps(srv.read)).why, 'hollow_deep')
   // leaves over the column are not a trunk: the cobblestone top under them is re-topped
@@ -217,6 +217,46 @@ await t('gradeFirst: segments with an open grade cell, and what they wait on, go
   assert.strictEqual(GT.gradeFirst(rec, () => false), rec)
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/visitRec = gradeFirst\(visitRec, q => !waivedK\(q\) && !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\)\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit orders by it')
+})
+console.log('CODEX T11 r1')
+await t('BLOCKER 1: a reserved column (keepOff: landmark, hold, lawn) is never graded', () => {
+  const srv = server({ [`5,${G + 1},5`]: 'dirt' })
+  const g = GT.gradeTarget(plan({ gate: [[5, 5]] }))
+  // the inwall survey's reservations come in through terrace.records / landmark zones; here the survey's own `avoid` path stands in
+  const { rec } = site(srv, { t: g.t }, { avoid: (x, z) => (x === 5 && z === 5 ? 'reserved:landmark' : null) })
+  assert.ok(!(rec?.cut ?? []).some(c => c.grade), 'nothing graded in a reserved column')
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/gw = gradeSurvey\(read, grade\.t, \{ home, avoid: keepOff,/.test(strip(readFileSync(P('tidy.mjs'), 'utf8'))), 'the survey\'s own keepOff, reservations first')
+})
+await t('BLOCKER 2: a crust over a hollow: the cuts carry the hollow, the hollow cells name their opener (never waived)', () => {
+  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air', [`0,${G - 1},0`]: 'air' })
+  const w = GT.gradeColumn(srv.read, 0, 0, G, deps(srv.read))
+  assert.deepStrictEqual(w.cut[0].hollow, [[0, G - 1, 0], [0, G, 0]])
+  assert.ok(w.fill.every(f => JSON.stringify(f.opener) === JSON.stringify([0, G + 1, 0])))
+  const g = GT.gradeTarget(plan({ gate: [[0, 0]] }))
+  const { rec } = site(srv, { t: g.t })
+  assert.ok(rec.cells.filter(c => c.grade).every(c => Array.isArray(c.opener)) && rec.cut.find(c => c.grade).hollow.length === 2, 'the record keeps both')
+})
+await t('BLOCKER 3: a changed or withdrawn target takes the open grade work off; finished work stays; the same plan keeps all', () => {
+  const rec = { grade_v: 'A', cells: [{ at: [1, G, 1], grade: true }, { at: [2, G, 1], grade: true }, { at: [3, G, 1] }], cut: [{ at: [1, G + 1, 1], grade: true }], waived: { [`2,${G},1`]: {} } }
+  const done = q => q.at[0] === 1
+  const standing = () => true
+  assert.strictEqual(GT.dropStaleGrade(rec, 'A', { done, standing }).dropped, 0)
+  const r2 = GT.dropStaleGrade(rec, 'B', { done, standing })
+  assert.deepStrictEqual(r2.rec.cells.map(c => c.at[0]), [1, 3]); assert.deepStrictEqual(r2.rec.cut, []); assert.deepStrictEqual(r2.rec.waived, {})
+  assert.strictEqual(r2.rec.grade_v, 'B')
+  const r3 = GT.dropStaleGrade(rec, null, { done, standing })
+  assert.ok(!('grade_v' in r3.rec)); assert.strictEqual(r3.dropped, 2)
+  // a fresh siting carries its stamp, so its own first refresh keeps its work
+  const srv = server({ [`5,${G + 1},5`]: 'dirt' })
+  const g = GT.gradeTarget(plan({ gate: [[5, 5]] }))
+  const { rec: sited } = site(srv, { t: g.t })
+  assert.strictEqual(sited.grade_v, GT.gradeStamp(g.t))
+  assert.strictEqual(GT.dropStaleGrade(sited, GT.gradeStamp(g.t)).dropped, 0)
+  // the gate is part of the stamp: the same v and sha with another gate is another plan
+  assert.notStrictEqual(GT.gradeStamp(g.t), GT.gradeStamp(GT.gradeTarget(plan({ gate: [[5, 6]] })).t))
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/const stale = dropStaleGrade\(cur, gradeStamp\(gNow\?\.t \?\? null\),[^\n]*\n\s*cur = stale\.rec/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the refresh drops it before the release and the merge')
 })
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {

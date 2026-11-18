@@ -62,6 +62,10 @@ def run(GP, GT):
     H2 = dict(H); H2[(10, -26)] = 72
     m2 = GP.measure(p, H2, TOP)
     check('a 3-high column inside the terrace: 4 ground-ground 2+ pairs', m2['gate']['ground_ground_2plus'] == 4)
+    # Codex T11 r1 BLOCKER 4: a partial read never passes -- one column read of nine is 1/9, the 8 unread named
+    one = {(10, -26): 69}
+    mp = GP.measure(p, one, {(10, -26): 'dirt'})
+    check('a partial read: the denominator stays 9, 8 unread named', mp['gate']['columns'] == 9 and mp['gate']['unread'] == 8 and mp['gate']['grade_pct'] == 11.1)
     # dirt_path counts as earth
     TOP3 = dict(TOP); TOP3[(9, -25)] = 'dirt_path'
     check('dirt_path is earth', GP.measure(p, H, TOP3)['gate']['at_height_earth'] == 8)
@@ -98,6 +102,7 @@ def main():
         ('gradepct.py', "        ok = [c for c in at if TOP[c] in EARTH]\n", "        ok = at\n", 'the earth-top test'),
         ('gradepct.py', "                elif cl == 'f':\n                    gf += 1\n", "                elif cl == 'f':\n                    gg += 1\n", 'the fixed split'),
         ('gradepct.py', "    if not read:\n        raise ReadFailed(", "    if False:\n        raise ReadFailed(", 'the read control'),
+        ('gradepct.py', "                'grade_pct': round(100.0 * len(ok) / len(allc), 1) if allc else None,", "                'grade_pct': round(100.0 * len(ok) / len(cols), 1) if cols else None,", 'the unread in the denominator'),
         ('gradetarget.py', "            if n not in run and at(*n) == (y, 't'):\n", "            if n not in run and at(*n)[1] == 't':\n", 'the height in the flood'),
     ]:
         src = open(os.path.join(HERE, f)).read()

@@ -117,13 +117,16 @@ def measure(plan, H, TOP, before=None):
         raise ReadFailed('no ground column read: the region read failed (not a flat town)')
 
     def stat(cols):
-        cols = [c for c in cols if c in H]
+        # Codex T11 r1 BLOCKER 4: the denominator is EVERY ground column; an unread one counts as not at grade and is named
+        allc = list(cols)
+        cols = [c for c in allc if c in H]
+        unread = len(allc) - len(cols)
         at = [c for c in cols if H[c] == plan.at(*c)[0]]
         ok = [c for c in at if TOP[c] in EARTH]
         tops = collections.Counter(TOP[c] for c in at if TOP[c] not in EARTH)
-        return {'columns': len(cols), 'at_height': len(at), 'at_height_earth': len(ok),
-                'grade_pct': round(100.0 * len(ok) / len(cols), 1) if cols else None,
-                'height_pct': round(100.0 * len(at) / len(cols), 1) if cols else None,
+        return {'columns': len(allc), 'unread': unread, 'at_height': len(at), 'at_height_earth': len(ok),
+                'grade_pct': round(100.0 * len(ok) / len(allc), 1) if allc else None,
+                'height_pct': round(100.0 * len(at) / len(allc), 1) if allc else None,
                 'other_tops_at_height': dict(tops.most_common(8))}
 
     def steps(cols):

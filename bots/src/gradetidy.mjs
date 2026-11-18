@@ -47,7 +47,11 @@ export function gradeTarget (raw) {
     if (!Number.isFinite(Number(raw.v)) || typeof raw.sha256 !== 'string' || !raw.sha256) return { ok: false, t: null, why: 'no_version' }
     const cols = Array.isArray(raw.gate?.cols) ? raw.gate.cols.filter(c => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite)) : []
     if (!cols.length) return { ok: false, t: null, why: 'no_gate' }
-    return { ok: true, why: 'ok', t: { v: Number(raw.v), sha256: raw.sha256, box, h: raw.h, cls: raw.class, gateId: String(raw.gate?.id ?? '-'), gate: new Set(cols.map(([x, z]) => k2(x, z))) } }
+    const gate = new Set(cols.map(([x, z]) => k2(x, z)))
+    // the gate's own fingerprint: a file whose gate changed under the same v and sha is a different plan (dropStaleGrade)
+    let hsh = 5381
+    for (const k of [...gate].sort()) for (let i = 0; i < k.length; i++) hsh = ((hsh * 33) ^ k.charCodeAt(i)) >>> 0
+    return { ok: true, why: 'ok', t: { v: Number(raw.v), sha256: raw.sha256, box, h: raw.h, cls: raw.class, gateId: String(raw.gate?.id ?? '-'), gate, gateHash: hsh.toString(16) } }
   } catch { return { ok: false, t: null, why: 'bad_file' } }
 }
 /** The version tag a row carries -> `v<v>:<first 8 of sha256>:<gate id>` | null. Pure. */
@@ -111,6 +115,14 @@ export function gradeColumn (read, x, z, y, { col, cuttable, liquid }) {
     }
     const w = atTarget()
     if (w) return { why: w }
+    // Codex T11 r1 BLOCKER 2: a crust over a hollow (roughground-1b's rule): every cut of the column carries the hollow's cells (dug
+    // only while nobody stands in it) and every hollow cell names the crust cut that opens it (never waived: gkWaivable/stallWaive)
+    const holl = fill.filter(f => !f.retop)
+    if (cut.length && holl.length) {
+      const opener = cut[cut.length - 1].at
+      for (const c of cut) c.hollow = holl.map(f => f.at)
+      for (const f of holl) f.opener = opener
+    }
   } else if (h < y) {
     for (let yy = h + 1; yy < y; yy++) fill.push({ at: [x, yy, z], role: 'earth' })
     fill.push({ at: [x, y, z], role: 'topsoil' })
@@ -209,4 +221,27 @@ export function gradeFirst (record, open = () => true) {
   const add = s => { for (const d of by.get(s)?.deps ?? []) if (!want.has(d)) { want.add(d); add(d) } }
   for (const s of [...want]) add(s)
   return { ...record, segments: [...segs.filter(s => want.has(s.seg)), ...segs.filter(s => !want.has(s.seg))] }
+}
+
+/** The record's grade stamp for a target -> string | null (null: no target). Pure. */
+export const gradeStamp = t => (t ? `${gradeV(t)}:${t.gateHash ?? '-'}` : null)
+/**
+ * Codex T11 r1 BLOCKER 3: A CHANGED OR WITHDRAWN TARGET -> { rec, dropped }. Pure over the tests. When the record's `grade_v` stamp is
+ * not the current target's (`stamp`: gradeStamp, null when the file is gone, unreadable or GRADE=off), every OPEN grade entry -- a
+ * grade fill not done (`done`), a grade cut still standing (`standing`) -- leaves the record (its waivers too), and the record takes
+ * the new stamp. Finished grade work stays (it is ground now). The same stamp -> the record as it is.
+ */
+export function dropStaleGrade (rec, stamp, { done = () => false, standing = () => true } = {}) {
+  if (!rec) return { rec, dropped: 0 }
+  const was = rec.grade_v ?? null
+  if (was === stamp) return { rec, dropped: 0 }
+  const kOf = at => at.join(',')
+  const gone = new Set()
+  for (const c of rec.cells ?? []) if (c.grade && !done(c)) gone.add(kOf(c.at))
+  for (const c of rec.cut ?? []) if (c.grade && standing(c)) gone.add(kOf(c.at))
+  const keepC = c => !(c.grade && gone.has(kOf(c.at)))
+  const waived = rec.waived ? Object.fromEntries(Object.entries(rec.waived).filter(([k]) => !gone.has(k))) : undefined
+  const out = { ...rec, cells: (rec.cells ?? []).filter(keepC), cut: (rec.cut ?? []).filter(keepC), ...(waived ? { waived } : {}) }
+  if (stamp == null) delete out.grade_v; else out.grade_v = stamp
+  return { rec: out, dropped: gone.size }
 }
