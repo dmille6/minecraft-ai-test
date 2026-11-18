@@ -85,6 +85,11 @@ def run(GP, GT):
     # an unknown class is not ground (no opinion)
     p3 = GP.Plan(plan(over={(1, -21): ('q', 60)}))
     check('an unknown class is not ground', (1, -21) not in set(p3.ground()))
+    # the release-1 criteria: owned = gate less the other records' columns; keep, steps, grey, outside
+    cr = GP.criteria(p, H, TOP, others={(11, -27)}, rec={'cells': [{'at': [0, 69, -30], 'grade': True}], 'cut': []}, keep=6, steps_floor=0, grey_max=0)
+    check('criteria: owned 8 of 9 (one is another record\'s, at grade: it stays in the keep on both sides), keep 7 of 9', cr['owned'] == 8 and cr['keep']['count'] == 7 and cr['keep']['of'] == 9 and cr['keep']['grade_owned_ok'] == 6)
+    check('criteria: the grey top at height is counted against its max', cr['grey']['count'] == 1 and not cr['grey']['pass'])
+    check('criteria: a grade cell outside the gate fails', cr['outside']['count'] == 1 and not cr['outside']['pass'])
     # gradetarget: the gate is the flood at y69 from the seed, nothing across a height change
     big = plan(box=(0, -30, 20, -20), over={(x, -23): ('t', 70) for x in range(0, 21)})
     raw = json.dumps(big).encode()
@@ -103,6 +108,7 @@ def main():
         ('gradepct.py', "                elif cl == 'f':\n                    gf += 1\n", "                elif cl == 'f':\n                    gg += 1\n", 'the fixed split'),
         ('gradepct.py', "    if not read:\n        raise ReadFailed(", "    if False:\n        raise ReadFailed(", 'the read control'),
         ('gradepct.py', "                'grade_pct': round(100.0 * len(ok) / len(allc), 1) if allc else None,", "                'grade_pct': round(100.0 * len(ok) / len(cols), 1) if cols else None,", 'the unread in the denominator'),
+        ('gradepct.py', "    owned = sorted(c for c in gate if c not in others)", "    owned = sorted(gate)", 'the owned denominator'),
         ('gradetarget.py', "            if n not in run and at(*n) == (y, 't'):\n", "            if n not in run and at(*n)[1] == 't':\n", 'the height in the flood'),
     ]:
         src = open(os.path.join(HERE, f)).read()

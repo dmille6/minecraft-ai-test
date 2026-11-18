@@ -167,6 +167,75 @@ def measure(plan, H, TOP, before=None):
     return out
 
 
+GREY = {'cobblestone', 'cobbled_deepslate', 'stone', 'mossy_cobblestone'}
+OWNERS = ('paths', 'decor', 'dress')
+
+
+def owned_by_others(pool):
+    """{(x, z)} named by the paths, decor and dress records (their newest generation: cells and zone boxes) in a pool copy."""
+    import glob, re
+    out = set()
+    for kind in OWNERS:
+        fs = [f for f in glob.glob(os.path.join(pool, f'project-*.{kind}.g*.json')) if re.search(rf'\.{kind}\.g\d+\.json$', f)]
+        if not fs:
+            continue
+        r = json.load(open(max(fs, key=lambda f: int(re.search(r'\.g(\d+)\.json$', f).group(1)))))
+        for c in r.get('cells') or []:
+            a = c.get('at') if isinstance(c, dict) else None
+            if a:
+                out.add((a[0], a[2]))
+        for zb in r.get('zones') or []:
+            b = zb.get('box') if isinstance(zb, dict) else None
+            if b and len(b) == 6:
+                for x in range(b[0], b[3] + 1):
+                    for z in range(b[2], b[5] + 1):
+                        out.add((x, z))
+    return out
+
+
+def newest_tidy(pool):
+    import glob, re
+    fs = [f for f in glob.glob(os.path.join(pool, 'project-*.tidy.g*.json')) if re.search(r'\.tidy\.g\d+\.json$', f)]
+    return json.load(open(max(fs, key=lambda f: int(re.search(r'\.g(\d+)\.json$', f).group(1))))) if fs else None
+
+
+def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=175, steps_floor=8, grey_max=39):
+    """THE RELEASE-1 READ (control 11-18), each criterion with its count and its verdict. Pure.
+       owned   the gate's columns no other record (paths, decor, dress) names: the denominator
+       keep    owned columns at target height with an earth top >= `keep`
+       outside grade cells and cuts on the tidy record outside the gate == 0 (needs `rec`)
+       steps   ground-ground 2+ pairs with a side in the gate <= `steps_floor` (the inherent floor: neighbours off their own targets)
+       grey    gate columns at target height with a grey top <= `grey_max` (11-18 06:30Z: 39)"""
+    gate = {c for c in plan.gate if plan.at(*c)[1] in GROUND_CLS}
+    owned = sorted(c for c in gate if c not in others)
+    unread = [c for c in owned if c not in H]
+    ok = [c for c in owned if c in H and H[c] == plan.at(*c)[0] and TOP[c] in EARTH]
+    pairs = set()
+    for c in gate:
+        if c not in H:
+            continue
+        for dx, dz in N4:
+            n = (c[0] + dx, c[1] + dz)
+            if n in H and plan.at(*n)[1] in GROUND_CLS and abs(H[c] - H[n]) >= 2:
+                pairs.add(tuple(sorted((c, n))))
+    grey = [c for c in gate if c in H and H[c] == plan.at(*c)[0] and TOP[c] in GREY]
+    others_g = [c for c in gate if c in others]
+    others_ok = [c for c in others_g if c in H and H[c] == plan.at(*c)[0] and TOP[c] in EARTH]
+    out = {'owned': len(owned), 'others_in_gate': len(others_g), 'others_ok': len(others_ok),
+           'gate_ok': len(ok) + len(others_ok), 'gate': len(gate), 'unread': len(unread),
+           # the KEEP denominator: the gate less the other records' columns NOT at grade (theirs, never the grade's to fix); the other
+           # records' columns already at grade stay in it on both sides (a path at its height with its dirt_path is a graded column)
+           'keep': {'count': len(ok) + len(others_ok), 'of': len(gate) - (len(others_g) - len(others_ok)), 'grade_owned_ok': len(ok), 'grade_owned': len(owned),
+                    'need': keep, 'pass': len(ok) + len(others_ok) >= keep and not unread},
+           'steps': {'count': len(pairs), 'floor': steps_floor, 'pass': len(pairs) <= steps_floor},
+           'grey': {'count': len(grey), 'max': grey_max, 'pass': len(grey) <= grey_max}}
+    if rec is not None:
+        gk = {(x, z) for (x, z) in plan.gate}
+        bad = [q['at'] for q in (rec.get('cells') or []) + (rec.get('cut') or []) if q.get('grade') and (q['at'][0], q['at'][2]) not in gk]
+        out['outside'] = {'count': len(bad), 'pass': not bad, 'first': bad[:5]}
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--target', required=True)
@@ -175,6 +244,8 @@ def main(argv=None):
     ap.add_argument('--before', help='an earlier run\'s --out (its heights)')
     ap.add_argument('--out')
     ap.add_argument('--tlregion', default=None)
+    ap.add_argument('--keep', type=int, default=175, help='the KEEP count (control 11-18: 175)')
+    ap.add_argument('--pool', help='a pool copy: the paths/decor/dress records (the criteria\'s owned columns) and the newest tidy record')
     ap.add_argument('--y0', type=int, default=50)
     ap.add_argument('--y1', type=int, default=115)
     a = ap.parse_args(argv)
@@ -199,6 +270,8 @@ def main(argv=None):
     before = json.load(open(a.before)).get('heights') if a.before else None
     m = measure(plan, H, TOP, before)
     m['control']['missing_chunks'] = len(d.get('missing') or [])
+    if a.pool and plan.gate:
+        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep)
     if a.out:
         json.dump(m, open(a.out, 'w'))
     show = {k: v for k, v in m.items() if k != 'heights'}
