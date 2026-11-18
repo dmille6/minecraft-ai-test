@@ -64,7 +64,8 @@ def run(mb=400, slope=0.0, per_reconnect=0.0, rounds=6, restarts_of=None, load=T
 # ---- the parsers, on lines in the hosts' own shapes
 ev = SR.paper_events([joined(T0 + 9, 'showcase-Alpha'), lost(T0 + 8, 'showcase-Alpha', 'Timed out'), joined(T0 + 20, 'mike'),
                       (T0 + 30, '[14:00:30 INFO]: showcase-Alpha issued server command: /list'),
-                      (T0 + 31, '[14:00:31 INFO]: <showcase-Bravo> showcase-Alpha joined the game')], set(BOTS))
+                      (T0 + 31, '[14:00:31 INFO]: [Not Secure] <showcase-Bravo> showcase-Alpha joined the game'),
+                      (T0 + 32, '[14:00:32 INFO]: showcase-Alpha[/127.0.0.1:40706] logged in with entity id 34 at ([world]-14.5, 71.0, -5.5)')], set(BOTS))
 check(ev == [(T0 + 8, 'showcase-Alpha', 'lost', 'Timed out'), (T0 + 9, 'showcase-Alpha', 'join', None)], 'join and lost lines of the bots only, in time order; a chat line quoting one is not one')
 rc = SR.reconnects(ev, BOTS, T0, QE)
 check(rc['showcase-Alpha'] == {'joins': 1, 'lost': {'Timed out': 1}} and rc['showcase-Bravo']['joins'] == 0, 'reconnects and reasons per bot')

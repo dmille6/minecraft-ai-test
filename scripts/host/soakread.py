@@ -31,8 +31,8 @@ RECOVER_MIN = 10              # minutes after the last pause ends for every bot 
 DEATHS_FAIL = 2               # the death gate's floor: one death is named, two fail
 SAMPLE_S = 300
 
-JOIN = re.compile(r'\]: (\S+) joined the game$')
-LOST = re.compile(r'\]: (\S+) lost connection: (.*)$')
+JOIN = re.compile(r'^\[\d\d:\d\d:\d\d INFO\]: (\S+) joined the game$')
+LOST = re.compile(r'^\[\d\d:\d\d:\d\d INFO\]: (\S+) lost connection: (.*)$')
 MEM = re.compile(r'^\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d+Z\] \w+\s+memory rss_mb=(\d+) heap_used_mb=(\d+) .*?array_buffers_mb=(\d+)')
 OOM = re.compile(r'(?i)out of memory|oom-kill')
 

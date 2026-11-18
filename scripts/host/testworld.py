@@ -892,8 +892,10 @@ def cmd_soak(a):
     cmd_sample(a)
     journal('soak-end', run=a.run, stopped=stopped)
     r = sh(sys.executable, '-B', f'{HERE}/soakread.py', '--run', a.run, check=False)
-    print(r.stdout[-4000:] + r.stderr[-2000:])
-    return r.returncode
+    print(r.stdout[-6000:] + r.stderr[-2000:])
+    journal('soak-read', run=a.run, verdict={0: 'PASS', 1: 'FAIL', 3: 'INCONCLUSIVE'}.get(r.returncode, f'reader exit {r.returncode}'))
+    # 0 once the read is written, whatever it says: a FAIL is a finding, and a failed unit on this host would look like a fault
+    return 0 if r.returncode in (0, 1, 3) else r.returncode
 
 
 def main():
