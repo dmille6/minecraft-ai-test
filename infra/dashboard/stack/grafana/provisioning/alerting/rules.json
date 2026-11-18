@@ -754,5 +754,11 @@
     }
    ]
   }
+ ],
+ "deleteRules": [
+  {
+   "orgId": 1,
+   "uid": "mcai-canary-overdue"
+  }
  ]
 }

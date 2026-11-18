@@ -682,8 +682,11 @@ def alert_rules():
                   'Collector {{ $labels.collector }} on {{ $labels.host }} is failing: http://{{ $labels.instance }}/health'),
         ]),
     ]
+    # a rule taken out of the list stays in Grafana until the provisioning file deletes it by uid
+    retired = ['mcai-canary-overdue']   # 11-18: the fleet canary loop is stopped with the fleet
     return {'apiVersion': 1, 'groups': [{'orgId': 1, 'name': n, 'folder': 'Minecraft AI', 'interval': '1m', 'rules': rs}
-                                        for n, rs in groups]}
+                                        for n, rs in groups],
+            'deleteRules': [{'orgId': 1, 'uid': u} for u in retired]}
 
 
 def main():
