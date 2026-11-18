@@ -116,6 +116,31 @@ export function idleBuild ({ on = BUILDFIRST.on, run = 0, look = () => null, B =
   return { order: o, why: 'building', run: (Number(run) || 0) + 1 }
 }
 
+/** drawshort-01show: the most of the family a room trip keeps for its pick's own bill (SHOP_BILL_CAP: what one visit draws). */
+export const ROOM_KEEP_MAX = 256
+/** THE ROOM TRIP'S FAMILY KEEP FOR ITS PICK -> blocks. Pure. Never below ROOM_WELL_KEEP; the pick's own open bill of the family
+ *  (cobblestone + cobbled_deepslate: the warehouse ground's fills, a wall's stone) up to ROOM_KEEP_MAX -- the trip never throws the
+ *  stone the building it makes room for is about to lay. */
+export const roomKeepFor = (bill = 0) => Math.max(ROOM_WELL_KEEP, Math.min(ROOM_KEEP_MAX, Math.floor(Number(bill) || 0)))
+
+/** drawshort-01show: a building visit that stops `no_material` while the town index stocks the missing block is `draw_short`
+ *  (its draw fell short, the town did not) this many times on one plot; then `no_material` again, as before. Two: one re-ask after
+ *  the order's cooldown covers a busy or out-of-reach chest; a second identical short says the draw path itself cannot get it. */
+export const DRAW_SHORT_MAX = 2
+/**
+ * THE STOP FOR A VISIT THAT RAN OUT -> { stop, capped, names }. Pure. `stop`/`why` the run's (buildrun.mjs: `no_material`,
+ * why `<role> for <seg>`), `namesOf(role)` the role's block names, `town` the index's stock, `count` this bot's draw_short visits on
+ * the plot so far. Only a `no_material` whose missing role the town stocks becomes `draw_short`, at most DRAW_SHORT_MAX times.
+ */
+export function drawShortStop ({ stop = null, why = '', namesOf = () => [], town = {}, count = 0, max = DRAW_SHORT_MAX } = {}) {
+  if (stop !== 'no_material') return { stop, capped: false, names: [] }
+  const role = String(why ?? '').split(' for ')[0].trim()
+  let names = []
+  try { names = (namesOf(role) ?? []).filter(n => (Number(town?.[n]) || 0) > 0) } catch { names = [] }
+  if (!role || !names.length) return { stop, capped: false, names: [] }
+  if ((Number(count) || 0) >= max) return { stop: 'no_material', capped: true, names }
+  return { stop: 'draw_short', capped: false, names }
+}
 /** THE SLOTS CLAY COMPACTION FREES -> n. Pure. `n` clay balls, crafted 4 : 1 into clay blocks (compact.mjs RECIPES): the balls' slots
  *  less the blocks' and the remainder's. Needs one free slot for the product (compact.mjs bagCompact), which the caller checks. */
 export function claySlotsSaved (n = 0) {

@@ -939,8 +939,9 @@ await t('fallStops: the stops that mean "nothing here for this bot now" fall thr
   for (const s of ['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'slots_full', 'keeper_held', 'complete', 'upkeep']) assert.strictEqual(G2.fallStops(s), true, s)
   for (const s of ['deadline', 'time', 'aborted', 'error', 'record_unreadable', 'lost_record', 'lost_lease', 'state_unwritable', 'site_unread', 'zones_unknown', 'no_plan', 'off', 'fence:slot', 'fence:segment',
     'replanned', 'replant_wait', 'land_planned', 'grounds_none', 'grounds_turn', 'helper_idle', 'blocked', 'underground', 'room', '', null, undefined]) assert.strictEqual(G2.fallStops(s), false, String(s))
-  assert.strictEqual(G2.FALL_STOPS.length, 22); assert.ok(Object.isFrozen(G2.FALL_STOPS))   // leaffell-01show r1: + leaf_decay, zone_closed (bots/test/leaffell.test.mjs)
-  assert.strictEqual(new Set(G2.FALL_STOPS).size, 22)
+  assert.strictEqual(G2.FALL_STOPS.length, 23);   // drawshort-01show: + draw_short
+  assert.ok(Object.isFrozen(G2.FALL_STOPS))   // leaffell-01show r1: + leaf_decay, zone_closed (bots/test/leaffell.test.mjs)
+  assert.strictEqual(new Set(G2.FALL_STOPS).size, 23)
 })
 await t('groundsWork: every link the fall-through and the ask share -- keeper, decorator, the record, the spent turns, the bot\'s place, a slot', () => {
   assert.deepStrictEqual(G2.groundsWork(L0), { ok: true, why: null })

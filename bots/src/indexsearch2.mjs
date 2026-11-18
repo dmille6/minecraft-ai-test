@@ -73,17 +73,23 @@ const kitIronSize = need => {
  *   kit_iron_any  no iron ingot (the multi-container draw's miss)
  * Anything else (the smelt job's inputs have their own rule-out; mats' names) -> null.
  */
-export function needLacks (need, names = {}) {
+export function needLacks (need, names = {}, { exact = false } = {}) {
   if (need === 'pick') return heldOf(names, n => PICK_RE.test(n)) === 0
   if (need === 'trippick') return heldOf(names, n => PICK_RE.test(n) && tier(n) >= tier('stone_pickaxe')) === 0
   if (need === KIT_IRON_ANY) return heldOf(names, n => n === 'iron_ingot') === 0
   const k = kitIronSize(need)
   if (k != null) return heldOf(names, n => n === 'iron_ingot') < k + TOWN_IRON_KEEP
   if (Object.prototype.hasOwnProperty.call(NEEDS, need)) return heldOf(names, NEEDS[need].match) === 0
+  // drawshort-01show (sandbox2 11-18, civicH's roof: the build draw ranked the town by distance alone and spent its 12 visits on the
+  // near chests while the hall held 102 spruce_stairs): for a BUILDING DRAW (`exact`: its bill's blocks, no substitutes) a plain item
+  // name is judged by that name exactly -- an observed container holds it or it does not; the index's positives then go first
+  if (exact && typeof need === 'string' && ITEM_NAME_RE.test(need)) return heldOf(names, n => n === need) === 0
   return null
 }
+/** drawshort-01show: what a plain item name looks like (namespaced ids are written without `minecraft:` here). */
+const ITEM_NAME_RE = /^[a-z0-9_]+$/
 /** Can the index judge every one of these needs? Pure. */
-export const indexJudges = (needs = []) => Array.isArray(needs) && needs.length > 0 && needs.every(n => needLacks(n, {}) != null)
+export const indexJudges = (needs = [], { exact = false } = {}) => Array.isArray(needs) && needs.length > 0 && needs.every(n => needLacks(n, {}, { exact }) != null)
 
 /**
  * THE INDEX'S EVIDENCE FOR ONE SEARCH -> { neg: Map<k, at>, pos: Map<k, at>, judged }. Pure.
@@ -95,10 +101,10 @@ export const indexJudges = (needs = []) => Array.isArray(needs) && needs.length 
  *   ttl        the evidence's life: the shortest miss life of the search's needs (never past INDEX_STALE_MS)
  * An entry is matched by either half's key (the index keys a double chest by its lower half, the scan by whichever it met).
  */
-export function indexEvidence (entries, containers = [], needs = [], { now = Date.now(), tookAt = {}, untrusted = new Set(), ttl = INDEX_STALE_MS } = {}) {
+export function indexEvidence (entries, containers = [], needs = [], { now = Date.now(), tookAt = {}, untrusted = new Set(), ttl = INDEX_STALE_MS, exact = false } = {}) {
   const life = Math.min(INDEX_STALE_MS, Number.isFinite(Number(ttl)) ? Number(ttl) : INDEX_STALE_MS)
   const neg = new Map(), pos = new Map()
-  if (!entries || typeof entries !== 'object' || !indexJudges(needs)) return { neg, pos, judged: false }
+  if (!entries || typeof entries !== 'object' || !indexJudges(needs, { exact })) return { neg, pos, judged: false }
   const byHalf = new Map()
   for (const [k, e] of Object.entries(entries)) {
     for (const h of [k, ...(Array.isArray(e?.obs?.h) ? e.obs.h : [])]) if (!byHalf.has(h)) byHalf.set(h, e)
@@ -113,7 +119,7 @@ export function indexEvidence (entries, containers = [], needs = [], { now = Dat
     if (!Number.isFinite(at) || at > now + INDEX_FUTURE_SLACK_MS || now - at >= life) continue
     const took = Number(tookAt?.[k])
     if (Number.isFinite(took) && took > at + RULE_OUT_TOOK_SLACK_MS) continue
-    const lacks = needs.map(n => needLacks(n, e.obs.names ?? {}))
+    const lacks = needs.map(n => needLacks(n, e.obs.names ?? {}, { exact }))
     if (lacks.every(x => x === true)) { if (!untrusted?.has?.(k)) neg.set(k, at) } else pos.set(k, at)
   }
   return { neg, pos, judged: true }

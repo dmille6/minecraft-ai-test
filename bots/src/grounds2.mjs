@@ -197,7 +197,8 @@ export const groundsFallOn = (env = process.env) => !['off', '0', 'false', 'no']
  * `grounds_turn` and every stop of the tidy itself (the visit WAS the grounds').
  */
 export const FALL_STOPS = Object.freeze(['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'changed', 'retiring', 'stopped',
-  'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'felling_one', 'slots_full', 'keeper_held', 'not_decorator', 'complete', 'upkeep',
+  'no_material', 'draw_short', 'no_tool', 'stuck_on_cell',   // drawshort-01show: a draw that fell short -- the grounds meanwhile
+  'cell_deferred', 'deps_open', 'body_wait', 'felling_one', 'slots_full', 'keeper_held', 'not_decorator', 'complete', 'upkeep',
   // leaffell-01show r1: the visit's two waiting stops (buildrun.mjs runVisit: every open cell left waits on leaves that decay, or is
   // closed by a protected zone) -- nothing here for this bot now
   'leaf_decay', 'zone_closed'])

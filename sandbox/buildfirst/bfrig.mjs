@@ -15,7 +15,7 @@ Object.assign(process.env, {
 })
 registerHooks({ load (url, context, nextLoad) {
   const r = nextLoad(url, context)
-  if (url.endsWith('/bots/src/skills.mjs')) r.source = String(r.source) + `\nexport const __e2e = { ${['buildShopVisitRun', 'buildShop', 'TIDY_PLOT'].map(n => `get ${n} () { return typeof ${n} === 'undefined' ? undefined : ${n} }`).join(', ')} }\nexport const __setActive = b => { activeMem = { ...(activeMem ?? {}), bot: b } }\n`
+  if (url.endsWith('/bots/src/skills.mjs')) r.source = String(r.source) + `\nexport const __e2e = { ${['buildShopVisitRun', 'buildShop', 'TIDY_PLOT', 'townSearchView', 'townSearchNext', 'townExtraKeys', 'homeVec'].map(n => `get ${n} () { return typeof ${n} === 'undefined' ? undefined : ${n} }`).join(', ')} }\nexport const __setActive = b => { activeMem = { ...(activeMem ?? {}), bot: b } }\n`
   return r
 } })
 const BOTS = path.resolve('bots')
@@ -79,6 +79,16 @@ if (process.env.BF_COUNTER === NAME) {
   fs.writeFileSync(path.join(OUT, 'counted'), '1')
 }
 while (process.env.BF_COUNTER && process.env.BF_COUNTER !== NAME && !has('counted')) await sleep(2000)
+// BF_PROBE=<names>: the build draw's search list for those names from where the bot stands (rig only): every container, the skip list, the order
+if (process.env.BF_PROBE) {
+  const needs = process.env.BF_PROBE.split(',')
+  const sc = SK.townCobbleScan(bot, Date.now(), { fresh: true })
+  let extra = []; try { extra = [...E.townExtraKeys(E.homeVec())] } catch (e) { extra = ['threw ' + e.message] }
+  const view = E.townSearchView(bot, needs, new Set())
+  const nx = E.townSearchNext(bot, needs, new Set())
+  W('probe.jsonl', { bot: NAME, pos: bot.entity.position, scanKeys: sc.keys, coverage: sc.coverage, extra, containers: view.containers.map(c => c.k), skip: view.skip, counts: view.counts, order: (nx.order ?? []).slice(0, 20).map(o => ({ k: o.k, ...o })) })
+  P('probe written', view.containers.length, 'containers', sc.keys.length, 'scan keys', extra.length, 'extra')
+}
 for (let n = 1; Date.now() < until && !has('stop'); n++) {
   try { SK.townPlanTick(bot) } catch { /* the plan as it stands */ }
   // RIG FIXTURE (BF_ONLY=<plot>): every other project is held for this bot (the real `room` wait stop), so the real picker's pick is
@@ -95,7 +105,8 @@ for (let n = 1; Date.now() < until && !has('stop'); n++) {
     }
   } catch (e) { r = { status: 'threw', detail: String(e?.stack ?? e).slice(0, 300) } }
   let capv = null; try { const v = SK.cobbleTownViewFor(bot); capv = { cap: SK.cobbleWellCap(bot), lb: v.lb, lbLo: v.lbLo, avail: v.avail, complete: v.complete, unknown: v.unknown } } catch (e) { capv = String(e.message) }
-  W('decisions.jsonl', { capv, bot: NAME, n, t: new Date(t).toISOString(), ms: Date.now() - t, kind, why: d?.why ?? null, args: d?.order?.args ?? null, status: r?.status ?? null, stop: r?.stop ?? null, placed: r?.placed ?? null, detail: String(r?.detail ?? '').slice(0, 200), slots: `${u0}->${used()}`, plot: bot.shopVisitPlot ?? null })
+  let planv = null; try { planv = { planned: !!SK.townPlanNow(bot), worldId: bot.worldId ?? null, tp: bot.townPlan === undefined ? 'undef' : (bot.townPlan?.plan ? 'ok' : JSON.stringify(bot.townPlan).slice(0, 80)) } } catch (e) { planv = e.message }
+  W('decisions.jsonl', { planv, capv, bot: NAME, n, t: new Date(t).toISOString(), ms: Date.now() - t, kind, why: d?.why ?? null, args: d?.order?.args ?? null, status: r?.status ?? null, stop: r?.stop ?? null, placed: r?.placed ?? null, detail: String(r?.detail ?? '').slice(0, 200), slots: `${u0}->${used()}`, plot: bot.shopVisitPlot ?? null })
   P(n, kind, d?.why, r?.status, r?.stop ?? '', `${u0}->${used()}`, bot.shopVisitPlot ?? '')
   await sleep(kind === 'none' ? 20000 : 2000)
 }

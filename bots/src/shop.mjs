@@ -1031,11 +1031,23 @@ export function bagBalance ({ bag0 = {}, took = {}, crafted = {}, placed = {}, b
 }
 export const SCAFFOLD_NAMES = Object.freeze(new Set(['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks', 'pale_oak_planks', 'bamboo_planks', 'crimson_planks', 'warped_planks']))
 /** `_build_bag` detail: `project=shop name=bag0/took/crafted/placed/back/bag1 ...` (under 300 characters: names by unexplained first). */
-export const buildBagDetail = (project, bal, { exit = '-', silent = '-', drawn = '-' } = {}) => {
+let bagDrawOf = null
+/** drawshort-01show: the bag row's draw reader (skills.mjs: the visit's matsWithdraw record). Unset: no draw part. */
+export function setBagDraw (fn) { bagDrawOf = typeof fn === 'function' ? fn : null }
+export const buildBagDetail = (project, bal, { exit = '-', silent = '-', drawn = '-', draw = undefined } = {}) => {
+  if (draw === undefined) { try { draw = bagDrawOf?.() ?? null } catch { draw = null } }
   const parts = Object.entries(bal).sort((a, b) => a[1].unexplained - b[1].unexplained).map(([k, v]) => `${k}=${v.bag0}/${v.took}/${v.crafted}/${v.placed}/${v.back}/${v.bag1}`)
   let s = `project=${project} exit=${String(exit).replace(/\s+/g, '_').slice(0, 24)} silent=${silent} drawn=${drawn}`
+  // drawshort-01show: the visit's draw -- what it asked the town for, the containers it tried (and how each ended), what stayed short
+  if (draw) s += ` ${drawDetail(draw)}`
   for (const p of parts) { if ((s + ' ' + p).length > 290) break; s += ' ' + p }
   return s
+}
+/** drawshort-01show: the draw's own part of the `_build_bag` row. Pure. `draw` { need: { n: c }, tried: ['x,y,z:result'], short: { n: c } }. */
+export function drawDetail (draw = {}) {
+  const kv = m => Object.entries(m ?? {}).filter(([, c]) => Number(c) > 0).map(([n, c]) => `${n}:${c}`).join(',') || '-'
+  const tried = (draw?.tried ?? []).map(t => String(t).replace(/:(success|none)$/, ':ok')).join(';') || '-'
+  return `need=${kv(draw?.need).slice(0, 70)} tried=${(draw?.tried ?? []).length}:${tried.slice(0, 80)} short=${kv(draw?.short).slice(0, 60)}`
 }
 /** The skill's contract time (skills.mjs build_shop maxMs) and the least left for a bank to start (Claude r3 P3-1). */
 export const SHOP_SKILL_MS = 600_000
