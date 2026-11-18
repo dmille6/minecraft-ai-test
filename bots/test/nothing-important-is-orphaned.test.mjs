@@ -49,6 +49,9 @@ const REQUIRED = [
   // gradetidy-01show (T11 bundle, 11-18): the clean-up grades the gated columns toward the published ground plan
   'bots/src/gradetidy.mjs',
   'bots/test/gradetidy.test.mjs',
+  'scripts/host/gradepct.py',
+  'scripts/host/gradetarget.py',
+  'scripts/host/test_gradepct.py',
   'bots/src/projturn.mjs',
   'bots/test/projturn.test.mjs',
   // topdown-01 / landprev-01show (owner 11-15): gather takes ground only from the top; cobblestone before dirt in the escape
