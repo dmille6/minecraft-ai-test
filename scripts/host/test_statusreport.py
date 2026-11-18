@@ -416,13 +416,49 @@ def ck_headline_block(M):
             and md.index('## Finish line -- current worlds') < md.index('## 1. Headline') and 'could not read the finish line' in md2)
 
 
-CHECKS = [ck_headline_block, ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
+
+def ck_fleet_stopped_headline(M):
+    """11-18: the owner stopped the fleet; the headline leads with the showcase and the test world, held-out bots are not
+    'not running', and the showcase's full bags are the bag problem."""
+    f = base()
+    f.update({'fleet_stopped': 'owner 11-18', 'bots': None, 'bags': None,
+              'showcase': {'units': [13, 13], 'held': ['Comet', 'Nova'], 'deaths': 0, 'rollouts': [], 'halts': [], 'stuck': []},
+              'testworld': {'running': 14, 'show_bags': {'bots': 13, 'full': 12}}})
+    j = M.judge(f)
+    first = M.headline(f, j)[0]
+    return ('showcase 13 of 13 bots running (Comet, Nova held out); test world 14 bots; 0 showcase death(s)' in first
+            and '?' not in first and 'showcase bags full: 12 of 13' in texts(j['didnt'])
+            and 'bots not running' not in texts(j['didnt']))
+
+
+def ck_fleet_running_headline(M):
+    """Without the marker the fleet headline is unchanged."""
+    f = base()
+    return M.headline(f, M.judge(f))[0].split('. ', 1)[1].startswith('80 of 80 bots running; 3 death(s)')
+
+
+def ck_held_out(M):
+    h = 'showcase running 13/15; quarantined (Z1, paged when it happened): mcshow@showcase-Comet.service, mcshow@showcase-Nova.service'
+    return M.held_out(h) == ['Comet', 'Nova'] and M.held_out('showcase running 13/13 bot units') == []
+
+
+def ck_held_out_units(M):
+    """Quarantined bots leave the expected count; a plain line keeps it."""
+    h = 'showcase running 13/15; quarantined (Z1): mcshow@showcase-Comet.service, mcshow@showcase-Nova.service'
+    return (M.showcase_units(h) == ([13, 13], ['Comet', 'Nova'])
+            and M.showcase_units('showcase running 12/13 bot units') == ([12, 13], [])
+            and M.showcase_units('') == (None, []))
+
+CHECKS = [ck_fleet_stopped_headline, ck_fleet_running_headline, ck_held_out, ck_held_out_units, ck_headline_block, ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
           ck_unread_no_verdict, ck_bots_down, ck_world_down_first, ck_canary, ck_stuck_and_unstuck, ck_bags,
           ck_showcase_halt, ck_showcase_deaths, ck_finished, ck_narrative_ok, ck_narrative_new_number, ck_narrative_parts, ck_numbers,
           ck_effects, ck_grounds_town, ck_narrative_words, ck_unread_mood, ck_owner_alarms, ck_parsers, ck_brain_words, ck_windows_of_time, ck_backups, ck_render]
 
 # (name, old, new, the check it must break)
 MUTANTS = [
+    ('fleet-stopped headline ignored', "    if f.get('fleet_stopped'):\n        sc, tw =", "    if False:\n        sc, tw =",
+     ck_fleet_stopped_headline),
+    ('held-out bots counted as down', "    return [int(m.group(1)), int(m.group(2)) - len(held)], held", "    return [int(m.group(1)), int(m.group(2))], held", ck_held_out_units),
     ('table lines rendered as paragraphs', "        if line.startswith('|') and line.rstrip().endswith('|'):", "        if False:",
      ck_headline_block),
     ('the finish line block dropped', "        L += FL.render(fin)", "        pass", ck_headline_block),

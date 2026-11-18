@@ -79,6 +79,10 @@ SLOT_HOURS = (0, 6, 12, 18)
 SLOT_GRACE_MIN = 40
 DEFAULT_WINDOW_H = 6
 PROM = 'http://10.0.0.186:9090'
+# THE FLEET IS STOPPED ON PURPOSE (owner 11-18: the 80 fleet bots and 16 servers stopped; a test world soaks each release
+# instead). While this file exists the report leads with the showcase and the test world and does not read the fleet-only
+# sources (they would only report a stopped fleet as broken, and the headline read "? of ? bots running").
+FLEET_STOPPED = f'{DIGEST}/FLEET_STOPPED'
 SHOW_PROXY = 'http://10.0.0.186/agent/showcase'
 WORLDS_AGENT = 'http://10.0.0.30:9188'
 KEY_FILE = f'{HOME}/.config/mcai/anthropic.key'
@@ -235,6 +239,11 @@ def judge(f, prev=None):
 
     # --- bags
     bg = f.get('bags') or {}
+    sb = (f.get('testworld') or {}).get('show_bags') or {}
+    if f.get('fleet_stopped') and sb.get('bots'):
+        if (sb.get('full') or 0) > 0.25 * sb['bots']:
+            D.append((25, f'showcase bags full: {p(sb["full"], sb["bots"])} bots at 34+ of 36 slots (a building visit '
+                          f'needs 8 free)'))
     if bg.get('bots'):
         full = bg.get('full') or 0
         if full > 0.25 * bg['bots']:
@@ -501,8 +510,17 @@ def mood(j):
 def headline(f, j):
     """PURE. The three headline lines."""
     b = f.get('bots') or {}
-    first = (f'{mood(j)}. {n(b.get("running"))} of {n(b.get("expected"))} bots running; '
-             f'{n((b.get("win") or {}).get("deaths"))} death(s) in the last {f.get("window_h")} h; '
+    if f.get('fleet_stopped'):
+        sc, tw = f.get('showcase') or {}, f.get('testworld') or {}
+        u = sc.get('units') or [None, None]
+        bots_part = (f'showcase {n(u[0])} of {n(u[1])} bots running'
+                     + (f' ({", ".join(sc["held"])} held out)' if sc.get('held') else '')
+                     + f'; test world {n(tw.get("running"))} bots; '
+                     + f'{n(sc.get("deaths"))} showcase death(s) in the last {f.get("window_h")} h; ')
+    else:
+        bots_part = (f'{n(b.get("running"))} of {n(b.get("expected"))} bots running; '
+                     f'{n((b.get("win") or {}).get("deaths"))} death(s) in the last {f.get("window_h")} h; ')
+    first = (f'{mood(j)}. ' + bots_part +
              f'{len(j["worked"])} things worked, {len(j["didnt"])} did not, {len(j["stalled"])} stalled'
              + (f'; {len(j["unread"])} source(s) could not be read' if j['unread'] else '') + '.')
     win = j['worked'][0][1] if j['worked'] else 'nothing new to report as a win'
@@ -1211,6 +1229,42 @@ def attempt(f, name, fn):
         return None
 
 
+def held_out(halt_line):
+    """PURE. The bots the showcase halt line names as quarantined (expected down): 'showcase running 13/15; quarantined
+    (Z1, paged when it happened): mcshow@showcase-Comet.service, mcshow@showcase-Nova.service' -> ['Comet', 'Nova']."""
+    m = re.search(r'quarantined[^:]*:\s*(.+)$', halt_line or '')
+    if not m:
+        return []
+    return [re.sub(r'^(mcshow@)?showcase-|\.service$', '', x.strip()) for x in m.group(1).split(',') if x.strip()]
+
+
+def showcase_units(halt_line):
+    """PURE. The halt line -> ([running, expected] | None, held-out names). Quarantined / held-out bots are expected
+    down, so they leave the expected count (11-18: Comet sealed in the village, Nova held out since 11-15)."""
+    m = re.search(r'showcase running (\d+)/(\d+)', halt_line or '')
+    if not m:
+        return None, []
+    held = held_out(halt_line)
+    return [int(m.group(1)), int(m.group(2)) - len(held)], held
+
+
+def c_testworld(f, now):
+    """The test world and the showcase's bags, from the dashboard's Prometheus (the agents' metrics)."""
+    val = lambda q: sum(float(r['value'][1]) for r in prom(q))
+    f['testworld'] = {'running': int(val('sum(mcai_bot_units_running{scope="testworld"})')),
+                      'show_bags': {'bots': int(val('sum(mcai_bots_reporting{scope="showcase"})')),
+                                    'full': int(val('sum(mcai_bots_bag_full{scope="showcase"})'))}}
+
+
+def fleet_stopped_why(path=None):
+    """The owner's FLEET_STOPPED file -> its why, or None."""
+    try:
+        d = json.load(open(path or FLEET_STOPPED))
+        return (str(d.get('why') or '').strip() or None) if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def c_fleetstatus(f, now, wh):
     with tempfile.TemporaryDirectory(dir=HOME) as d:
         out = os.path.join(d, 'fs.json')
@@ -1464,8 +1518,9 @@ def c_showcase(f, now, since):
     sc['timelapse'] = timelapse_text(next((x for x in lines if 'TIMELAPSE' in x), None))
     sc['brain'] = brain_text(next((x for x in lines if 'BRAIN' in x), None))
     halt = f.pop('_show_halt', None) or ''
-    m = re.search(r'showcase running (\d+)/(\d+)', halt)
-    sc['units'] = [int(m.group(1)), int(m.group(2))] if m else None
+    sc['units'], held = showcase_units(halt)
+    if held:
+        sc['held'] = held
     sc['stuck'] = [x for x in (parse_stuck(re.sub(r'^!!\s*', '', y)) for y in f.pop('_show_goal_lines', [])) if x]
     m = re.search(r'(\d+) of (\d+) bots \(seen in 24 h\) wrote a row in the last 30 min; absent ([^;]+);', f.pop('_show_head', None) or '')
     if m:
@@ -1580,20 +1635,26 @@ def c_alarms(f, now):
 def collect(now, since, wh, prev):
     f = {'generated_at': iso(now), 'since': iso(since), 'window_h': wh, 'errors': {}}
     attempt(f, 'headline numbers', lambda: c_headline(f, now))
-    attempt(f, 'fleet numbers (fleetstatus)', lambda: c_fleetstatus(f, now, wh))
-    attempt(f, 'time split (busytime)', lambda: c_busy(f, now))
-    attempt(f, 'production (valuescore / hourwatch)', lambda: c_value(f, now, wh))
-    attempt(f, 'pinned bots (stuckwatch)', lambda: c_pinned(f, now))
-    attempt(f, 'stuck projects (goalwatch)', lambda: c_goals(f, now))
-    attempt(f, 'project audit', lambda: c_projects(f, now))
+    attempt(f, 'fleet numbers (fleetstatus)', lambda: c_fleetstatus(f, now, wh))   # also carries the showcase lines
+    f['fleet_stopped'] = fleet_stopped_why()
+    if f['fleet_stopped']:
+        f['bots'], f['bags'] = None, None   # a stopped fleet's last numbers are not news
+        attempt(f, 'test world (Prometheus)', lambda: c_testworld(f, now))
+    else:   # fleet-only sources: read them only while the fleet runs
+        attempt(f, 'time split (busytime)', lambda: c_busy(f, now))
+        attempt(f, 'production (valuescore / hourwatch)', lambda: c_value(f, now, wh))
+        attempt(f, 'pinned bots (stuckwatch)', lambda: c_pinned(f, now))
+        attempt(f, 'stuck projects (goalwatch)', lambda: c_goals(f, now))
+        attempt(f, 'project audit', lambda: c_projects(f, now))
+        attempt(f, 'building count (structcount)', lambda: c_structcount(f, now))
+        attempt(f, 'flow ledger', lambda: c_flow(f, now))
     attempt(f, 'project records', lambda: c_built(f, now, since))
-    attempt(f, 'building count (structcount)', lambda: c_structcount(f, now))
-    attempt(f, 'flow ledger', lambda: c_flow(f, now))
     attempt(f, 'world servers (Prometheus)', lambda: c_worlds(f, now, wh))
     attempt(f, 'backups', lambda: c_backups(f, now))
     attempt(f, 'showcase (Elasticsearch)', lambda: c_showcase(f, now, since))
     attempt(f, 'showcase release log', lambda: c_showcase_ops(f, since))
-    attempt(f, 'testing pipeline', lambda: c_canary(f, now, since))
+    if not f.get('fleet_stopped'):
+        attempt(f, 'testing pipeline', lambda: c_canary(f, now, since))
     attempt(f, 'alarms', lambda: c_alarms(f, now))
     attempt(f, 'finish line', lambda: c_finish(f, now))
     for k in [k for k in f if k.startswith('_')]:
