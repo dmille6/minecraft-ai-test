@@ -34,9 +34,10 @@ every unit asserts the host is block2-bots, the bot unit and the loader refuse a
 
 - **The fleet must be stopped.** `start` refuses while any `mcbot@` unit is active. If one is, tell the control session
   what started it (on 11-18 it was `fleet-doctor.timer` on block2-worlds). Do not stop fleet bots from here.
-- **The showcase comes first on the model.** Both towns use qwen2.5 on the 5080. `soak` reads the showcase's model
-  latency every 10 minutes from the telemetry store and stops the test bots if its 30-minute p95 passes 6 s, or if it
-  cannot see the showcase for 30 minutes.
+- **The showcase comes first on the model.** Both towns use qwen2.5 on the 5080. `start` reads the showcase's model
+  latency first and refuses if it is past the limit or cannot be read. `soak` reads it every 10 minutes from the
+  telemetry store, through the load step too, and stops the test bots if its 30-minute p95 passes 6 s or if it cannot
+  see the showcase for 30 minutes. Outside a soak nothing watches it: do not leave the bots running unwatched.
 - No admin world edits here either: a soak measures the bots. The driver uses RCON only for `list`, `save-off`,
   `save-all flush` and `save-on`.
 - Nothing here pages, and nothing reads it but the soak read. An idle or stopped test world is not an alarm.
@@ -65,7 +66,7 @@ ssh $TW 'sudo /srv/testworld/bin/testworld.py stop "why"'
 ```
 
 `start` runs a gate first (fleet stopped, a release active, env files pointing at the test server, the server answering,
-the model listed, 15 GB free), starts the 14 bots 12 s apart, and waits until each has written a row on the release's
+the model listed, 15 GB free, and the showcase's own model p95 over the last 30 minutes read and under 6 s), starts the 14 bots 12 s apart, and waits until each has written a row on the release's
 version and the server lists all 14. Bots are started, never enabled: a reboot does not bring them back by itself.
 
 ## Load a release
@@ -120,7 +121,8 @@ on another version, thin memory samples, too few forced reconnects, a run the gu
 table puts each bot's memory beside its reconnect count; the load step fails a release that keeps more than 8 MB of
 chunk buffers per forced reconnect (the fixed build keeps under 4; the 11-18 leak kept 14 to 22).
 
-If a soak is interrupted during the load step, undo it by hand:
+Stopping a soak (`systemctl stop testworld-soak-<run>`) puts the CPU quota back and continues every paused bot by
+itself. If the host went down mid-step, or to be sure:
 
 ```bash
 ssh $TW 'sudo systemctl set-property --runtime testworld.slice CPUQuota= ; sudo systemctl kill --signal=SIGCONT "mctest@*"'
