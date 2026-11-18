@@ -3032,6 +3032,36 @@ class ReplayGate(unittest.TestCase):
         RG = load('replaygate', 'replaygate.py')
         self.assertEqual(RG.selftest(), 0)
 
+    def test_stage_observation_fleet_stopped(self):
+        """A piece stage pins digests from the newest verified observation ONLY when the fleet is stopped on purpose and the
+        newest observation failed for nothing but the empty roster with the same digests (owner 11-18, fleet stopped)."""
+        OPS_ = load('showcase_ops', 'showcase_ops.py')
+        ver = {'t': 'T1', 'verified': True, 'policy': 'P', 'deps': 'D', 'feed_errors': None}
+        empty = {'t': 'T2', 'verified': False, 'policy': 'P', 'deps': 'D', 'feed_errors': [OPS_.ROSTER_EMPTY]}
+        row, why = OPS_.stage_observation([ver], None)
+        self.assertIs(row, ver); self.assertEqual(why, '')
+        row, why = OPS_.stage_observation([ver, empty], None)
+        self.assertIsNone(row, 'fleet running (no marker): an unverified observation still refuses')
+        row, why = OPS_.stage_observation([ver, empty], 'owner 11-18')
+        self.assertIs(row, ver); self.assertIn('fleet stopped on purpose', why)
+        other = dict(empty, feed_errors=[OPS_.ROSTER_EMPTY, 'feed ssh rc=255'])
+        self.assertIsNone(OPS_.stage_observation([ver, other], 'owner')[0], 'any other feed error refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, feed_errors=None)], 'owner')[0], 'unverified for another reason refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, policy='P2')], 'owner')[0], 'changed policy digest refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, deps='D2')], 'owner')[0], 'changed deps digest refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, policy=None)], 'owner')[0], 'no digest refuses')
+        self.assertIsNone(OPS_.stage_observation([empty], 'owner')[0], 'no verified row to pin from refuses')
+        self.assertIsNone(OPS_.stage_observation([], 'owner')[0])
+        d = tempfile.mkdtemp()
+        try:
+            f = os.path.join(d, 'FLEET_STOPPED')
+            self.assertIsNone(OPS_.read_fleet_stopped(f))
+            open(f, 'w').write('{"why": ""}'); self.assertIsNone(OPS_.read_fleet_stopped(f), 'an empty why is no marker')
+            open(f, 'w').write('not json'); self.assertIsNone(OPS_.read_fleet_stopped(f))
+            open(f, 'w').write('{"why": "owner 11-18"}'); self.assertEqual(OPS_.read_fleet_stopped(f), 'owner 11-18')
+        finally:
+            shutil.rmtree(d)
+
     def test_the_11_05_cover_shape_is_unknown_to_the_old_reader(self):
         RG = load('replaygate', 'replaygate.py')
         old = {'d.mjs': "e.log('_build', { op: 'clear', cell: at, kind: 'tree', block })\n"}

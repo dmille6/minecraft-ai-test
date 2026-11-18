@@ -55,6 +55,12 @@ AUTO = f'{ROOT}/AUTO_FOLLOW'
 # whatever AUTO_FOLLOW says and however it is run (re-review 10-25: the systemd drop-in covered the timer only), and
 # start-bots.sh never creates AUTO_FOLLOW.
 LANE = f'{ROOT}/LANE'
+# THE FLEET IS STOPPED ON PURPOSE (owner 11-18: "yes do this", the 80 fleet bots and 16 servers stopped). The follower's
+# observation of the fleet bench can then never verify (no bot to census), and a piece stage pins the release's policy and
+# dependency digests from that observation. This file, written by hand with the owner's words, lets a piece stage pin them
+# from the newest VERIFIED observation instead (stage_observation). Remove it when the fleet runs again.
+FLEET_STOPPED = f'{ROOT}/FLEET_STOPPED'
+ROSTER_EMPTY = 'roster: no enabled mcbot@ units found'
 FEED_KEY = '/home/mike/.ssh/id_ed25519_showcase_feed'
 MOD_KEY = '/home/mike/.ssh/id_ed25519_showcase_modules'
 BENCH = 'mike@10.0.0.31'
@@ -773,6 +779,42 @@ def stage_main(a, sha, feed, last, ledger):
     return 0
 
 
+def stage_observation(ledger, fleet_stopped):
+    """-> (row, why): the observation a piece stage pins its policy and dependency digests from. Pure.
+    The newest row when it is verified. Otherwise, ONLY when the fleet is stopped on purpose (`fleet_stopped`: the owner's
+    FLEET_STOPPED file is readable and names a why), the newest VERIFIED row, and only if the newest row failed for nothing
+    but the empty roster (every feed error is ROSTER_EMPTY) and reads the SAME policy and dependency digests: the bench's
+    pinned files are unchanged, there is simply no bot to count. Anything else -> (None, why)."""
+    rows = [r for r in (ledger or []) if isinstance(r, dict)]
+    if not rows:
+        return None, 'no observation yet; run `showcase_ops.py follow --observe-only`'
+    last = rows[-1]
+    if last.get('verified'):
+        return last, ''
+    why = 'the newest observation is not verified; run `showcase_ops.py follow --observe-only`'
+    if not fleet_stopped:
+        return None, why
+    errs = last.get('feed_errors') or []
+    if not errs or any(e != ROSTER_EMPTY for e in errs):
+        return None, why + f' (fleet stopped, but the feed errors are not only the empty roster: {str(errs)[:120]})'
+    ver = next((r for r in reversed(rows) if r.get('verified')), None)
+    if not ver:
+        return None, why + ' (fleet stopped, and no verified observation exists to pin from)'
+    if not (last.get('policy') and last.get('deps')) or (last.get('policy'), last.get('deps')) != (ver.get('policy'), ver.get('deps')):
+        return None, why + (f' (fleet stopped, but the bench now reads policy {last.get("policy")} deps {last.get("deps")}, '
+                            f'not the verified {ver.get("policy")} {ver.get("deps")})')
+    return ver, f'fleet stopped on purpose ({str(fleet_stopped)[:100]}): pinned from the verified observation of {ver.get("t")}'
+
+
+def read_fleet_stopped(path=None):
+    """The owner's FLEET_STOPPED file -> its `why`, or None (absent, unreadable or no why)."""
+    try:
+        d = json.load(open(path or FLEET_STOPPED))
+        return (str(d.get('why') or '').strip() or None) if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def stage_piece(a, sha, feed, last):
     """`stage <sha> --piece <runs> [--dry-run [--against <release sha>]]`: the lane only (LANE present, AUTO_FOLLOW absent),
     the newest observation verified (its pinned policy and dependency digest are the release's), piece_stack_refusal None,
@@ -791,8 +833,12 @@ def stage_piece(a, sha, feed, last):
         return refuse('--piece and --bootstrap are exclusive')
     if not os.path.exists(LANE) or os.path.exists(AUTO):
         return refuse(f'a piece stages only in the progress lane ({LANE} present, {AUTO} absent)')
-    if not last.get('verified'):
-        return refuse('the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
+    obs, owhy = stage_observation(FR.load_jsonl(LEDGER), read_fleet_stopped())
+    if obs is None:
+        return refuse(owhy)
+    if owhy:
+        print('NOTE: ' + owhy)
+    last = obs
     sok, srec = soak_admit(a)   # ONE CHANGE AT A TIME (owner 11-14)
     if not sok and soak_enforced():
         return refuse(srec['why'])
@@ -823,6 +869,8 @@ def stage_piece(a, sha, feed, last):
                                                       protected_hits(prot(newest[r]['base'], newest[r]['sha']), pats))
                                        for r in runs}}
     rec['soak'] = srec
+    if owhy:
+        rec['observation'] = {'pinned_from': last.get('t'), 'why': owhy}
     rok, rrec = replay_admit(sha, rel_sha, a)
     if not rok and replay_enforced():
         return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
