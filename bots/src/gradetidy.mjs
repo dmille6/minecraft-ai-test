@@ -300,9 +300,13 @@ export function gradeCutsHeld (cuts, read, capHeld) {
  * T11 delta r1 BLOCKER 1 -- every other grade column with a cut that would leave a non-earth block on top (stone between earth
  * layers: no cap is planned there) beyond the bag's unclaimed dirt (`held.left`), one a column, nearest first in cut order.
  */
-export function capHeldCols (cuts, read, held, cells = []) {
+export function capHeldCols (cuts, read, held, cells = [], waived = null) {
   const out = new Set([...(held ?? [])].map(k => { const [x, , z] = k.split(','); return k2(x, z) }))
-  const capped = new Set((cells ?? []).filter(c => c?.retop && c.role === 'topsoil').map(c => k2(c.at[0], c.at[2])))   // a column with its own cap granted
+  // Codex T11 delta r2 BLOCKER 2: a column whose cap is WAIVED is held whatever the dirt (nobody will cap what its cuts expose); the
+  // refresh takes those cuts off (dropOrphanCuts), so the hold ends within the hour
+  const isW = c => !!waived && Object.prototype.hasOwnProperty.call(waived, c.at.join(','))
+  for (const c of cells ?? []) if (c?.retop && c.role === 'topsoil' && isW(c)) out.add(k2(c.at[0], c.at[2]))
+  const capped = new Set((cells ?? []).filter(c => c?.retop && c.role === 'topsoil' && !isW(c)).map(c => k2(c.at[0], c.at[2])))   // a column with its own cap granted
   let left = Math.max(0, Number(held?.left) || 0)
   const seen = new Set()
   for (const c of cuts ?? []) {
@@ -317,3 +321,19 @@ export function capHeldCols (cuts, read, held, cells = []) {
   }
   return out
 }
+
+/** Codex T11 delta r2: THE GRADE CUTS OVER A WAIVED CAP -> { rec, dropped }. Pure. A grade cut still standing in a column whose grade
+ *  re-top cap is waived leaves the record (the column keeps its ground as it is: nothing is exposed that nobody would cap). */
+export function dropOrphanCuts (rec, { standing = () => true } = {}) {
+  const w = rec?.waived ?? null
+  if (!w) return { rec, dropped: 0 }
+  const cols = new Set((rec.cells ?? []).filter(c => c?.grade && c.retop && Object.prototype.hasOwnProperty.call(w, c.at.join(','))).map(c => k2(c.at[0], c.at[2])))
+  if (!cols.size) return { rec, dropped: 0 }
+  const drop = c => c?.grade && cols.has(k2(c.at[0], c.at[2])) && standing(c)
+  const n = (rec.cut ?? []).filter(drop).length
+  return n ? { rec: { ...rec, cut: rec.cut.filter(c => !drop(c)) }, dropped: n } : { rec, dropped: 0 }
+}
+/** Codex T11 delta r2 BLOCKER 1: the dirt the visit bills for the grade columns with no cap of their own whose cuts expose stone (one
+ *  each: capHeldCols with no dirt in hand) -> n. Pure over `read`. Billed with the topsoil's (the town's draw), so a held column is
+ *  never left waiting on dirt the visit never asked for. */
+export const exposeDirtNeed = (cuts, read, cells = [], waived = null) => capHeldCols(cuts, read, Object.assign(new Set(), { left: 0 }), cells, waived).size

@@ -294,7 +294,7 @@ await t('the re-top pass works only inside the gate and its banks while a gate i
   assert.strictEqual(ko(9, 5), 'outside_gate', 'a bank not beside it'); assert.strictEqual(ko(0, 0), 'outside_gate')
   assert.strictEqual(GT.retopKeepOff(null, () => 'zone')(0, 0), 'zone')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  assert.ok(/const capHeld = capHeldCols\(tidyCuts\(rec, read, mem\), read, retopPass, visitRec\.cells\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /&& !cutHeld\.has\(q\.at\.join\(','\)\)\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
+  assert.ok(/const capHeld = capHeldCols\(tidyCuts\(rec, read, mem\), read, retopPass, visitRec\.cells, rec\.waived\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /const cutHeld = gradeOn\(\) \? gradeCutsHeld\(tidyCuts\(rec, read, mem\), read, capHeld\) : new Set\(\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))) && /filter\(q => !claimedQ\(q\) && !cutHeld\.has\(q\.at\.join\(','\)\) && !plotEntryRetired/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'the visit holds the cuts')
   assert.ok(/retopCells\(res\.rec \?\? cur, read, \{ guard, keepOff: retopKeepOff\(gNow\?\.t \?\? null, fcKeepOff \?\? \(\(\) => 'closed'\)\),/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
 const capVisit = async (dirt) => {
@@ -347,6 +347,29 @@ await t('BLOCKER 2: a waived cap is never held, so its column\'s cuts are never 
   const cells = [{ at: [0, G, 0], role: 'topsoil', retop: 1, grade: true }]
   assert.strictEqual(TT.retopHeld(cells, srv.read, 0).size, 1)
   assert.strictEqual(TT.retopHeld(cells, srv.read, 0, { waived: { [`0,${G},0`]: {} } }).size, 0)
+})
+console.log('CODEX T11 DELTA r2')
+await t('BLOCKER 1: the visit bills the dirt its held cap-less columns wait on (never a wait on dirt it never asked for)', () => {
+  const srv = server({ [`0,${G + 3},0`]: 'grass_block', [`0,${G + 2},0`]: 'stone', [`0,${G + 1},0`]: 'stone' })
+  const cuts = [G + 3, G + 2, G + 1].map(y => ({ at: [0, y, 0], grade: true }))
+  assert.strictEqual(GT.exposeDirtNeed(cuts, srv.read, []), 1)
+  assert.strictEqual(GT.exposeDirtNeed(cuts, srv.read, [{ at: [0, G, 0], role: 'topsoil', retop: 1 }]), 0, 'a column with its own cap is billed as topsoil already')
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/const ne = exposeDirtNeed\(tidyCuts\(rec, read, mem\), read, visitRec\.cells, rec\.waived\); if \(ne > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ Math\.min\(ne, TIDY_VISIT_FILLS\)/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
+})
+await t('BLOCKER 2: a column whose cap is waived is held whatever the dirt, and the refresh takes its cuts off (nothing exposed, no wait for good)', () => {
+  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'cobblestone' })
+  const cells = [{ at: [0, G, 0], role: 'topsoil', retop: 1, grade: true }]
+  const waived = { [`0,${G},0`]: {} }
+  const cuts = [{ at: [0, G + 1, 0], grade: true }]
+  const rich = Object.assign(new Set(), { left: 9 })
+  assert.ok(GT.capHeldCols(cuts, srv.read, rich, cells, waived).has('0,0'))
+  assert.strictEqual(GT.gradeCutsHeld(cuts, srv.read, GT.capHeldCols(cuts, srv.read, rich, cells, waived)).size, 1)
+  const r = GT.dropOrphanCuts({ cells, cut: cuts, waived })
+  assert.strictEqual(r.dropped, 1); assert.deepStrictEqual(r.rec.cut, [])
+  assert.strictEqual(GT.dropOrphanCuts({ cells, cut: cuts, waived: {} }).dropped, 0)
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/cur = stale\.rec\n\s*\{ const oc = dropOrphanCuts\(cur, \{ standing: q => cutStanding\(read, q, now\) \}\); cur = oc\.rec \}/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
