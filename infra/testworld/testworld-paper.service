@@ -12,6 +12,8 @@ WorkingDirectory=/srv/testworld/server
 ExecStart=/srv/testworld/jre/bin/java -Xms2G -Xmx8G -jar paper.jar nogui
 Restart=always
 RestartSec=15
+# Java exits 143 on a plain stop; that is a stop, not a failure
+SuccessExitStatus=143
 Slice=testworld.slice
 AllowedCPUs=14-19
 MemoryMax=12G

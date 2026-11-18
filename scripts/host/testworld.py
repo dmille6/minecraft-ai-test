@@ -22,7 +22,7 @@ THE IN-WORLD NAMES ARE THE SHOWCASE'S (showcase-Alpha ...; pool `showcase`): 33 
 pool name, and the copied bags and records belong to those names. So everything here refuses to run on any host but
 block2-bots and refuses an env that points anywhere but the test server on this host.
 """
-import argparse, datetime as dt, fcntl, glob, hashlib, json, os, re, secrets, shutil, socket, subprocess, sys, tarfile, time
+import argparse, datetime as dt, fcntl, hashlib, json, os, re, secrets, shutil, signal, socket, subprocess, sys, tarfile, time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -150,6 +150,18 @@ def scrub_yaml(text, make=lambda: secrets.token_hex(16)):
             line = f"{m.group(1)}{m.group(2)}{m.group(3)}'{make()}'"
         out.append(line)
     return '\n'.join(out) + '\n'
+
+
+def rewrite(path, fn):
+    """Replace a file's text with fn(its text). The text is read BEFORE the file is opened for writing: `open(p, 'w')
+    .write(fn(open(p).read()))` truncates first and hands fn an empty file (review 11-18: the first restore lost every
+    setting of server.properties that way, online-mode=false included)."""
+    text = open(path).read()
+    out = fn(text)
+    with open(path + '.tmp', 'w') as f:
+        f.write(out)
+    shutil.copymode(path, path + '.tmp')
+    os.replace(path + '.tmp', path)
 
 
 def parse_show(text):
@@ -367,11 +379,18 @@ def cmd_setup_world(a):
     sh('rsync', '-a', f'{ROOT}/runtime/', SERVER + '/')
     sh('rsync', '-a', src + '/state/', STATE + '/')
     password = secrets.token_hex(24)
-    p = f'{SERVER}/server.properties'
-    open(p, 'w').write(server_properties(open(p).read(), password))
+    rewrite(f'{SERVER}/server.properties', lambda t: server_properties(t, password))
     for y in ('config/paper-global.yml', 'plugins/SkinsRestorer/config.yml'):
         if os.path.exists(f'{SERVER}/{y}'):
-            open(f'{SERVER}/{y}', 'w').write(scrub_yaml(open(f'{SERVER}/{y}').read()))
+            rewrite(f'{SERVER}/{y}', scrub_yaml)
+    kept_keys = ME.parse_env(open(f'{SERVER}/server.properties').read())
+    src_keys = ME.parse_env(open(f'{src}/server.properties').read())
+    lost = sorted(k for k in src_keys if k not in kept_keys)
+    moved = sorted(k for k in src_keys if k in kept_keys and src_keys[k] != kept_keys[k]
+                   and k not in ('server-port', 'server-ip', 'rcon.port', 'rcon.password', 'enable-rcon', 'enable-query', 'query.port'))
+    if lost or moved:
+        print(f'REFUSED: the restored server.properties lost {lost} or changed {moved}; the server was not started')
+        return 1
     os.makedirs(os.path.dirname(SECRET), exist_ok=True)
     fd = os.open(SECRET, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w') as f:
@@ -576,6 +595,12 @@ def gate():
         bad.append('model: ' + why)
     if free_bytes() < MIN_FREE:
         bad.append(f'{free_bytes() / 2 ** 30:.1f} GiB free, under 15')
+    # the showcase's model latency BEFORE the test bots add to it: past the limit there is no room; unseen is not room either.
+    # This row is the read's "before" (soakread.py guard_before).
+    verdict, why = guard_once('before-start')
+    print('showcase guard before the start: ' + why)
+    if verdict != 'OK':
+        bad.append('no model room: ' + why)
     return bad
 
 
@@ -684,8 +709,18 @@ def unsqueeze():
     sh('systemctl', 'set-property', '--runtime', SLICE, 'CPUQuota=', check=False)
 
 
-def squeeze(minutes, share, lookback_s=1800):
-    """Cut the slice to `share` of the CPU it used over the last `lookback_s` (from the samples), for `minutes`. Always undone."""
+def continue_all():
+    for b in BOTS:
+        sh('systemctl', 'kill', '--signal=SIGCONT', f'{UNIT}{b}', check=False)
+
+
+class Stopped(Exception):
+    """The showcase guard said stop: the load step unwinds through its cleanup and the test bots are stopped."""
+
+
+def squeeze(minutes, share, lookback_s=1800, nap=time.sleep):
+    """Cut the slice to `share` of the CPU it used over the last `lookback_s` (from the samples), for `minutes`. Always
+    undone: on an error, on the guard's stop, and on SIGTERM (main() turns that into an exit that unwinds)."""
     rows = [json.loads(l) for l in open(SAMPLES) if '"_paper"' in l][-(lookback_s // 300 + 1):]
     rows = [r for r in rows if r.get('slice_cpu_s') is not None]
     if len(rows) < 2:
@@ -696,25 +731,24 @@ def squeeze(minutes, share, lookback_s=1800):
     journal('squeeze-on', quota_pct=pct, share=share, used_cores=round(used / (t[1] - t[0]), 2), minutes=minutes)
     try:
         sh('systemctl', 'set-property', '--runtime', SLICE, f'CPUQuota={pct}%')
-        time.sleep(minutes * 60)
+        nap(minutes * 60)
     finally:
         unsqueeze()
         journal('squeeze-off')
     return pct
 
 
-def pauses(rounds, seconds, gap):
+def pauses(rounds, seconds, gap, nap=time.sleep):
     plan = pause_plan(BOTS, rounds, seconds, gap=gap)
     journal('pauses-start', rounds=rounds, seconds=seconds, bots=len(BOTS))
     t0 = time.time()
     try:
         for off, bot, sig in plan:
-            time.sleep(max(0, t0 + off - time.time()))
+            nap(max(0, t0 + off - time.time()))
             sh('systemctl', 'kill', '--signal=' + ('SIGSTOP' if sig == 'STOP' else 'SIGCONT'), f'{UNIT}{bot}', check=False)
             journal('pause' if sig == 'STOP' else 'continue', bot=bot)
     finally:
-        for b in BOTS:                                # whatever happened, nobody stays paused
-            sh('systemctl', 'kill', '--signal=SIGCONT', f'{UNIT}{b}', check=False)
+        continue_all()                                # whatever happened, nobody stays paused
         journal('pauses-end')
 
 
@@ -745,7 +779,7 @@ def showcase_p95(minutes=30):
     return r['hits']['total']['value'], v.get('95.0'), v.get('50.0')
 
 
-def guard_once():
+def guard_once(phase=None):
     try:
         calls, p95, p50 = showcase_p95()
     except Exception as e:
@@ -754,7 +788,8 @@ def guard_once():
     else:
         err = None
     verdict, why = guard_verdict(calls, p95)
-    journal('guard', verdict=verdict, calls=calls, p95_ms=p95, p50_ms=p50, **({'error': err} if err else {}))
+    journal('guard', verdict=verdict, calls=calls, p95_ms=p95, p50_ms=p50, **({'error': err} if err else {}),
+            **({'phase': phase} if phase else {}))
     return verdict, why
 
 
@@ -764,8 +799,40 @@ def cmd_guard(a):
     return 0 if verdict == 'OK' else 1
 
 
+def save_copy(run_dir, tag):
+    """The world's region files and the server's statistics, copied with saving held. save-on is sent whatever happens
+    after save-off was tried (review 11-18: a flush that timed out left saving off)."""
+    try:
+        rcon('save-off')
+        rcon('save-all flush')
+        time.sleep(5)
+        sh('rsync', '-a', f'{SERVER}/world/region/', f'{run_dir}/region-{tag}/')
+        sh('rsync', '-a', f'{SERVER}/world/stats/', f'{run_dir}/stats-{tag}/')
+    finally:
+        for _ in range(3):
+            try:
+                rcon('save-on')
+                break
+            except Exception:
+                time.sleep(5)
+
+
+def guard_loop(trip, done, every_s=600):
+    """The showcase guard for the WHOLE soak, load step included: every 10 minutes; a TRIP, or three blind checks in a row,
+    sets `trip` (trip.why says which)."""
+    blind = 0
+    while not done.wait(every_s):
+        verdict, why = guard_once()
+        blind = blind + 1 if verdict == 'BLIND' else 0
+        if verdict == 'TRIP' or blind >= GUARD_BLIND_MAX:
+            trip.why = why if verdict == 'TRIP' else f'guard blind {blind} checks in a row: {why}'
+            trip.set()
+            return
+
+
 def cmd_soak(a):
     """The whole read, meant for `systemd-run --unit testworld-soak-<run>` so it does not hang on an ssh session."""
+    import threading
     guard_host()
     rel = current_release()
     who = players()
@@ -777,44 +844,41 @@ def cmd_soak(a):
         print(f'REFUSED: {run_dir} exists; a run name is used once')
         return 1
     os.makedirs(run_dir)
-    rcon('save-off'); rcon('save-all flush'); time.sleep(5)
-    try:
-        sh('rsync', '-a', f'{SERVER}/world/region/', f'{run_dir}/region-start/')
-        sh('rsync', '-a', f'{SERVER}/world/stats/', f'{run_dir}/stats-start/')
-    finally:
-        rcon('save-on')
+    save_copy(run_dir, 'start')
     cmd_sample(a)
     journal('soak-start', run=a.run, release=os.path.basename(os.path.realpath(HARNESS)), expected_version=rel['expected_version'],
             hours=a.hours, load_step=not a.no_load_step)
-    end_quiet = time.time() + a.hours * 3600
-    blind, stopped = 0, None
-    while time.time() < end_quiet:
-        time.sleep(min(600, max(1, end_quiet - time.time())))
-        verdict, why = guard_once()
-        blind = blind + 1 if verdict == 'BLIND' else 0
-        if verdict == 'TRIP' or blind >= GUARD_BLIND_MAX:
-            stopped = why if verdict == 'TRIP' else f'guard blind {blind} checks in a row: {why}'
-            lk = lock()   # noqa: F841
-            _stop('guard: ' + stopped)
-            journal('guard-stop', run=a.run, why=stopped)
-            break
-    journal('quiet-end', run=a.run, stopped=stopped)
-    if not stopped and not a.no_load_step:
-        journal('load-step-start', run=a.run)
-        try:
-            squeeze(a.squeeze_minutes, a.share)
-            time.sleep(120)
-            pauses(a.rounds, a.pause_seconds, a.gap)
-            time.sleep(a.recover_minutes * 60)
-        finally:
-            unsqueeze()
-        journal('load-step-end', run=a.run)
+    trip, done = threading.Event(), threading.Event()
+    trip.why = None
+    threading.Thread(target=guard_loop, args=(trip, done), daemon=True).start()
+
+    def nap(seconds):
+        if trip.wait(max(0, seconds)):
+            raise Stopped(trip.why)
+    stopped, quiet_done = None, False
     try:
-        rcon('save-off'); rcon('save-all flush'); time.sleep(5)
-        sh('rsync', '-a', f'{SERVER}/world/region/', f'{run_dir}/region-end/')
-        sh('rsync', '-a', f'{SERVER}/world/stats/', f'{run_dir}/stats-end/')
+        nap(a.hours * 3600)
+        journal('quiet-end', run=a.run, stopped=None)
+        quiet_done = True
+        if not a.no_load_step:
+            journal('load-step-start', run=a.run)
+            squeeze(a.squeeze_minutes, a.share, nap=nap)
+            nap(120)
+            pauses(a.rounds, a.pause_seconds, a.gap, nap=nap)
+            nap(a.recover_minutes * 60)
+            journal('load-step-end', run=a.run)
+    except Stopped as e:
+        stopped = str(e)
+        if not quiet_done:
+            journal('quiet-end', run=a.run, stopped=stopped)
+        lk = lock()   # noqa: F841
+        _stop('guard: ' + stopped)
+        journal('guard-stop', run=a.run, why=stopped)
     finally:
-        rcon('save-on')
+        done.set()
+        unsqueeze()
+        continue_all()
+    save_copy(run_dir, 'end')
     cmd_sample(a)
     journal('soak-end', run=a.run, stopped=stopped)
     r = sh(sys.executable, '-B', f'{HERE}/soakread.py', '--run', a.run, check=False)
@@ -844,6 +908,9 @@ def main():
     s.add_argument('--pause-seconds', type=int, default=50); s.add_argument('--gap', type=int, default=120)
     s.add_argument('--recover-minutes', type=float, default=15); s.set_defaults(fn=cmd_soak)
     a = ap.parse_args()
+    # SIGTERM (systemctl stop of a soak) must unwind like any exit: the squeeze's and the pauses' `finally` put the CPU
+    # quota back and continue every paused bot (review 11-18: the default handler skipped them).
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     return a.fn(a)
 
 

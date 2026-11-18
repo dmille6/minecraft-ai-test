@@ -86,6 +86,15 @@ ys = TW.scrub_yaml(Y, make=lambda: 'NEW')
 check('abc123' not in ys and 'hunter2' not in ys and ys.count("'NEW'") == 2, 'both secret values replaced')
 check("mineskinAPIKey: ''" in ys and 'name: secretive' in ys and '# password: in a comment' in ys and '    enabled: false' in ys, 'an empty value, a comment and other keys are left alone')
 
+with tempfile.TemporaryDirectory() as td:
+    f = os.path.join(td, 'server.properties')
+    open(f, 'w').write(PROPS)
+    os.chmod(f, 0o640)
+    TW.rewrite(f, lambda t: TW.server_properties(t, 'NEWPASS'))
+    after = open(f).read()
+    check('view-distance=8' in after and 'motd=a=b' in after and 'server-port=25560' in after, 'rewrite reads the file BEFORE it writes: every setting survives (review 11-18: the first restore lost them all)')
+    check(oct(os.stat(f).st_mode & 0o777) == '0o640' and not os.path.exists(f + '.tmp'), 'the file keeps its mode and no temp file is left')
+
 # ---- samples
 r = TW.sample_row('2026-11-18T13:15:01Z', 'showcase-Alpha', TW.parse_show('ActiveState=active\nMemoryCurrent=524288000\nMemoryPeak=629145600\nNRestarts=2\nMainPID=4242\n'), 409600)
 check(r['mem_mb'] == 500.0 and r['peak_mb'] == 600.0 and r['restarts'] == 2 and r['active'] and r['rss_mb'] == 400.0, 'a running unit: MB, peak, restarts, rss')
@@ -161,6 +170,12 @@ m = mutant("    if calls is None or p95_ms is None or calls < min_calls:\n", "  
 killed('ten calls count as seeing the showcase', m['guard_verdict'](10, 1000)[0] == 'OK')
 m = mutant("    if p95_ms > limit:\n", "    if p95_ms > limit * 10:\n")
 killed('a 9 s showcase p95 does not trip', m['guard_verdict'](400, 9000)[0] == 'OK')
+with tempfile.TemporaryDirectory() as td:
+    f = os.path.join(td, 'p')
+    open(f, 'w').write(PROPS)
+    m = mutant("    text = open(path).read()\n    out = fn(text)\n    with open(path + '.tmp', 'w') as f:\n", "    with open(path, 'w') as f0:\n        pass\n    text = open(path).read()\n    out = fn(text)\n    with open(path + '.tmp', 'w') as f:\n")
+    m['rewrite'](f, lambda t: m['server_properties'](t, 'X'))
+    killed('the file is truncated before it is read', 'view-distance=8' not in open(f).read())
 m = mutant("        return round(int(v) / 1048576, 1) if str(v).isdigit() else None\n", "        return round(int(v) / 1048576, 1) if str(v).isdigit() else 0\n")
 killed('a stopped unit reads 0 MB', m['sample_row']('t', 'b', {'MemoryCurrent': '[not set]'})['mem_mb'] == 0)
 

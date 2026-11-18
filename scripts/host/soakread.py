@@ -120,8 +120,9 @@ def med(vals):
 
 
 def leak_table(mem, events, bots, pauses_start, load_end):
-    """For each bot: chunk buffers (array_buffers_mb, the bot's own line) in the 15 min before the first pause and in the
-    last 10 min of the load step, the reconnects forced in between, and the MB kept per reconnect. Pure."""
+    """For each bot: chunk buffers (array_buffers_mb, the bot's own line) in the 15 min before the load step and in the
+    last 10 min of it, the reconnects forced in between, and the MB kept per reconnect. `pauses_start` is the START OF THE
+    LOAD STEP: a bot the CPU squeeze drops reconnects too, and that reconnect counts and keeps memory like any other. Pure."""
     out = {}
     for bot in bots:
         before = [ab for t, b, _, _, ab in mem if b == bot and pauses_start - 900 <= t < pauses_start]
@@ -227,7 +228,7 @@ def build_report(inp):
     # ---- the load step
     leak, back = None, None
     if load:
-        leak = leak_table(mem, ev, bots, load['pauses_start'], load['end'])
+        leak = leak_table(mem, ev, bots, load['start'], load['end'])
         ok = [b for b in bots if leak[b]['forced_reconnects'] >= LEAK_MIN_RECONNECTS and leak[b]['mb_per_reconnect'] is not None]
         if len(ok) < LEAK_MIN_BOTS:
             blind.append(f'the load step forced {LEAK_MIN_RECONNECTS}+ reconnects with a memory line on both sides for only {len(ok)} '
@@ -242,7 +243,7 @@ def build_report(inp):
         back = back_in_world_minutes(ev, bots, load['last_continue'])
         last = {}
         for t, b, kind, _ in ev:
-            if b in bots and t >= load['pauses_start']:
+            if b in bots and t >= load['start']:
                 last[b] = kind
         out_now = sorted(b for b, k in last.items() if k == 'lost')
         if out_now:
@@ -299,8 +300,9 @@ def render(r):
       f'of {r["samples_expected"]} expected; {r["memory_lines"]:,} of the bots\' own memory lines; {r["paper_lines"]:,} Paper log lines')
     g = r['guards']
     before = g.get('before') or {}
-    w(f'- showcase model p95 beside it: {before.get("p95_ms", 0) / 1000:.2f} s in the 30 min before; highest 30-min value during '
-      f'{(g["p95_max_ms"] or 0) / 1000:.2f} s over {g["checks"]} checks ({g["trips"]} past 6 s, {g["blind"]} blind)')
+    sec = lambda v: 'not read' if v is None else f'{v / 1000:.2f} s'     # noqa: E731
+    w(f'- showcase model p95 beside it: {sec(before.get("p95_ms"))} in the 30 min before the test bots started; highest 30-min value during '
+      f'{sec(g["p95_max_ms"])} over {g["checks"]} checks ({g["trips"]} past 6 s, {g["blind"]} blind)')
     m = r['llm']
     w(f'- test bots\' model calls: {m["calls"]:,} answered ({m["calls"] / max(0.01, (r["t1"] - r["t0"]) / 60):.1f}/min), '
       f'p50 {m["p50_ms"] / 1000:.2f} s, p95 {m["p95_ms"] / 1000:.2f} s, {m["failed"]} failed' if m.get('calls') else '- test bots\' model calls: none read')
@@ -445,7 +447,7 @@ def collect(run):
     uuid_name = {u['uuid']: u['name'] for u in cache}
     run_dir = f'{TW.SOAK}/{run}'
     guards = [r for r in after if r['event'] == 'guard' and ts(r['t']) <= t1]
-    before = [r for r in rows if r['event'] == 'guard' and ts(r['t']) < t0]
+    before = [r for r in rows if r['event'] == 'guard' and r.get('phase') == 'before-start' and ts(r['t']) < t0]
     return {'run': run, 'expected_version': start['expected_version'], 'bots': bots, 't0': t0, 'quiet_end': quiet_end, 't1': t1,
             'load': load, 'stopped': (end or {}).get('stopped') or (None if end else 'no soak-end row: the driver did not finish'),
             'samples': samples, 'paper': paper, 'bot_lines': bot_lines, 'oom_lines': oom, 'rows_by_bot': rows_by_bot,

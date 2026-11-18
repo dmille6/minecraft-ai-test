@@ -151,6 +151,10 @@ check('**FAIL**' in md and '| Onyx |' in md and '17 -> 125 MB' in md and '18.0' 
 check('42.0 bot-hours' in md and '84,000 skill rows from 14 of 14 bots' in md and '36 expected' in md, 'and every number has its denominator')
 check('300 placed / 200 cleared' in md and 'Timed out' in md, 'blocks by hour and the server\'s reasons for lost connections')
 json.dumps(leaky, default=str)
+i = run(); i['guard_before'] = {'verdict': 'BLIND', 'p95_ms': None, 'calls': None}; i['guards'] = [{'t': z(T0 + 600), 'verdict': 'BLIND', 'p95_ms': None, 'calls': None}]
+check('not read in the 30 min before' in SR.render(SR.build_report(i)), 'a baseline the guard could not read is written as "not read", and the page still renders (review 11-18)')
+i = run(); i['guard_before'] = None
+check('not read' in SR.render(SR.build_report(i)), 'and so is no baseline at all')
 
 # ---- mutants: each rule binds (the anchor must be present and unique)
 SRC = open(os.path.join(HERE, 'soakread.py')).read()

@@ -14,7 +14,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-for (const [file, minPass, minKilled] of [['test_testworld.py', 67, 8], ['test_soakread.py', 52, 11]]) {
+for (const [file, minPass, minKilled] of [['test_testworld.py', 70, 9], ['test_soakread.py', 54, 11]]) {
   const r = spawnSync('python3', ['-B', path.join(REPO, 'scripts/host', file)], { encoding: 'utf8', timeout: 120_000 })
   const out = (r.stdout || '') + (r.stderr || '')
   console.log(out.split('\n').filter(l => /^ {2}FAIL|Error|Traceback/.test(l)).join('\n'))
