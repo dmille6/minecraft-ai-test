@@ -120,7 +120,9 @@ export function retopHeld (cells, read, dirt = 0, { waived = null } = {}) {
   // Codex r2 BLOCKER 1: the visit's OTHER open earth cells (air, not waived: topsoil or earth, dirt first) spend the bag's dirt too, and
   // the foreign pass digs before any placement -- the re-tops get only the dirt left after them
   for (const c of cells ?? []) {
-    if (!Array.isArray(c?.at) || c.prev || c.retop || (c.role !== 'topsoil' && c.role !== 'earth') || hasOwn(waived, kOf(c.at))) continue
+    // Codex rel3 r1 BLOCKER 1: EVERY open earth-laid hole may take dirt -- a re-top already dug (air) and a core cell (cobblestone
+    // first, dirt when the bag has none) too
+    if (!Array.isArray(c?.at) || c.prev || !COLUMN_ROLES.has(c.role) || hasOwn(waived, kOf(c.at))) continue
     if (AIRY.test(nm(read(...c.at)))) left--
   }
   const out = new Set()

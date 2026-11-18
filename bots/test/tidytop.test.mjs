@@ -193,5 +193,19 @@ await t('MUTANT: re-tops not charged for the other holes -> the grey is dug with
   const cells = [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
   await withMutant(P('tidytop.mjs'), '    if (AIRY.test(nm(read(...c.at)))) left--\n', '', M => assert.strictEqual(M.retopHeld(cells, srv.read, 1).size, 0))
 })
+await t('Codex rel3 r1 BLOCKER 1: a re-top already dug (air) and a core hole are charged too; one dirt never digs a second grey', async () => {
+  const B = await import('./helpers/buildfake.mjs')
+  const srv = B.server({ [`2,${B.G},0`]: 'air', [`4,${B.G},0`]: 'cobblestone' })
+  const cells = [{ at: [2, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
+  assert.deepStrictEqual([...TT.retopHeld(cells, srv.read, 1)], [`4,${B.G},0`])
+  const core = [{ at: [2, B.G, 0], role: 'core', seg: 'T' }, { at: [4, B.G, 0], role: 'topsoil', seg: 'T', retop: 1 }]
+  assert.deepStrictEqual([...TT.retopHeld(core, srv.read, 1)], [`4,${B.G},0`])
+  const rec = { cells, segments: [{ seg: 'T', after: [] }], cut: [], clear: [], replant: [] }
+  const { p } = B.project(rec)
+  const e = B.bot(srv, 'A', { inv: { dirt: 1 } })
+  const held = TT.retopHeld(rec.cells, srv.read, 1)
+  await B.R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, alsoDone: q => T.soilSkip(q, e.has) || held.has(q.at.join(',')), blockLayer: false, domain: () => true, walkR: 20 }, e, { maxSteps: 100 })
+  assert.deepStrictEqual(rec.cells.map(q => srv.read(...q.at).name), ['dirt', 'cobblestone'])
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
