@@ -224,6 +224,14 @@ check(zr['deaths']['n'] == 2 and [d[1] for d in zr['deaths']['in_zone']] == ['sh
 h = zr['history']
 check(h['placed_in_zone'] == {'spruce_sapling': 1, 'dirt': 1} and [g[1:] for g in h['grows_in_zone']] == [('showcase-Maple', 121, 67, -8, 'spruce_sapling')] and h['tree_in_zone'] == 2,
       'block history inside the boxes: what the bots placed, the one thing that grows, and 2 blocks of tree growth; wheat planted outside is not there')
+H2 = HIST + [(T0 + 2500 + k, 'showcase-Lumen', 65, 70 + k, -2, 'minecraft:spruce_log', 1) for k in range(5)] + [(T0 + 2500, 'showcase-Lumen', 66, 74, -2, 'minecraft:spruce_leaves', 1),
+                                                                                                                (T0 + 2500, 'showcase-Lumen', 65, 70, -2, 'minecraft:spruce_sapling', 0),
+                                                                                                                (T0 + 2600, 'showcase-Lumen', -300, 70, -2, 'minecraft:spruce_log', 1)]
+h2 = SR.zone_report(ZONES, ZR, FIRST, LAST, H2)['history']
+check(h2['tree_in_zone'] == 8 and 'spruce_log' not in h2['placed_in_zone'] and len(h2['tree_logs']) == 6,
+      'a tree the block history credits to its planter (logs and leaves "placed" by the bot, as seen 11-18) is tree growth, not building; a log outside the zones is neither')
+i = run(); i.update(zones=ZONES, zone_rows=[], first_pos={}, last_pos={}, zone_history=H2)
+check(any('A TREE GREW INSIDE A PROTECTED ZONE: 8 blocks' in f and '2 trunk(s) at 65,-2, 121,-8' in f for f in SR.build_report(i)['flags']), 'and the read names it with the trunks')
 check(h['broken_in_zone'] == {'showcase-Comet': 2}, 'blocks broken inside a zone, by bot (a break outside is not counted)')
 check([i[0] for i in zr['inside_at_end']] == ['showcase-Alpha', 'showcase-Gale'], 'who is inside a zone box at the end')
 c = zr['started_inside']['showcase-Comet']
@@ -233,13 +241,13 @@ check(zr['started_inside']['showcase-Gale']['inside_at_end'] and 'showcase-Alpha
 i = run(); i.update(zones=ZONES, zone_rows=ZR, first_pos=FIRST, last_pos=LAST, zone_history=HIST)
 r = SR.build_report(i)
 fl = ' / '.join(r['flags'])
-check(r['verdict'] == 'PASS' and 'PLANTED INSIDE A PROTECTED ZONE: 1 by the bots\' rows, 1 by the block history' in fl and 'a tree GREW inside' in fl
+check(r['verdict'] == 'PASS' and 'PLANTED INSIDE A PROTECTED ZONE: 1 by the bots\' rows, 1 by the block history' in fl and 'A TREE GREW INSIDE A PROTECTED ZONE' in fl
       and '1 death(s) inside a protected zone' in fl and 'said "out" but ended inside' in fl and 'inside a protected zone at the end: Alpha' in fl and 'within 8 blocks of one: 1' in fl,
       'every zone finding is named in the read, and none of them moves the verdict')
 md = SR.render(r)
 check('## Protected zones (2 boxes' in md and '**Comet began inside village-taiga-6_1** at 146,54,-50 and ended at 166,54,-50: **WALKED OUT**' in md
       and '**Gale began inside village-taiga-6_1**' in md and '**STAYED inside**' in md, 'the page says what each bot that began inside a zone did')
-check('op=place purpose=survival struct=0: 2' in md and '**1 inside a zone** (14:00Z Frost at 65,70,-2)' in md and 'tree growth: 2 blocks' in md, 'and lists refusals by kind, in-zone spots with time and block, and tree growth')
+check('op=place purpose=survival struct=0: 2' in md and '**1 inside a zone** (14:00Z Frost at 65,70,-2)' in md and 'tree growth: 2 blocks of logs and leaves' in md, 'and lists refusals by kind, in-zone spots with time and block, and tree growth')
 i = run(); i.update(zones=ZONES, zone_rows=[], first_pos={}, last_pos={}, zone_history=[])
 r = SR.build_report(i)
 md = SR.render(r)
@@ -291,6 +299,8 @@ def mutant_ns(old, new):
     ns = {'__name__': 'soakread_mutant', '__file__': os.path.join(HERE, 'soakread.py')}
     exec(compile(SRC.replace(old, new), 'soakread_mutant', 'exec'), ns)
     return ns
+m = mutant_ns("        if action == 1 and (user == '#tree' or TREE.search(mat)):\n", "        if action == 1 and user == '#tree':\n")
+killed('a tree credited to its planter is filed as building', m['zone_report'](ZONES, ZR, FIRST, LAST, H2)['history']['tree_in_zone'] == 2)
 m = mutant_ns("GROWTH_MARGIN = 8 ", "GROWTH_MARGIN = 0 ")
 killed('a plant spot 7 blocks from a zone is not counted as near', m['zone_report'](ZONES, ZR, FIRST, LAST, HIST)['spots']['near'] == [])
 m = mutant_ns("            if oc == 'out' and m and zone_of(zones, *map(int, m.groups()), use_y=False):\n", "            if False:\n")

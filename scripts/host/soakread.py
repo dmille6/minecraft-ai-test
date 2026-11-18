@@ -43,6 +43,10 @@ GROWTH_MARGIN = 8             # protectzone.mjs GROWTH_MARGIN: no plant spot wit
 AT = re.compile(r'\bfound at=(-?\d+),(-?\d+),(-?\d+)')
 ORDER = re.compile(r'^place (\{.*?\}) ')
 XYZ = re.compile(r'^(-?\d+),(-?\d+),(-?\d+)$')
+# The block history credits a grown tree's logs and leaves to whoever planted the sapling (seen 11-18: "showcase-Lumen placed
+# spruce_log" five times in one second at the sapling's block), and to `#tree` when nobody did. Nothing a bot does places a
+# log or a leaf inside a zone (every placement there is refused), so either one inside a zone box is a tree that grew.
+TREE = re.compile(r'(_log|_leaves|_wood)$')
 GROWS = re.compile(r'(sapling|propagule|seeds|wheat|carrots|potatoes|beetroots|bone_meal|sugar_cane|bamboo|cactus|kelp|berry|stem|nether_wart|vine|azalea|moss)')
 
 # ------------------------------------------------------------------------------------------------ pure
@@ -175,7 +179,7 @@ def zone_report(zones, rows, first_pos, last_pos, history):
     out = {'zones': len(zones), 'spots': {'n': 0, 'in_zone': [], 'near': []}, 'orders': {'n': 0, 'in_zone': []},
            'planted': {'n': 0, 'in_zone': []}, 'refused': {}, 'refused_n': 0, 'refused_with_remedy': 0,
            'walks': {}, 'walk_out_inside': [], 'rescue': {}, 'deaths': {'n': 0, 'in_zone': []},
-           'history': {'placed_in_zone': {}, 'grows_in_zone': [], 'tree_in_zone': 0, 'broken_in_zone': {}},
+           'history': {'placed_in_zone': {}, 'grows_in_zone': [], 'tree_in_zone': 0, 'tree_logs': [], 'broken_in_zone': {}},
            'inside_at_end': [], 'started_inside': {}}
     def spot(kind, t, bot, x, y, z):
         out[kind]['n'] += 1
@@ -227,8 +231,12 @@ def zone_report(zones, rows, first_pos, last_pos, history):
         if not zone_of(zones, x, y, z):
             continue
         mat = material.replace('minecraft:', '')
-        if user == '#tree':
-            h['tree_in_zone'] += 1 if action == 1 else 0
+        if action == 1 and (user == '#tree' or TREE.search(mat)):
+            h['tree_in_zone'] += 1
+            if mat.endswith('_log'):
+                h['tree_logs'].append((t, user, x, y, z, mat))
+        elif user == '#tree':
+            continue
         elif action == 1:
             h['placed_in_zone'][mat] = h['placed_in_zone'].get(mat, 0) + 1
             if GROWS.search(mat):
@@ -378,7 +386,9 @@ def build_report(inp):
     if zr['planted']['in_zone'] or zr['history']['grows_in_zone']:
         flags.append(f'PLANTED INSIDE A PROTECTED ZONE: {len(zr["planted"]["in_zone"])} by the bots\' rows, {len(zr["history"]["grows_in_zone"])} by the block history')
     if zr['history']['tree_in_zone']:
-        flags.append(f'a tree GREW inside a protected zone ({zr["history"]["tree_in_zone"]} blocks by the block history)')
+        trunks = sorted({(x, z) for _, _, x, _, z, _ in zr['history']['tree_logs']})
+        flags.append(f'A TREE GREW INSIDE A PROTECTED ZONE: {zr["history"]["tree_in_zone"]} blocks of logs and leaves by the block history, '
+                     f'{len(trunks)} trunk(s) at ' + ', '.join(f'{x},{z}' for x, z in trunks[:6]))
     if zr['deaths']['in_zone']:
         flags.append(f'{len(zr["deaths"]["in_zone"])} death(s) inside a protected zone')
     if zr['walk_out_inside']:
@@ -486,7 +496,10 @@ def render(r):
           + (f' {dict(sorted(hh["placed_in_zone"].items(), key=lambda x: -x[1])[:8])}' if hh['placed_in_zone'] else '')
           + f'; **things that grow: {len(hh["grows_in_zone"])}**'
           + (' (' + '; '.join(f'{hm(t)}Z {u.replace("showcase-", "")} {m} at {x},{y},{zz}' for t, u, x, y, zz, m in hh['grows_in_zone'][:10]) + ')' if hh['grows_in_zone'] else '')
-          + f'; tree growth: {hh["tree_in_zone"]} blocks; broken by the bots: {sum(hh["broken_in_zone"].values())}'
+          + f'; **tree growth: {hh["tree_in_zone"]} blocks of logs and leaves**'
+          + (' (first log of each trunk: ' + '; '.join(f'{hm(t)}Z {u.replace("showcase-", "")} at {x},{y},{zz}' for t, u, x, y, zz, _ in
+                                                      {(x, zz): (t, u, x, y, zz, m) for t, u, x, y, zz, m in reversed(hh['tree_logs'])}.values()) + ')' if hh.get('tree_logs') else '')
+          + f'; broken by the bots: {sum(hh["broken_in_zone"].values())}'
           + (f' {dict((k.replace("showcase-", ""), v) for k, v in hh["broken_in_zone"].items())}' if hh['broken_in_zone'] else ''))
         w(f'- refusals (`_protect_zone_refused`): {z["refused_n"]}'
           + (f', {z["refused_with_remedy"]} naming the walk-out remedy; by kind: ' + ', '.join(f'{k}: {n}' for k, n in sorted(z['refused'].items(), key=lambda x: -x[1])) if z['refused_n'] else ''))
@@ -571,7 +584,9 @@ def zone_blocks(db, bots, zones, a, b):
     return out
 
 
-def collect(run):
+def collect(run, server=None):
+    """server: another server folder to read the block history and the player names from (a world set aside under old/ by
+    a later restore), so an earlier run can be read again."""
     from lib import telemetry as T
     rows = [json.loads(l) for l in open(f'{ROOT}/ops/deploy.jsonl') if l.strip()]
     start = [r for r in rows if r.get('event') == 'soak-start' and r.get('run') == run][-1]
@@ -593,6 +608,7 @@ def collect(run):
                     'squeeze': next((r for r in after if r['event'] == 'squeeze-on'), None)}
     sys.path.insert(0, HERE)
     import testworld as TW
+    server = server or TW.SERVER
     bots = list(TW.BOTS)
     samples = []
     for l in open(TW.SAMPLES):
@@ -624,7 +640,7 @@ def collect(run):
     lat.sort()
     llm = {'calls': len(lat), 'p50_ms': lat[len(lat) // 2] if lat else None,
            'p95_ms': lat[int(len(lat) * 0.95)] if lat else None, 'failed': failed}
-    cache = json.load(open(f'{TW.SERVER}/usercache.json'))
+    cache = json.load(open(f'{server}/usercache.json'))
     uuid_name = {u['uuid']: u['name'] for u in cache}
     run_dir = f'{TW.SOAK}/{run}'
     guards = [r for r in after if r['event'] == 'guard' and ts(r['t']) <= t1]
@@ -650,14 +666,14 @@ def collect(run):
         zones = json.load(open(f'{TW.STATE}/_pool-showcase/protected-zones.json')).get('zones') or []
     except (OSError, ValueError):
         zones = []
-    zone_history = zone_blocks(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), zones, t0, t1)
+    zone_history = zone_blocks(f'{server}/plugins/CoreProtect/database.db', set(bots), zones, t0, t1)
     before = [r for r in rows if r['event'] == 'guard' and r.get('phase') == 'before-start' and ts(r['t']) < t0]
     return {'run': run, 'expected_version': start['expected_version'], 'bots': bots, 't0': t0, 'quiet_end': quiet_end, 't1': t1,
             'load': load, 'stopped': (end or {}).get('stopped') or (None if end else 'no soak-end row: the driver did not finish'),
             'samples': samples, 'paper': paper, 'bot_lines': bot_lines, 'oom_lines': oom, 'rows_by_bot': rows_by_bot,
             'versions': ev.versions(), 'death_rows': death_rows,
             'stats_start': stats_dir(f'{run_dir}/stats-start', uuid_name), 'stats_end': stats_dir(f'{run_dir}/stats-end', uuid_name),
-            'blocks': block_hours(f'{TW.SERVER}/plugins/CoreProtect/database.db', set(bots), t0, t1), 'llm': llm,
+            'blocks': block_hours(f'{server}/plugins/CoreProtect/database.db', set(bots), t0, t1), 'llm': llm,
             'guards': guards, 'guard_before': before[-1] if before else None, 'guard_off': guard_off,
             'zones': zones, 'zone_rows': zone_rows, 'first_pos': first_pos, 'last_pos': last_pos, 'zone_history': zone_history,
             'load_only': bool(start.get('load_only'))}
@@ -666,11 +682,13 @@ def collect(run):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run', required=True)
+    ap.add_argument('--server', help='read the block history from this server folder (a world set aside under old/)')
     a = ap.parse_args()
-    inp = collect(a.run)
+    inp = collect(a.run, a.server)
     rep = build_report(inp)
     out = f'{ROOT}/soak/{a.run}'
     os.makedirs(out, exist_ok=True)
+    json.dump(inp, open(f'{out}/soak-inputs.json', 'w'), default=str)      # what was collected, so the page can be rebuilt
     md = render(rep)
     open(f'{out}/soak-read.md', 'w').write(md)
     json.dump(rep, open(f'{out}/soak-read.json', 'w'), indent=1, default=str)
