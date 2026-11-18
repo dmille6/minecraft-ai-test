@@ -385,6 +385,17 @@ await t('BLOCKER 1: with only held cuts left (no workable segment) the visit sti
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/\}\s*else if \(exposeNeed > 0 && \(need\.dirt \?\? 0\) > 0\) \{ const w2 = await matsWithdraw\(ctx, \{ dirt: need\.dirt \}, signal,/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))))
 })
+console.log('CODEX T11 DELTA r4')
+await t('the live check at the dig: a grade cut that would leave stone on top is dug only with a dirt in the bag now', () => {
+  const srv = server({ [`0,${G + 2},0`]: 'grass_block', [`0,${G + 1},0`]: 'stone', [`1,${G + 1},0`]: 'dirt' })
+  const q = { at: [0, G + 2, 0], grade: true }
+  assert.strictEqual(GT.gradeCutOk(q, srv.read, () => false), false)
+  assert.strictEqual(GT.gradeCutOk(q, srv.read, n => n === 'dirt'), true)
+  assert.strictEqual(GT.gradeCutOk({ at: [1, G + 2, 0], grade: true }, srv.read, () => false), true, 'earth below: yes')
+  assert.strictEqual(GT.gradeCutOk({ at: [0, G + 2, 0] }, srv.read, () => false), true, 'not the grade\'s: as before')
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/&& gradeCutOk\(q, rd, n => !!effects\?\.has\?\.\(n\)\) && handedBare\(q, rd\) \} : \{\}\),/.test(strip(readFileSync(P('skills.mjs'), 'utf8'))), 'wired into tidyOk')
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

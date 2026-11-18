@@ -338,3 +338,14 @@ export function dropOrphanCuts (rec, { standing = () => true } = {}) {
  *  each: capHeldCols with no dirt in hand) -> n. Pure over `read`. Billed with the topsoil's (the town's draw), so a held column is
  *  never left waiting on dirt the visit never asked for. */
 export const exposeDirtNeed = (cuts, read, cells = [], waived = null) => capHeldCols(cuts, read, Object.assign(new Set(), { left: 0 }), cells, waived).size
+
+/** Codex T11 delta r4: THE LIVE CHECK AT THE DIG -> may this grade cut be dug NOW? Pure over `read`. A grade cut whose removal leaves a
+ *  non-earth, non-air block on top is dug only while the bag can spare a dirt to cap it (`has('dirt')`: the placer's own read, as the
+ *  visit stands -- after whatever the visit already laid). Every other cut: yes. The planning holds (capHeldCols, gradeCutsHeld) keep
+ *  the visit from walking to cuts it will refuse here. */
+export function gradeCutOk (q, read, has = () => false) {
+  if (!q?.grade) return true
+  const n = nm(read(q.at[0], q.at[1] - 1, q.at[2]))
+  if (EARTH_TOP.test(n) || /^(air|cave_air|void_air)$/.test(n)) return true
+  return !!has('dirt')
+}
