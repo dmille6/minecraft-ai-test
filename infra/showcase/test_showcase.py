@@ -3036,8 +3036,10 @@ class ReplayGate(unittest.TestCase):
         """A piece stage pins digests from the newest verified observation ONLY when the fleet is stopped on purpose and the
         newest observation failed for nothing but the empty roster with the same digests (owner 11-18, fleet stopped)."""
         OPS_ = load('showcase_ops', 'showcase_ops.py')
-        ver = {'t': 'T1', 'verified': True, 'policy': 'P', 'deps': 'D', 'feed_errors': None}
-        empty = {'t': 'T2', 'verified': False, 'policy': 'P', 'deps': 'D', 'feed_errors': [OPS_.ROSTER_EMPTY]}
+        S1, S2 = 'a' * 40, 'b' * 40
+        ver = {'t': 'T1', 'verified': True, 'sha': S1, 'policy': 'P', 'deps': 'D', 'feed_errors': None, 'roster_n': 80, 'census_n': 80}
+        empty = {'t': 'T2', 'verified': False, 'sha': S1, 'policy': 'P', 'deps': 'D', 'feed_errors': [OPS_.ROSTER_EMPTY],
+                 'roster_n': 0, 'census_n': 0}
         row, why = OPS_.stage_observation([ver], None)
         self.assertIs(row, ver); self.assertEqual(why, '')
         row, why = OPS_.stage_observation([ver, empty], None)
@@ -3051,6 +3053,11 @@ class ReplayGate(unittest.TestCase):
         self.assertIsNone(OPS_.stage_observation([ver, dict(empty, deps='D2')], 'owner')[0], 'changed deps digest refuses')
         self.assertIsNone(OPS_.stage_observation([ver, dict(empty, policy=None)], 'owner')[0], 'no digest refuses')
         self.assertIsNone(OPS_.stage_observation([empty], 'owner')[0], 'no verified row to pin from refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, sha=None)], 'owner')[0], 'no declared version refuses (Codex r1)')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, sha='nothex')], 'owner')[0], 'an invalid declared version refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, sha=S2)], 'owner')[0], 'a changed declared version refuses')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, roster_n=3)], 'owner')[0], 'bots on the roster: not stopped')
+        self.assertIsNone(OPS_.stage_observation([ver, dict(empty, census_n=2)], 'owner')[0], 'bots in the census: not stopped')
         self.assertIsNone(OPS_.stage_observation([], 'owner')[0])
         d = tempfile.mkdtemp()
         try:

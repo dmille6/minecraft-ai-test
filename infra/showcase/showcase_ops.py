@@ -783,8 +783,10 @@ def stage_observation(ledger, fleet_stopped):
     """-> (row, why): the observation a piece stage pins its policy and dependency digests from. Pure.
     The newest row when it is verified. Otherwise, ONLY when the fleet is stopped on purpose (`fleet_stopped`: the owner's
     FLEET_STOPPED file is readable and names a why), the newest VERIFIED row, and only if the newest row failed for nothing
-    but the empty roster (every feed error is ROSTER_EMPTY) and reads the SAME policy and dependency digests: the bench's
-    pinned files are unchanged, there is simply no bot to count. Anything else -> (None, why)."""
+    but the empty roster (every feed error is ROSTER_EMPTY, no bot on the roster or in the census), declares the SAME code
+    version (manifest sha) and reads the SAME policy and dependency digests: the bench's declared build and pinned files are
+    unchanged, there is simply no bot to count. Anything else -> (None, why) (Codex r1: a missing or invalid declared
+    version fails observe() without a feed error, so the sha is compared too)."""
     rows = [r for r in (ledger or []) if isinstance(r, dict)]
     if not rows:
         return None, 'no observation yet; run `showcase_ops.py follow --observe-only`'
@@ -800,6 +802,11 @@ def stage_observation(ledger, fleet_stopped):
     ver = next((r for r in reversed(rows) if r.get('verified')), None)
     if not ver:
         return None, why + ' (fleet stopped, and no verified observation exists to pin from)'
+    if last.get('roster_n') != 0 or last.get('census_n') != 0:
+        return None, why + f' (fleet stopped, but the bench still reports bots: roster {last.get("roster_n")} census {last.get("census_n")})'
+    if not HEX40.fullmatch(str(last.get('sha') or '')) or last.get('sha') != ver.get('sha'):
+        return None, why + (f' (fleet stopped, but the bench declares {str(last.get("sha"))[:12]}, '
+                            f'not the verified {str(ver.get("sha"))[:12]})')
     if not (last.get('policy') and last.get('deps')) or (last.get('policy'), last.get('deps')) != (ver.get('policy'), ver.get('deps')):
         return None, why + (f' (fleet stopped, but the bench now reads policy {last.get("policy")} deps {last.get("deps")}, '
                             f'not the verified {ver.get("policy")} {ver.get("deps")})')
