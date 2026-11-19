@@ -405,7 +405,10 @@ export function pairCuts (cuts, cells, read, done = () => false) {
     if (!q?.grade || !Array.isArray(q.at)) return q
     const cap = capAt.get([q.at[0], q.at[1] - 1, q.at[2]].join(','))
     if (!cap) return q
-    const n = topUnder(read, q.at)
+    // t11reach2-01show (rig run 28: 18 columns cut 70 -> 68): the invariant is that a grade cut never leaves its column's top BELOW the
+    // target at the end of the pass -- so the cap cell ITSELF is judged: holding earth, the cut is left as it is; holding anything else
+    // (grey, stone) or NOTHING (a hollow at the target over earth lower down: the cut would leave a hole), the cut and its cap are one unit
+    const n = nm(read(...cap.at))
     if (EARTH_TOP.test(n)) return q
     return { ...q, cap: [...cap.at], capRole: cap.role, capSeg: cap.seg ?? null }
   })

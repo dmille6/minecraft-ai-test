@@ -30782,10 +30782,10 @@ async function buildTidyVisit (ctx, args, signal) {
     // tidytop-01show (Codex r1 BLOCKER): a re-topped cell's grey block is dug only with dirt in the bag to lay in its place (tidytop.mjs retopHeld)
     // gradetidy-01show (control 11-18): while a gate is set, the record's lawn swaps (roughground-2) are passed -- never dug, never laid --
     // and (Codex T11 new r2) never charged against the bag's dirt
-    const lawnPaused = gradeOn() && gradeNow(bot)?.t ? lawnSwapKeys(rec, q => cutStanding(read, q)) : new Set()
     // t11reach2-01show: while a grade gate is set, its re-tops take the bag's dirt first (tidytop.mjs retopHeld `gate`); no gate: as before
     const gGate = gradeOn() ? (gradeNow(bot)?.t?.gate ?? null) : null
     const inGate = gGate && typeof gGate.has === 'function' ? q => !!q?.grade && gGate.has(`${q.at[0]},${q.at[2]}`) : null
+    const lawnPaused = gradeOn() && gradeNow(bot)?.t ? lawnSwapKeys(rec, q => cutStanding(read, q)) : new Set()
     const retopPass = tidyTopOn() ? retopHeld(lawnPaused.size ? visitRec.cells.filter(q => !lawnPaused.has(q.at.join(','))) : visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived, open: q => !buildCellDone(read(...q.at), palette, q.role), gate: inGate }) : new Set()
     for (const k of lawnPaused) retopPass.add(k)
     // t11reach2-01show (run 28, 9,69,-22): a grey re-top with air under it is never dug -- held, `air_below` on the rows
