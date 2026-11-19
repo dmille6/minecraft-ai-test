@@ -407,7 +407,12 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
   added.push(...add)
   n.add = add.length; n.deep = deepCols.size
   const cells = (rec.cells ?? []).map(c => (c?.opener && Array.isArray(c.at) && deepCols.has(colOf(c.at)) && !c.hollowDeep ? { ...c, hollowDeep: now } : c))
-  return { rec: { ...rec, cells: [...cells, ...add], ...(add.length ? { bom: { ...(rec.bom ?? {}), earth: (Number(rec.bom?.earth) || 0) + add.length } } : {}) }, n, added, hollow }
+  // THE CRUST LEFT ALONE (Codex r1 BLOCKER): a deep hollow's fills may now be waived, so the cut that would open it must not be dug
+  // after them -- every cut a marked fill names as its opener leaves the record (a cut already dug is gone from the world anyway)
+  const retire = new Set(cells.filter(c => c?.hollowDeep === now && Array.isArray(c.opener)).map(c => kOf(c.opener)))
+  const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut
+  n.retired = (rec.cut ?? []).length - (cut ?? []).length
+  return { rec: { ...rec, cells: [...cells, ...add], ...(retire.size ? { cut } : {}), ...(add.length ? { bom: { ...(rec.bom ?? {}), earth: (Number(rec.bom?.earth) || 0) + add.length } } : {}) }, n, added, hollow }
 }
 
 /**
