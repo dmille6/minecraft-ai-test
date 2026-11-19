@@ -42,6 +42,7 @@ const REQUIRED = [
   'bots/test/civicroof.test.mjs',   // civicroof-01show
   'bots/src/wellstand.mjs', 'bots/src/wellturn.mjs', 'bots/test/wellstand.test.mjs', 'bots/test/wellturn.test.mjs',   // wellfix-01show
   'bots/scripts/wellstand-replay.mjs', 'bots/test/fixtures/wellstand-showcase-1118.json',   // wellfix-01show: the replay and its cells
+  'bots/src/indexfetch.mjs', 'bots/test/indexfetch.test.mjs',   // indexfetch-01show
   'bots/test/buildfirst.test.mjs',
   'bots/src/depositoffer.mjs', 'bots/test/depositoffer.test.mjs', 'bots/test/depfix.test.mjs',   // depfix-01show (DEPOSITOFFER-01 port + the named-deposit widening)
   'bots/src/minecrewio.mjs',
