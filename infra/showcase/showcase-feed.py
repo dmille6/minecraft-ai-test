@@ -12,7 +12,7 @@ every declared canary pool whose newest row reports the majority control build -
 policy knobs from a bot verifiably running them; and up to 60 of that bot's newest whole llm prompts (the brain replay).
 Design: docs/reports/showcase-2026-10-20.md section 3.
 """
-import glob, hashlib, json, os, re, sys
+import glob, gzip, hashlib, json, os, re, sys
 
 SENTINEL = re.compile(r'saw_end: (END-[A-Z0-9]+)')
 HARNESS = '/srv/mcbots/harness'
@@ -37,6 +37,45 @@ def newest_row(path, chunk=65536):
             return json.loads(line)
         except ValueError:
             continue
+    return None
+
+
+def rotated_newest_row(path):
+    """The last complete JSON line of the NEWEST rotated copy of a log (path-YYYYMMDD or path-YYYYMMDD.gz), or None.
+    Used only to name the control bot while the fleet is stopped: the nightly rotation (~23:59Z) leaves every live log
+    empty, so the live census finds no bot, no control env and no policy (11-19: piece stages refused for policy None)."""
+    for p in sorted(glob.glob(path + '-*'), reverse=True)[:1]:
+        if not p.endswith('.gz'):
+            return newest_row(p)
+        last = None
+        try:
+            with gzip.open(p, 'rb') as f:
+                for line in f:
+                    if line.strip():
+                        last = line
+        except (OSError, EOFError):
+            return None
+        try:
+            return json.loads(last) if last else None
+        except ValueError:
+            return None
+    return None
+
+
+def pick_control(ctrl, env_dir):
+    """ctrl: [{'bot', 'version'}] outside every canary pool -> (bot, majority version, env path) of the first board bot
+    on the majority build that has an env file, or None. Pure but for isfile."""
+    counts = {}
+    for c in ctrl:
+        if c.get('version'):
+            counts[c['version']] = counts.get(c['version'], 0) + 1
+    if not counts:
+        return None
+    major = max(counts, key=counts.get)
+    for c in sorted(ctrl, key=lambda c: c['bot']):
+        p = os.path.join(env_dir, c['bot'] + '.env')
+        if c.get('version') == major and c['bot'].startswith('board-') and os.path.isfile(p):
+            return c['bot'], major, p
     return None
 
 
@@ -124,19 +163,29 @@ def main():
     m = out.get('manifest') or {}
     cpools = [p.strip() for p in str(m.get('canary_pool') or '').split(',') if p.strip()]
     ctrl = [c for c in census if c.get('version') and not any(c['bot'].startswith(p + '-') for p in cpools)]
-    counts = {}
-    for c in ctrl:
-        counts[c['version']] = counts.get(c['version'], 0) + 1
     out['control_env'] = None
     out['prompts'] = []
-    if counts:
-        major = max(counts, key=counts.get)
-        for c in sorted(ctrl, key=lambda c: c['bot']):
-            p = os.path.join(ENV_DIR, c['bot'] + '.env')
-            if c['version'] == major and c['bot'].startswith('board-') and os.path.isfile(p):
-                out['control_env'] = {'bot': c['bot'], 'version': major, 'text': open(p).read()}
-                out['prompts'] = recent_prompts(c['bot'])
-                break
+    pick = pick_control(ctrl, ENV_DIR)
+    if pick is None and not census:
+        # every live log is empty (the fleet stopped, then the nightly rotation): name the control bot from the build
+        # each board bot last logged before the stop. The census itself stays empty (the stopped-fleet stage rule needs
+        # census 0), and the control env marks where its version came from.
+        last = []
+        for d in sorted(glob.glob('/var/log/mcai/board-*-*/')):
+            bot = os.path.basename(d.rstrip('/'))
+            if any(bot.startswith(p + '-') for p in cpools):
+                continue
+            r = rotated_newest_row(os.path.join(d, f'skill-{bot}.jsonl'))
+            if r:
+                last.append({'bot': bot, 'version': (r.get('code') or {}).get('version')})
+        pick = pick_control(last, ENV_DIR)
+        if pick:
+            pick = pick + ('rotated',)
+    if pick:
+        out['control_env'] = {'bot': pick[0], 'version': pick[1], 'text': open(pick[2]).read()}
+        if len(pick) > 3:
+            out['control_env']['from'] = 'rotated log (live logs empty)'
+        out['prompts'] = recent_prompts(pick[0])
     # the expected roster: the bench's ENABLED bot units (what boots), not env files -- a pool stopped and disabled
     # for days (the owner's fleet reshape) is then not "expected" and cannot hold the follower forever
     wants = glob.glob('/etc/systemd/system/multi-user.target.wants/mcbot@*.service')
