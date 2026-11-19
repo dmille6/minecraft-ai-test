@@ -30758,7 +30758,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // tidytop-01show (Codex r1 BLOCKER): a re-topped cell's grey block is dug only with dirt in the bag to lay in its place (tidytop.mjs retopHeld)
     // gradetidy-01show (control 11-18): while a gate is set, the record's lawn swaps (roughground-2) are passed -- never dug, never laid --
     // and (Codex T11 new r2) never charged against the bag's dirt
-    const lawnPaused = gradeOn() && gradeNow(bot)?.t ? lawnSwapKeys(visitRec, q => cutStanding(read, q)) : new Set()
+    const lawnPaused = gradeOn() && gradeNow(bot)?.t ? lawnSwapKeys(rec, q => cutStanding(read, q)) : new Set()
     const retopPass = tidyTopOn() ? retopHeld(lawnPaused.size ? visitRec.cells.filter(q => !lawnPaused.has(q.at.join(','))) : visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived, open: q => !buildCellDone(read(...q.at), palette, q.role) }) : new Set()
     for (const k of lawnPaused) retopPass.add(k)
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
