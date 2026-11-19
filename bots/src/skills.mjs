@@ -14734,8 +14734,8 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
   }
   const searchable = () => Object.keys(left).filter(n => left[n] > 0 && !zero.has(n))
   const want = () => searchable().length > 0
-  const nextOf = () => (firsts.length ? { block: firsts.shift(), first: true } : !want() ? { block: null } : townSearchNext(bot, searchable(), tried))
-  let next = nextOf()
+  const nextOf = () => (firsts.length ? { block: firsts.shift(), first: true } : townSearchNext(bot, searchable(), tried))
+  let next = want() ? nextOf() : { block: null }   // t11reach2: every kind skipped -> nothing to search (exhausted: the refill is raised)
   // drawshort-01show (sandbox2 11-18, civicH's roof: tried=12 short=spruce_stairs:24 with 132 in the index): the twelve visits went to the
   // near containers for the bill's other names; a name the town's index still stocks gets WITHDRAW_SHORT_EXTRA more, for it alone
   const stockedShort = () => { try { const st = matsTownStock(bot)?.stock ?? {}; return Object.keys(left).some(n => left[n] > 0 && (Number(st[n]) || 0) > 0) } catch { return false } }
