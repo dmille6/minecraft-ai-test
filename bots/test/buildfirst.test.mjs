@@ -375,7 +375,7 @@ await t('MUTANT KILLED: the room hold never written (the same refused pick for e
   })
 })
 await t('MUTANT KILLED: the look keeps the order\'s clock (an idle bot is never sent within 10 minutes of its last visit)', async () => {
-  await withMutant(SHOP_PATH, '  if (cooldown && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }', '  if (now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }', async m => {
+  await withMutant(SHOP_PATH, '  if (cooldown && !fetchFree && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }', '  if (!fetchFree && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }', async m => {
     const r = m.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: NOW, state: { lastAt: NOW - MIN }, record: { plot: 'civicM' }, freeSlots: 20, cooldown: false, fall: false })
     assert.equal(r.order, null, 'killed')
   })
