@@ -1109,6 +1109,21 @@ function buildOrderOwn ({ cooldown = true, look = false, on = SHOP.on, shared = 
     try { ea = enchantAskOf({ now, health, freeSlots }) } catch { ea = null }
     if (ea?.order) return { order: ea.order, skip: null }
   }
+  // INDEXFETCH-01SHOW (indexfetch.mjs): the material a short draw left in a far chest the index names -- the trip first, ahead of the
+  // idle-work asks (a short draw's no_material is `buildIdle`: Codex r1 BLOCKER 3) and of the cooldown (its own run: never the visit's
+  // clock), at the surface and in health only; after a trip that fetched, the build itself without the cooldown (every other back-off
+  // below still holds)
+  let fetchFree = false
+  if (fetchAskOf && !complete && health > SHOP_HEALTH_MIN) {
+    let fplot = record?.plot ?? null
+    if (!record) { try { fplot = activePlotOf() } catch { fplot = null } }
+    if (!startsBelow(fplot, feet, groundY, { over: overOf(feet, groundY) })) {
+      let fa = null
+      try { fa = fetchAskOf({ now, plot: fplot, freeSlots, look }) } catch { fa = null }
+      if (fa?.order) return { order: fa.order, skip: null }
+      fetchFree = fa?.cooldownFree === true
+    }
+  }
   // picker-01: a SINK as the active project is no finite work -- the copper run (a waiting finite project's need) and the expedition
   // (one slot) are asked first, as for a bot the projects cannot use; the expedition's ask is told the projects are done
   let sinkNow = false
@@ -1136,16 +1151,6 @@ function buildOrderOwn ({ cooldown = true, look = false, on = SHOP.on, shared = 
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
-  // INDEXFETCH-01SHOW (indexfetch.mjs): the material a short draw left in a far chest the index names -- the trip first, ahead of the
-  // cooldown (its own run: never the visit's clock), at the surface and in health only; after a trip that fetched, the build itself
-  // without the cooldown (every other back-off below still holds)
-  let fetchFree = false
-  if (fetchAskOf && health > SHOP_HEALTH_MIN && !startsBelow(plot0, feet, groundY, { over: overOf(feet, groundY) })) {
-    let fa = null
-    try { fa = fetchAskOf({ now, plot: plot0, freeSlots, look }) } catch { fa = null }
-    if (fa?.order) return { order: fa.order, skip: null }
-    fetchFree = fa?.cooldownFree === true
-  }
   // buildfirst-01show: the idle steer's look asks without the clock (`cooldown: false`); every back-off below still holds
   if (cooldown && !fetchFree && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
   { let idle = false; try { idle = plot0 === TIDY_PLOT && !!idleOf(plot0) } catch { idle = false } if (idle) return { order: null, skip: 'idle' } }
