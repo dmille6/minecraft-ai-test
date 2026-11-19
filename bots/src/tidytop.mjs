@@ -118,7 +118,30 @@ export function retopCells (rec, read, { guard = new Set(), keepOff = () => null
  *  block it has no dirt to put back; the completion still reads the passed ones open (a grey block is not topsoil). Pure over `read`. */
 /** An earth-laid cell NOT done now (default: its block is not soil, and for a non-topsoil role not the grey fill either). */
 const openFill = (c, read) => { const n = nm(read(...c.at)); return !SOIL_NEAR.test(n) && !(c.role !== 'topsoil' && GREY_FILL.test(n)) }
-export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFill } = {}) {
+/**
+ * t11reach2-01show (rig run 26: keep flat at 137 for 40 min). WHILE A GRADE GATE IS SET (`gate(cell)`: an in-gate grade cell), the
+ * gate's re-tops take the bag's dirt FIRST -- before the town's other open earth cells (200-390 of them a visit against 16-60 dirt in
+ * the bag, so every in-gate grey re-top was passed on every visit, and its column's cut held with it: gradetidy.mjs capHeldCols). The
+ * visit already works the grade's segments first (gradeFirst); its dirt follows the same order. Without a gate (`gate` not a
+ * function): retopHeldBase, today's rule exactly. The result also carries `gate`: the in-gate re-tops held for want of dirt.
+ */
+export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFill, gate = null } = {}) {
+  if (typeof gate !== 'function') return retopHeldBase(cells, read, dirt, { waived, open })
+  const isG = c => !!c?.retop && c.role === 'topsoil' && Array.isArray(c.at) && !c.prev && !hasOwn(waived, kOf(c.at)) && !!gate(c)
+  let d = Math.max(0, Math.floor(Number(dirt) || 0))
+  const held = new Set()
+  for (const c of cells ?? []) {
+    if (!isG(c)) continue
+    const n = nm(read(...c.at))
+    if (n && !AIRY.test(n) && !SOIL_NEAR.test(n)) { if (d > 0) d--; else held.add(kOf(c.at)); continue }   // grey: dug and laid
+    if (open(c, read)) d = Math.max(0, d - 1)   // an in-gate re-top already dug (a hole): its dirt first too
+  }
+  const out = retopHeldBase((cells ?? []).filter(c => !isG(c)), read, d, { waived, open })
+  for (const k of held) out.add(k)
+  out.gate = held.size
+  return out
+}
+function retopHeldBase (cells, read, dirt = 0, { waived = null, open = openFill } = {}) {
   let left = Math.max(0, Math.floor(Number(dirt) || 0))
   // Codex r2 BLOCKER 1: the visit's OTHER open earth cells (air, not waived: topsoil or earth, dirt first) spend the bag's dirt too, and
   // the foreign pass digs before any placement -- the re-tops get only the dirt left after them
