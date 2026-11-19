@@ -10,7 +10,7 @@ that make the server drop each bot for a missed keepalive, then 15 min to recove
 | `efee8b5f-proof-1118` | reconnect-leak fix | 14:51-16:11 | INCONCLUSIVE: stopped at 1.33 h by its own guard, because the showcase had been stopped by its tripwire and could not be seen | on the host only |
 | `efee8b5f-proof2-1118` | reconnect-leak fix `efee8b5f` | 16:22-20:25 | **PASS** | [soak](efee8b5f-proof2-soak-read.md), [stack](efee8b5f-proof2-stack-read.md) |
 | `f7cc2a19-stack-1118` | `efee8b5f` + zoneplant `8cf8c6e3` + buildfirst `5cd05a1f` + drawshort `f7cc2a19` | 20:33-00:35 | **PASS** | [soak](f7cc2a19-stack-soak-read.md), [stack](f7cc2a19-stack-stack-read.md), [first read](f7cc2a19-stack-soak-read.FIRST-READ-rule-bug.md) |
-| `b6b83327-control-1119` | the release before the reconnect fix, load step only | 00:4x- | see below | [check](b6b83327-control-load-check.md) |
+| `b6b83327-control-1119` | the release before the reconnect fix, load step only | 00:44-02:07 | **FAIL** (the leak rule), as a positive control must | [check](b6b83327-control-load-check.md) |
 
 **A verdict was changed after the fact, once.** The stack soak's first read said FAIL: "the last bot was back 14 min
 after the last pause". The Paper log shows all 14 back at 00:21:01Z, 12 s after the last pause; at 00:34:59Z one bot
@@ -90,7 +90,21 @@ Not explained: the "Disconnected" reconnects in quiet hours (the client leaving 
 - **To weigh for drawshort:** tidy is short of dirt on 191 of its 268 visits. The release under it does not log
   need / short, so I cannot say whether that is new.
 
-## The positive control (`b6b83327`, load step only)
+## The positive control (`b6b83327`, load step only): FAIL, as it must
 
-The rig must be able to fail: the release before the reconnect fix has to FAIL the leak rule. Result in
-[`b6b83327-control-load-check.md`](b6b83327-control-load-check.md).
+The rig has to be able to fail. The release before the reconnect fix, 20 quiet minutes and then the same load step
+(00:44-02:07Z, [the page](b6b83327-control-load-check.md)): **FAIL on the leak rule.**
+
+| | `b6b83327` | `efee8b5f` | stack `f7cc2a19` |
+|---|---|---|---|
+| forced reconnects a bot | 11-17 | 17-20 | 12-20 |
+| chunk buffers before -> after the load step | 24-26 -> **182-211 MB** on every bot | 24-26 -> 24-52 MB | 24-47 -> 25-48 MB |
+| kept per forced reconnect, median (range over bots) | **10.6 MB** (9.6-14.7) | 0.0 (-0.1 to 1.5) | 0.0 (-0.1 to 1.6) |
+
+- So the pairing the control session asked for (memory against each bot's reconnect count) separates the leak cleanly:
+  no bot of 28 on the fixed releases kept more than 1.6 MB a reconnect, no bot of 14 on the old one less than 9.6.
+- The limit was 8, taken from the audit's estimate of 14-22 MB. The measured leak is 10.6, so 8 left little room; it
+  is now **5** (`soakread.py` LEAK_MB, with the numbers above in its comment and two tests). All three verdicts are
+  the same under either limit.
+- The check also shows what the fix does not change: the load step dropped every bot about as often on all three
+  releases (218, 258 and 229 "Timed out"). A starved host still costs connections; what is fixed is what each one costs.

@@ -23,8 +23,11 @@ ROOT = '/srv/testworld'
 CAP_MB = 1536                 # mctest@.service MemoryMax
 NEAR_CAP = 0.85               # a bot at 85% of its ceiling in the untouched 3 hours has no room left: FAIL
 SLOPE_FLAG = 100.0            # MB/h over the last 90 untouched minutes: named, not failed, until several runs set a band
-LEAK_MB = 8.0                 # MB of chunk buffers kept per forced reconnect: the fixed build keeps one old world at most
-#                               between collections (<= 22 MB over 6 reconnects = 3.7); the leak kept 14-22 MB EACH
+LEAK_MB = 5.0                 # MB of chunk buffers kept per forced reconnect. MEASURED on the test world 11-18/19, 14 bots
+#                               each, 11-20 forced reconnects a bot: the two fixed releases kept 0.0 at the median and 1.6
+#                               at most on any bot; the release before the fix kept 10.6 at the median and 9.6 at least.
+#                               It was 8 until then, from the audit's estimate of 14-22: a leak half the size of the
+#                               real one would have passed.
 LEAK_MIN_RECONNECTS = 4       # a bot with fewer forced reconnects says nothing about the leak
 LEAK_MIN_BOTS = 10            # and fewer bots than this is not the town
 RECOVER_MIN = 10              # minutes after the last pause ends for every bot to be back in the world
@@ -477,7 +480,7 @@ def render(r):
     if r['leak'] and r['leak'].get('_median_mb_per_reconnect') is not None:
         w('')
         w(f'Median kept per forced reconnect: **{r["leak"]["_median_mb_per_reconnect"]} MB** over {r["leak"]["_bots_counted"]} bots '
-          f'(limit {LEAK_MB:.0f}; the 11-18 leak kept 14-22). All bots back in the world {r["back_minutes"]} min after the last pause.')
+          f'(limit {LEAK_MB:.0f}; the release before the reconnect fix kept 10.6). All bots back in the world {r["back_minutes"]} min after the last pause.')
     w('')
     w('## Deaths, kills, building')
     d = r['deaths']
