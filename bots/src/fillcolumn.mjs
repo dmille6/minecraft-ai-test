@@ -373,7 +373,17 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
     const k = colOf(c.at), o = lows.get(k)
     if (!o || c.at[1] < o.at[1]) lows.set(k, c)
   }
-  if (!lows.size) return { rec: null, n, added, hollow, dropped }
+  // CODEX r9 BLOCKER (t11reach2): A GREY RE-TOP WITH AIR UNDER IT (the visit holds it `air_below`: digging it opens the cave) would
+  // hold its column's cut for good -- the cap is never dug, never waived (an empty-bag wait is no strike). The refresh DEFERS it:
+  // waived `fillcolumn:air_below` (the grey crust left alone), and the grade cuts above it in its column leave the record with it
+  const ab = {}
+  for (const c of rec.cells ?? []) {
+    if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at) || hasOwn(rec.waived, kOf(c.at)) || done(c)) continue
+    const top = read(...c.at), under = read(c.at[0], c.at[1] - 1, c.at[2])
+    if (!top || AIRN(nm(top)) || !refUsable(top)) continue
+    if (!under || AIRN(nm(under)) || isLiquid(under) || under.boundingBox === 'empty') ab[kOf(c.at)] = { why: 'fillcolumn:air_below', at: now, by: 'fillcolumn' }
+  }
+  if (!lows.size && !Object.keys(ab).length) return { rec: null, n, added, hollow, dropped }
   const known = new Set([...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].filter(q => Array.isArray(q?.at)).map(q => kOf(q.at)))
   const w = rec.waived ?? null
   let room = repairAddMax(rec, T) - repairLedger(rec).add
@@ -410,14 +420,19 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
       hollow.push({ kind: 'deep', cell: L.at, n: gap.length })
     }
   }
+  for (const [k, v] of Object.entries(ab)) off[k] = v
   if (!add.length && !deepCols.size && !Object.keys(off).length) return { rec: null, n, added, hollow, dropped }
   added.push(...add)
   n.add = add.length; n.deep = deepCols.size; n.off = Object.keys(off).length
-  for (const [k, v] of Object.entries(off)) { dropped.push({ k, why: v.why }); hollow.push({ kind: 'keepoff', cell: k.split(',').map(Number), n: 0 }) }
+  for (const [k, v] of Object.entries(off)) { dropped.push({ k, why: v.why }); hollow.push({ kind: hasOwn(ab, k) ? 'air_below' : 'keepoff', cell: k.split(',').map(Number), n: 0 }) }
   const cells = (rec.cells ?? []).map(c => (c?.opener && Array.isArray(c.at) && deepCols.has(colOf(c.at)) && !c.hollowDeep ? { ...c, hollowDeep: now } : c))
   // THE CRUST LEFT ALONE (Codex r1 BLOCKER): a deep hollow's fills may now be waived, so the cut that would open it must not be dug
   // after them -- every cut a marked fill names as its opener leaves the record (a cut already dug is gone from the world anyway)
   const retire = new Set(cells.filter(c => (c?.hollowDeep === now || hasOwn(off, kOf(c.at))) && Array.isArray(c.opener)).map(c => kOf(c.opener)))
+  // ...and an air_below cap's column: every grade cut above it
+  const abCols = new Map(Object.keys(ab).map(k => { const [x, y, z] = k.split(',').map(Number); return [k2(x, z), y] }))
+  const overAb = q => Array.isArray(q?.at) && q.grade && abCols.has(k2(q.at[0], q.at[2])) && q.at[1] > abCols.get(k2(q.at[0], q.at[2]))
+  if (abCols.size) for (const q of rec.cut ?? []) if (overAb(q)) retire.add(kOf(q.at))
   const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut
   n.retired = (rec.cut ?? []).length - (cut ?? []).length
   return { rec: { ...rec, cells: [...cells, ...add], ...(retire.size ? { cut } : {}), ...(n.off ? { waived: { ...(rec.waived ?? {}), ...off } } : {}), ...(add.length ? { bom: { ...(rec.bom ?? {}), earth: (Number(rec.bom?.earth) || 0) + add.length } } : {}) }, n, added, hollow, dropped }
