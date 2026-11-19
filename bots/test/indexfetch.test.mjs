@@ -209,6 +209,23 @@ await t('MUTANT KILLED: the peak read mid-batch (a moved stack reads as a gain)'
     assert.equal(bot.indexFetchWant.peak.torch, 8, 'killed')
   }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
 })
+await t('THE FOLLOW-UP IS NOT HELD BY THE NO-PROGRESS BACK-OFF (rig run 8): the short visits made no progress; the fetched material gets its visit', () => {
+  const base = { on: true, shared: true, atTown: true, planned: true, record: { plot: 'stepwell', structure_complete: false }, freeSlots: 20, turn: true }
+  S.setTurnNow({ stuckPlot: () => null, backedOff: () => true })
+  try {
+    S.setFetchAsk(() => null)
+    assert.equal(S.buildOrder({ ...base, now: NOW + 11 * 60_000, state: { lastAt: NOW } }).skip, 'no_progress', 'no fetch: the back-off holds as before')
+    S.setFetchAsk(() => ({ cooldownFree: true }))
+    assert.deepEqual(S.buildOrder({ ...base, now: NOW + 60_000, state: { lastAt: NOW } }).order, { skill: 'build_shop', args: {} })
+  } finally { S.setFetchAsk(null); S.setTurnNow(null) }
+})
+await t('MUTANT KILLED: the follow-up held by the no-progress back-off', async () => {
+  await withMutant(S_PATH, '  if (turn && turnOf && !fetchFree) {', '  if (turn && turnOf) {', async m => {
+    m.setTurnNow({ stuckPlot: () => null, backedOff: () => true }); m.setFetchAsk(() => ({ cooldownFree: true }))
+    const base = { on: true, shared: true, atTown: true, planned: true, record: { plot: 'stepwell', structure_complete: false }, freeSlots: 20, turn: true }
+    assert.deepEqual(m.buildOrder({ ...base, now: NOW + 60_000, state: { lastAt: NOW } }).order, { skill: 'build_shop', args: {} }, 'killed')
+  }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
+})
 await t('A STALE INDEX: the far chest the index says holds 116 shows 0 -> a miss, its entry corrected, never retried in the trip; the item backs off (no loop)', async () => {
   const w = town({ [MID]: { index: { torch: 116 }, real: {} }, [FAR]: { index: { torch: 3 }, real: { torch: 3 } } })
   const r = await F.runFetchTrip({ items: { torch: 7 }, plan: w.plan([0, 64, 0]), ops: w.ops, deadline: NOW + F.FETCH.tripMs })
