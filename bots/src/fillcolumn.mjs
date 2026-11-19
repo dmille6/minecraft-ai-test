@@ -238,7 +238,7 @@ export function columnRepair (rec, read, { done = () => false, guard = new Set()
   {
     const solidNow = (x, y, z) => { const b = read(x, y, z); return !!b && refUsable(b) }
     const back = Object.entries(rec.waived ?? {}).filter(([k, v]) => {
-      if (!/^fillcolumn:(?!guarded$|excluded$)/.test(String(v?.why ?? ''))) return false
+      if (!/^fillcolumn:(?!guarded$|excluded$|keepoff:)/.test(String(v?.why ?? ''))) return false   // t11reach2: another project's ground never comes back
       const [x, y, z] = k.split(',').map(Number)
       return solidNow(x, y - 1, z) && SIDES.some(([dx, dz]) => solidNow(x + dx, y, z + dz))
     }).map(([k]) => k)
@@ -363,8 +363,8 @@ export function columnRepair (rec, read, { done = () => false, guard = new Set()
  * (the added cells carry `ext`).
  */
 export function hollowFloor (rec, read, { done = () => false, guard = new Set(), mayAdd = () => true, keepOff = () => null, closed = null, now = Date.now(), T = FILLCOLUMN } = {}) {
-  const n = { add: 0, deep: 0 }, added = [], hollow = []
-  if (!rec || rec.structure_complete || closed) return { rec: null, n, added, hollow }
+  const n = { add: 0, deep: 0, off: 0 }, added = [], hollow = [], dropped = []
+  if (!rec || rec.structure_complete || closed) return { rec: null, n, added, hollow, dropped }
   const support = supportOf(read)
   const f = floatCells(rec, read, { done, guard, support })
   const lows = new Map()
@@ -373,14 +373,21 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
     const k = colOf(c.at), o = lows.get(k)
     if (!o || c.at[1] < o.at[1]) lows.set(k, c)
   }
-  if (!lows.size) return { rec: null, n, added, hollow }
+  if (!lows.size) return { rec: null, n, added, hollow, dropped }
   const known = new Set([...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].filter(q => Array.isArray(q?.at)).map(q => kOf(q.at)))
   const w = rec.waived ?? null
   let room = repairAddMax(rec, T) - repairLedger(rec).add
-  const add = [], deepCols = new Set()
+  const add = [], deepCols = new Set(), off = {}
   for (const [k, L] of [...lows].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
     const [x, y, z] = L.at
-    if (keepOff(x, z)) continue
+    // ANOTHER PROJECT'S GROUND (rig run 24: -33,68,-12 lies in house1's columns, `project:house1`). keepOff is the survey's own
+    // exclusions -- the columns where the tidy plans nothing, a project's box and gap among them (tidy.mjs siteStage) -- so a tidy
+    // fill there is one planned before that project claimed the ground: today's survey would not plan it, and nothing may be added
+    // under it. It LEAVES the work list: waived `fillcolumn:keepoff:<reason>` (the record keeps it; the repair's own waiver, never
+    // the stuck waiver's -- waiveroom.mjs), and its pending crust cut with it (below). Only a cell no order reaches: one the visit
+    // can still lay is laid as before
+    const ko = keepOff(x, z)
+    if (ko) { off[kOf(L.at)] = { why: `fillcolumn:keepoff:${String(ko).slice(0, 40)}`, at: now, by: 'fillcolumn' }; continue }
     const gap = []
     let floor = false, stop = false
     for (let i = 1; i <= T.hollowMax + 1; i++) {
@@ -403,16 +410,17 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
       hollow.push({ kind: 'deep', cell: L.at, n: gap.length })
     }
   }
-  if (!add.length && !deepCols.size) return { rec: null, n, added, hollow }
+  if (!add.length && !deepCols.size && !Object.keys(off).length) return { rec: null, n, added, hollow, dropped }
   added.push(...add)
-  n.add = add.length; n.deep = deepCols.size
+  n.add = add.length; n.deep = deepCols.size; n.off = Object.keys(off).length
+  for (const [k, v] of Object.entries(off)) { dropped.push({ k, why: v.why }); hollow.push({ kind: 'keepoff', cell: k.split(',').map(Number), n: 0 }) }
   const cells = (rec.cells ?? []).map(c => (c?.opener && Array.isArray(c.at) && deepCols.has(colOf(c.at)) && !c.hollowDeep ? { ...c, hollowDeep: now } : c))
   // THE CRUST LEFT ALONE (Codex r1 BLOCKER): a deep hollow's fills may now be waived, so the cut that would open it must not be dug
   // after them -- every cut a marked fill names as its opener leaves the record (a cut already dug is gone from the world anyway)
-  const retire = new Set(cells.filter(c => c?.hollowDeep === now && Array.isArray(c.opener)).map(c => kOf(c.opener)))
+  const retire = new Set(cells.filter(c => (c?.hollowDeep === now || hasOwn(off, kOf(c.at))) && Array.isArray(c.opener)).map(c => kOf(c.opener)))
   const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut
   n.retired = (rec.cut ?? []).length - (cut ?? []).length
-  return { rec: { ...rec, cells: [...cells, ...add], ...(retire.size ? { cut } : {}), ...(add.length ? { bom: { ...(rec.bom ?? {}), earth: (Number(rec.bom?.earth) || 0) + add.length } } : {}) }, n, added, hollow }
+  return { rec: { ...rec, cells: [...cells, ...add], ...(retire.size ? { cut } : {}), ...(n.off ? { waived: { ...(rec.waived ?? {}), ...off } } : {}), ...(add.length ? { bom: { ...(rec.bom ?? {}), earth: (Number(rec.bom?.earth) || 0) + add.length } } : {}) }, n, added, hollow, dropped }
 }
 
 /**
@@ -428,7 +436,7 @@ export function refreshRepair (res, cur, read, opts = {}, env = process.env) {
     fx = columnRepair(base, read, opts)
     // t11reach2-01show: then the hollows over a cave (hollowFloor), on what the repair made of the record
     const hf = hollowFloor(fx.rec ?? base, read, opts)
-    fx = { ...fx, hollow: hf.hollow, ...(hf.rec ? { rec: hf.rec, added: [...fx.added, ...hf.added], n: { ...fx.n, total: fx.n.total + hf.added.length } } : {}) }
+    fx = { ...fx, hollow: hf.hollow, ...(hf.rec ? { rec: hf.rec, added: [...fx.added, ...hf.added], dropped: [...fx.dropped, ...hf.dropped], n: { ...fx.n, total: fx.n.total + hf.added.length } } : {}) }
   } catch (e) {
     // a repair that FAILED repaired nothing: the ledger says a cell is unresolved, so the visit's hold is off (repairServes) and
     // every floating cell is deferred and counted again -- never a hold kept up by a repair that cannot run

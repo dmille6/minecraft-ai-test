@@ -125,6 +125,34 @@ await t('the bounds: exactly 4 of air is (a); water, a record cell or an unread 
   assert.strictEqual(FC.hollowFloor(rec, readOf(scene), { done: doneOf(readOf(scene)) }).rec, null)
 })
 
+// THE COMPOSED CASE (rig run 24): the column is house1's (the survey's keepOff: `project:house1`) -- nothing may be added there, and the
+// opener cell must not stay a never-waivable dead end. The chain: refresh -> the cell waived `fillcolumn:keepoff:project:house1` -> the
+// visit's open list (openFills) and the executable-order check no longer hold it -> the stuck map has nothing left in that column
+const scenK = M => {
+  const read = readOf(scene), rec = recOf()
+  rec.cut = [{ at: OPENER, kind: 'tidy', name: 'grass_block' }]   // (the crust cut still pending: it must leave with the cell)
+  const keepOff = (x, z) => (x === -33 && z === -12 ? 'project:house1' : null)
+  const { res, fx } = M.refreshRepair({ rec }, rec, read, { done: doneOf(read), keepOff, now: 9 }, {})
+  assert.deepStrictEqual(fx.added.filter(c => c.at[0] === -33), [], 'nothing added in another project\'s columns')
+  assert.deepStrictEqual(res.rec.waived['-33,68,-12']?.why, 'fillcolumn:keepoff:project:house1', 'the cell leaves the work list, named')
+  assert.ok(fx.dropped.some(d => d.k === '-33,68,-12'), 'a waived row for it')
+  assert.deepStrictEqual(fx.hollow.filter(h => h.kind === 'keepoff').map(h => h.cell), [[-33, 68, -12]])
+  assert.deepStrictEqual(res.rec.cut, [], 'its crust cut retired with it')
+  assert.deepStrictEqual(M.openFills(res.rec, { done: doneOf(read) }), [], 'the visit has nothing open there: not stuck forever')
+  assert.ok(M.floatCells(res.rec, read, { done: doneOf(read) }).stuck.length === 0)
+  // ...and a later refresh does not bring it back, nor touch it again
+  const again = M.refreshRepair({ rec: res.rec }, res.rec, read, { done: doneOf(read), keepOff, now: 10 }, {})
+  assert.strictEqual(again.res.rec.waived['-33,68,-12'].at, 9)
+  // even once the ground has come back round it (a block under it and one beside it): still another project's ground
+  const back = readOf({ ...scene, '-33,67,-12': 'stone', '-34,68,-12': 'stone' })
+  const later = M.refreshRepair({ rec: res.rec }, res.rec, back, { done: doneOf(back), keepOff, now: 11 }, {})
+  assert.strictEqual(later.res.rec.waived['-33,68,-12']?.why, 'fillcolumn:keepoff:project:house1', 'it never comes back')
+  // without the keep-off the same column is filled from below instead (a)
+  assert.strictEqual(M.refreshRepair({ rec: recOf() }, recOf(), read, { done: doneOf(read), now: 9 }, {}).fx.added.length, 2)
+}
+await t('(keepOff) -33,68,-12 in house1\'s columns: waived as another project\'s ground, its cut retired, nothing stuck', () => scenK(FC))
+await kills('(keepOff) the cell skipped as before (the dead end)', 'fillcolumn.mjs', "    if (ko) { off[kOf(L.at)] = { why: `fillcolumn:keepoff:${String(ko).slice(0, 40)}`, at: now, by: 'fillcolumn' }; continue }", '    if (ko) continue', scenK)
+await kills('(keepOff) the waiver comes back at the next refresh', 'fillcolumn.mjs', '(?!guarded$|excluded$|keepoff:)', '(?!guarded$|excluded$)', scenK)
 await kills('(a) the floor\'s cells never added', 'fillcolumn.mjs', '    if (floor && gap.length && gap.length <= T.hollowMax) {', '    if (false) {', scenA)
 await kills('(b) the deep mark never set', 'fillcolumn.mjs', '      deepCols.add(k)\n', '\n', M => scenB({ fc: M }))
 await kills('(b) the opener cut kept', 'fillcolumn.mjs', '  const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut\n', '  const cut = rec.cut\n', M => scenB({ fc: M }))
