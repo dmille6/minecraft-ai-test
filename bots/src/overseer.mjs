@@ -321,7 +321,7 @@ export function heldBelow (book, j, mine) {
 export function recheck (book, { zones = [], guard = () => false, home = null, radius = Infinity, now = Date.now(), onRecord = null } = {}) {
   let dropped = 0
   const out = book.map(j => {
-    if (j.state !== 'open') return j
+    if (j.state !== 'open' && j.state !== 'quarantined') return j   // Codex r1: a set-aside job too -- it may be offered again
     // overseer-02show: a job taken from the clean-up record that the record no longer offers as a plain removal (dug by the shared
     // visit, waived, claimed, now a hollow's crust or a grade column) is closed `off_record` -- in a dry run this is the only way
     // the book learns the town moved on
@@ -360,11 +360,13 @@ export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs
  * A stalled bot's list carries its `unstick` order and no jobs (overseer-01show: the bot reads the order from its own file).
  * The host stores each order's time as that bot's `unstuckAt`.
  */
-export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, onDisk = {}, onRecord = null, release = null, T = OVERSEER } = {}) {
+export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, onDisk = {}, onRecord = null, release = null, needRows = [], T = OVERSEER } = {}) {
   let b = book
   // overseer-02show: a shortage of material is a project's label ("needs material"), never a cell's failure
   const needs = []
-  for (const r of reports) for (const [id, w] of Object.entries(r.rep?.why ?? {})) if ((T.materialWhys ?? []).includes(w)) needs.push({ project: r.rep?.project ?? 'tidy', bot: r.bot, id, why: w, rule: ruleOf('needs_material', T) })
+  for (const r of reports) for (const [id, w] of Object.entries(r.rep?.why ?? {})) if ((T.materialWhys ?? []).includes(w)) needs.push({ project: r.rep?.project ?? 'tidy', bot: r.bot, id, why: w, rule: ruleOf('needs_material', T) })   // a list job is the clean-up's
+  // Codex r1: and every visit of any project that ended `outcome=no_material` (the host reads them from the skill rows)
+  for (const n of needRows) needs.push({ project: n.project, bot: n.bot, id: `visit:${n.project}:${n.t}`, why: n.why, at: n.t, rule: ruleOf('needs_material', T) })
   for (const r of reports) b = ingestReport(b, r.bot, r.rep, { now, whyOf, release, T })
   const ex = expireQuarantine(b, { now, release, T }); b = ex.book
   const h3 = home ? [Math.floor(home.x), Math.floor(home.y), Math.floor(home.z)] : null
@@ -514,6 +516,6 @@ export function decisions (before = [], after = [], { orders = [], lists = {}, b
     const id = lists?.[o.bot]?.order?.id ?? `unstick:${o.bot}:${now}`
     out.push({ t: now, bot: o.bot, kind: 'unstick', rule: o.rule ?? ruleOf('unstick', T), id, cell: null, block: null, from: null, why: o.why ?? null, listed: !!lists?.[o.bot]?.order, list: issued(o.bot) })
   }
-  for (const n of needs) out.push({ t: now, bot: n.bot, kind: 'needs_material', rule: n.rule, id: n.id, cell: /^[a-z]:/.test(n.id) ? n.id.slice(2) : null, block: null, from: null, why: n.why, project: n.project, listed: false, list: null })
+  for (const n of needs) out.push({ t: now, bot: n.bot, kind: 'needs_material', rule: n.rule, id: n.id, cell: /^[a-z]:/.test(n.id) ? n.id.slice(2) : null, block: null, from: null, why: n.why, project: n.project, row_at: n.at ? new Date(n.at).toISOString() : null, listed: false, list: null })
   return out.sort((a, b) => (a.bot ?? '').localeCompare(b.bot ?? '') || (a.cell ?? '').localeCompare(b.cell ?? '') || a.kind.localeCompare(b.kind))
 }

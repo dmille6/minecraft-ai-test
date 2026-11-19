@@ -419,9 +419,36 @@ def test_classify_and_clocks():
     assert bots[0]['workAt'] == ms(-50) and bots[0]['actAt'] == ms(-20)
     assert OV.release_of([{'online': True, 'ver': 'a'}, {'online': True, 'ver': 'b'}, {'online': True, 'ver': 'b'}, {'online': False, 'ver': 'c'}]) == 'b'
     assert OV.release_of([]) is None
+    # Codex r1: a visit that ended for want of material is a project's row, read once
+    nm = ln('_build_visit', detail='project=civicP outcome=no_material stop=no_material placed=0 why=roof_for_roof;_built_3/9', mins=-2)
+    assert OV.material_row(nm) == {'project': 'civicP', 'why': 'roof_for_roof;_built_3/9'} and OV.material_row(ln('_build_visit', detail='project=civicP outcome=done')) is None
+    open(f, 'ab').write(nm + b'\n')
+    st2, _ = OV.tail_read([f], st, int(NOW.timestamp() * 1000))
+    assert [(n['bot'], n['project']) for n in st2['needs']] == [('Ann', 'civicP')], st2['needs']
+    assert OV.tail_read([f], st2, int(NOW.timestamp() * 1000))[0]['needs'] == [], 'read once'
 
 # ---------------------------------------------------------------- overseer-02show: THE DRY SWITCH (the test world's practice run)
 DRY_NOW = '2026-11-19T02:10:00Z'
+
+
+CODE_FILES = ['scripts/host/overseer.py', 'scripts/host/overseer-cycle.mjs', 'bots/src/overseer.mjs', 'bots/src/buildproj.mjs', 'bots/src/gradetidy.mjs']
+REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+
+
+def _code_copy(root, py_src=None, js_src=None):
+    """The install's file set (the handoff's `git archive` list + scripts/lib) copied under root/code -> the script's path. The
+    snapshot covers it: a cycle that writes beside its own code (a __pycache__) is caught. Mutated sources go in here."""
+    import glob
+    import shutil
+    code = os.path.join(root, 'code')
+    for f in CODE_FILES + [os.path.relpath(x, REPO) for x in glob.glob(os.path.join(REPO, 'scripts', 'lib', '*.py'))]:
+        os.makedirs(os.path.dirname(os.path.join(code, f)), exist_ok=True)
+        shutil.copyfile(os.path.join(REPO, f), os.path.join(code, f))
+    if py_src is not None:
+        open(os.path.join(code, 'scripts/host/overseer.py'), 'w').write(py_src)
+    if js_src is not None:
+        open(os.path.join(code, 'scripts/host/overseer-cycle.mjs'), 'w').write(js_src)
+    return os.path.join(code, 'scripts/host/overseer.py')
 
 
 def _dry_fixture():
@@ -480,8 +507,9 @@ def _snap(root, skip):
 def _cycle(script, root, pool, logs, state, extra, now=DRY_NOW):
     """One whole cycle, as cron runs it: the script in its own process (its rlimits, signals and RSS are its own)."""
     import subprocess as sp
+    env = {k: v for k, v in os.environ.items() if k not in ('PYTHONDONTWRITEBYTECODE', 'PYTHONPYCACHEPREFIX')}
     p = sp.run([sys.executable, script, '--pool', pool, '--home', '0,70,0', '--state', state, '--zones', os.path.join(pool, 'protected-zones.json'),
-                '--logs', logs, '--now', now] + extra, capture_output=True, text=True, timeout=120)
+                '--logs', logs, '--now', now] + extra, capture_output=True, text=True, timeout=120, env=env)
     try:
         return p.returncode, json.loads(p.stdout.strip().splitlines()[-1])
     except (IndexError, ValueError):
@@ -491,17 +519,17 @@ def _cycle(script, root, pool, logs, state, extra, now=DRY_NOW):
 DRY_STATE_FILES = {'cycles.jsonl', 'decisions.jsonl', 'book.dry.json', 'book.live.json', 'setaside.json', 'tail.json', 'logdirs.json', 'gzcheck.json', 'overseer.lock'}
 
 
-def test_dry_writes_nothing(script=None):
+def test_dry_writes_nothing(py_src=None, js_src=None):
     """overseer-02show: a --dry cycle writes NO record, lease, env or order (list) file -- nothing outside its own --state (its log
     decisions.jsonl and cycles.jsonl, its book) -- even with a LIVE switch saying live, a live book saying lists were published, and an
     old order file in the town. POSITIVE CONTROL first: the same town with the switch and no --dry DOES write lists into the town,
     so the snapshot sees a write when there is one, and the fixture has work to decide."""
     import shutil
-    script = script or OV.__file__
     if not shutil.which('node'):
         raise AssertionError('node is required for the dry-switch test')
     # the control: live writes
     root, pool, logs, state = _dry_fixture()
+    script = _code_copy(root, py_src, js_src)
     before = _snap(root, state)
     rc, row = _cycle(script, root, pool, logs, state, ['--switch', os.path.join(root, 'LIVE')])
     assert rc == 0 and 'error' not in row, row
@@ -509,6 +537,7 @@ def test_dry_writes_nothing(script=None):
     assert any(os.path.basename(p).startswith('worklist-') for p in changed), 'control: live must write lists (%s)' % sorted(changed)
     # the dry cycles: the same town, the switch still saying live
     root, pool, logs, state = _dry_fixture()
+    script = _code_copy(root, py_src, js_src)
     live_book = open(os.path.join(state, 'book.live.json')).read()
     before = _snap(root, state)
     for now in (DRY_NOW, '2026-11-19T02:55:00Z'):   # the second: both bots offline -> their jobs released (a second kind of decision)
@@ -543,19 +572,14 @@ def test_dry_writes_nothing(script=None):
     assert row['excluded']['hollow'] == 1 and row['excluded']['waived'] == 1, row
 
 
-def _beside(name, src):
-    """A mutated file written BESIDE the real one (its imports and HERE resolve) -> its path."""
-    path = os.path.join(os.path.dirname(OV.__file__), name)
-    open(path, 'w').write(src)
-    return path
-
-
 def _mut(src, old, new):
     assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
     return src.replace(old, new)
 
 
 DRY_MUTANTS = [
+    ('python writes its bytecode beside the code (Codex r1)',
+     [("sys.dont_write_bytecode = True", "sys.dont_write_bytecode = False")], None),
     ('dry reads the switch',
      [("    live = False if a.dry else switch_live(a.switch)", "    live = switch_live(a.switch)")], None),
     ('the cycle writes lists in dry (the publish guard refuses it: an error row)',
@@ -575,24 +599,15 @@ def dry_mutant_results():
     """-> [(what, None | the AssertionError's message)]: each mutant run through test_dry_writes_nothing (None = it survived)."""
     out = []
     for what, pys, js in DRY_MUTANTS:
-        made = []
+        py = open(OV.__file__).read()
+        for old, new in pys:
+            py = _mut(py, old, new)
+        jsrc = _mut(open(OV.CYCLE).read(), *js) if js else None
         try:
-            py = open(OV.__file__).read()
-            for old, new in pys:
-                py = _mut(py, old, new)
-            if js:
-                jpath = _beside('_mutant-ovc-%d.mjs' % os.getpid(), _mut(open(OV.CYCLE).read(), *js))
-                made.append(jpath)
-                py = _mut(py, "CYCLE = os.path.join(HERE, 'overseer-cycle.mjs')", 'CYCLE = %r' % jpath)
-            made.append(_beside('_mutant-ov-%d.py' % os.getpid(), py))
-            try:
-                test_dry_writes_nothing(made[-1])
-                out.append((what, None))
-            except AssertionError as e:
-                out.append((what, str(e)))
-        finally:
-            for f in made:
-                os.unlink(f)
+            test_dry_writes_nothing(py, jsrc)
+            out.append((what, None))
+        except AssertionError as e:
+            out.append((what, str(e)))
     return out
 
 

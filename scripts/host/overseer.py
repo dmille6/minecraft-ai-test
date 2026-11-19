@@ -51,6 +51,8 @@ pos = its newest row's bot.pos; the `_worklist` rows (the bots' per-job reports)
 from those rows. ONE summary row a cycle: appended to <state>/cycles.jsonl and shipped as kind `showcase_overseer`.
 The set-aside (quarantined) jobs: <state>/setaside.json (for the status page).
 """
+import sys
+sys.dont_write_bytecode = True   # overseer-02show (Codex r1): no __pycache__ beside the code -- a --dry cycle writes only --state
 import signal
 import argparse
 import datetime as dt
@@ -205,6 +207,18 @@ import re as _re  # noqa: E402
 _NAME = _re.compile(rb'"skill":\{"name":"([^"]+)"')
 _TS = _re.compile(rb'"@timestamp":"([^"]+)"')
 _VER = _re.compile(rb'"code":\{"version":"([^"]+)"')
+_DETAIL = _re.compile(rb'"detail":"((?:[^"\\]|\\.)*)"')
+
+
+def material_row(line):
+    """overseer-02show (Codex r1) -- PURE. A `_build_visit` that ended for want of material -> {project, why} | None. The project's
+    "needs material" label comes from these rows (the civicP roof), never a cell quarantine."""
+    if b'"_build_visit"' not in line or b'outcome=no_material' not in line:
+        return None
+    m = _DETAIL.search(line)
+    det = m.group(1).decode('utf-8', 'replace') if m else ''
+    kv = dict(w.split('=', 1) for w in det.split() if '=' in w)
+    return {'project': kv.get('project') or '-', 'why': (kv.get('why') or 'no_material')[:80]}
 
 
 def classify(line):
@@ -227,7 +241,7 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_by
     inode (or a file shorter than its offset) is read from 0. Only whole lines are consumed. From the new bytes it keeps, rolling
     over `window_ms`: each bot's newest row (time, position) and the `_worklist` rows -- nothing else is parsed (a line is
     json-parsed only when it names `_worklist`, or is the newest of its chunk). An unreadable file raises (fail closed)."""
-    st = {'files': {}, 'bots': dict(prev.get('bots', {})), 'wl': list(prev.get('wl', []))}
+    st = {'files': {}, 'bots': dict(prev.get('bots', {})), 'wl': list(prev.get('wl', [])), 'needs': []}   # needs: this read's rows only
     old_by_ino = {v['ino']: v for v in prev.get('files', {}).values()}
     have = {(r['bot'], r['t'], r['detail']) for r in st['wl']}
     nbytes = 0
@@ -270,6 +284,12 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_by
                                 if (name, t, r['detail']) not in have:
                                     have.add((name, t, r['detail']))
                                     st['wl'].append(r)
+                        mr = material_row(line)
+                        if mr:
+                            mt0, mb = _TS.search(line), _re.search(rb'"bot":\{"name":"([^"]+)"', line)
+                            t0 = _ts_ms(mt0.group(1).decode()) if mt0 else None
+                            if t0 is not None and mb and t0 >= now_ms - window_ms:
+                                st['needs'].append({'bot': mb.group(1).decode(), 't': t0, **mr})
                         k = classify(line)
                         if k:
                             mt = _TS.search(line)
@@ -636,6 +656,7 @@ def main(argv=None):
         print(json.dumps(row, sort_keys=True))
         return 1
     bots, wl = roster_from_tail(tail, now_ms, a.online_min)
+    need_rows = tail.pop('needs', [])   # read once (offsets), never kept in tail.json
     # kept whatever the cycle does next: its rows stay in the window, and the book's cursor ingests each report once
     with open(tail_file + '.tmp', 'w') as fh:
         json.dump(tail, fh)
@@ -647,7 +668,7 @@ def main(argv=None):
     inp = {'now': now_ms if a.now else int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
            'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl,
            'stage': os.path.join(a.state, 'stage', run_id), 'run': run_id, 'dry': bool(a.dry), 'release': release_of(bots),
-           'rules': json.loads(a.rules) if a.rules else None}
+           'rules': json.loads(a.rules) if a.rules else None, 'needRows': need_rows}
     # the child must not inherit the python step's address-space cap (V8 reserves far more than it uses): the soft limit goes back
     # to the HARD one (RLIM_INFINITY is refused when the hard limit is finite); node's own heap cap bounds it
     try:

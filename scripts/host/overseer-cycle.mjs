@@ -187,7 +187,7 @@ export function runCycle (inp, { write = true } = {}) {
     try { pubDocs.push(JSON.parse(fs.readFileSync(path.join(pubDir, f), 'utf8'))) } catch (e) { if (e?.code !== 'ENOENT') throw new Error(`published list unreadable: ${f}`) }
   }
   const onDisk = publishedIds(pubDocs, now)
-  const c = overseerCycle({ onDisk, book: st.book, reports: rr.reports, cells, bots, zones, guard: k => guard.has(k), leased, home, radius: Number(inp.radius) || 128, now, onRecord, release: inp.release ?? null, T })
+  const c = overseerCycle({ onDisk, book: st.book, reports: rr.reports, cells, bots, zones, guard: k => guard.has(k), leased, home, radius: Number(inp.radius) || 128, now, onRecord, release: inp.release ?? null, needRows: inp.needRows ?? [], T })
   // overseer-02show: "needs material" is a project's label, kept in the book (first and last seen, the bots that said it)
   const needs = { ...(st.needs ?? {}) }
   for (const n of c.needs) { const x = (needs[n.project] ??= { since: now, n: 0, bots: [], why: n.why }); x.last = now; x.n++; if (!x.bots.includes(n.bot)) x.bots.push(n.bot) }
@@ -228,7 +228,9 @@ export function runCycle (inp, { write = true } = {}) {
   return { summary, cycle: c }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// overseer-02show: compared by REAL path -- run through a symlinked tree (the install's `tree` link, macOS /var) the plain paths differ
+// and the cycle would silently do nothing (`node: no summary` on every cycle)
+if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   const inp = JSON.parse(fs.readFileSync(0, 'utf8'))
   try { process.stdout.write(JSON.stringify(runCycle(inp).summary) + '\n') } catch (e) { process.stdout.write(JSON.stringify({ error: String(e?.message ?? e) }) + '\n'); process.exit(2) }
 }

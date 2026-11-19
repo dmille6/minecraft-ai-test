@@ -352,6 +352,9 @@ const waitScenario = async M => {
   assert.strictEqual(c.book[0].state, 'open'); assert.strictEqual(c.book[0].attempts.length, 0)
   assert.deepStrictEqual(c.needs.map(n => [n.project, n.bot, n.why]), [['civicP', 'A', 'no_material'], ['civicP', 'B', 'no_material'], ['civicP', 'A', 'no_material']])
   assert.match(c.row, / needs_material=3 /)
+  // Codex r1: a visit of any project that ended outcome=no_material (the host's rows) labels that project
+  const vr = M.overseerCycle({ book: [], needRows: [{ bot: 'C', t: NOW - MIN, project: 'civicP', why: 'roof_for_roof' }], bots: [], now: NOW })
+  assert.deepStrictEqual(vr.needs.map(n => [n.project, n.bot, n.why]), [['civicP', 'C', 'roof_for_roof']])
 }
 await t('02show: blocked is not a failure; no_material is "needs material" per project, never a cell quarantine', () => waitScenario(O))
 await mutant('blocked counted', "  if ((T.waitWhys ?? []).includes(why) || (T.materialWhys ?? []).includes(why)) return job", "  if ((T.materialWhys ?? []).includes(why)) return job", waitScenario)
@@ -389,9 +392,13 @@ const behindScenario = async M => {
   const again = M.ingestReport(c2.book, 'A', { ids: { done: [], gone: [], refused: ['r:6,65,6'], unreachable: [] }, why: { 'r:6,65,6': 'water' } }, { now: NOW + 2 * MIN })
   assert.strictEqual(again.find(j => j.id === qd.id).state, 'quarantined')
   assert.strictEqual(M.overseerCycle({ book: done, bots: [A], now: NOW + MIN, home: H0, T: M.OVERSEER_V1 }).lists.A.jobs.length, 0, 'v1: never offered')
+  // Codex r1: a set-aside cell inside a zone drawn since is dropped, never offered again
+  const z = M.overseerCycle({ book: done, bots: [A], now: NOW + MIN, home: H0, zones: [{ id: 'v', box: [5, 0, 5, 7, 100, 7] }] })
+  assert.deepStrictEqual(z.lists.A.jobs, []); assert.deepStrictEqual([z.book.find(j => j.id === qd.id).state, z.book.find(j => j.id === qd.id).why], ['dropped', 'zone'])
 }
 await t('02show: a quarantined cell is deprioritised, never removed -- offered once nothing else is left', () => behindScenario(O))
 await mutant('set-asides offered ahead of other work', "    if (out.some(j => j.state === 'open' && !j.owner && !j.avoid.includes(b.name))) continue   // other work is still there (waiting out a lease too)", '', behindScenario)
+await mutant('a set-aside cell is not rechecked (Codex r1)', "    if (j.state !== 'open' && j.state !== 'quarantined') return j", "    if (j.state !== 'open') return j", behindScenario)
 await mutant('set-asides never offered again', "  const rq = requeueQuarantined(b, workers, { now, T }); b = rq.book", "  const rq = { book: b, requeued: [] }", behindScenario)
 
 console.log(`\n${pass} passed, ${fail} failed`)
