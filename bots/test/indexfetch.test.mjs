@@ -160,6 +160,17 @@ await t('A PENDING FETCH GOES BEFORE THE IDLE-WORK ASKS (Codex r1): a short draw
     assert.deepEqual(S.buildOrder({ ...base, now: NOW + 60_000, state: { lastStop: 'no_material', lastAt: NOW } }).order.args, { expedition: true, phase: 'trip' }, 'no want: the expedition as before')
   } finally { S.setExpeditionAsk(null); S.setFetchAsk(null) }
 })
+await t('THE WANT RECONCILED AT THE TRIP (Codex r3): what the bag gained since the want was noted comes off it; a fully covered want is no trip', () => {
+  assert.deepEqual(F.fetchStillWanted({ spruce_planks: 12, torch: 7 }, { spruce_planks: 0, torch: 2 }, { spruce_planks: 16, torch: 2 }), { torch: 7 }, 'the visit crafted the planks')
+  assert.deepEqual(F.fetchStillWanted({ torch: 7 }, { torch: 5 }, { torch: 1 }), { torch: 7 }, 'spent meanwhile: still the want, never more')
+  assert.deepEqual(F.fetchStillWanted({ torch: 7 }, { torch: 0 }, { torch: 3 }), { torch: 4 })
+  assert.deepEqual(F.fetchStillWanted({ torch: 7 }, {}, { torch: 30 }), { torch: 7 }, 'no baseline: as noted')
+})
+await t('MUTANT KILLED: the bag\'s gain ignored at the trip', async () => {
+  await withMutant(F_PATH, '    if (c - gained > 0) out[n] = c - gained\n', '    if (c > 0) out[n] = c\n', async m => {
+    assert.deepEqual(m.fetchStillWanted({ spruce_planks: 12 }, { spruce_planks: 0 }, { spruce_planks: 16 }), {}, 'killed')
+  }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
+})
 await t('A STALE INDEX: the far chest the index says holds 116 shows 0 -> a miss, its entry corrected, never retried in the trip; the item backs off (no loop)', async () => {
   const w = town({ [MID]: { index: { torch: 116 }, real: {} }, [FAR]: { index: { torch: 3 }, real: { torch: 3 } } })
   const r = await F.runFetchTrip({ items: { torch: 7 }, plan: w.plan([0, 64, 0]), ops: w.ops, deadline: NOW + F.FETCH.tripMs })
@@ -292,9 +303,10 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
     "if (!townIndexEntries(bot)) { row(null, 'stop', 'unreadable');",
     "if (why === 'aborted') { fetchSettle(bot, w, plot, r, held0, 'stop', row); throw e }",
     'for (const [k, c] of Object.entries(v?.took ?? {})) if (Number(c) > 0) sofar[k] = (sofar[k] ?? 0) + Number(c)',
-    'for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve } }',
+    'for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve };',
     'const c = p.allow(n, c0, { others, here, reserve: p.reserve, taking: matsTaking(bot, n) })',
     "if (dr.at == null) throw new Error('no drawn record')",
+    'if (w?.state === \'fetch\') w.items = fetchStillWanted(w.items, w.bag0, heldMap(bot))',
   ]) assert.ok(src.includes(line), `missing: ${line}`)
   // Codex r1 BLOCKER 2: the trip's one-container visit never skips the container itself (its retry would be filtered out)
   const body = src.slice(src.indexOf('async function fetchVisitOne'), src.indexOf('async function indexFetchVisit'))
