@@ -40,10 +40,10 @@ function town ({ chest = [stack('cobblestone', 10)], index = 'zero' } = {}) {
   if (index === 'dirty') TI.appendIndex(dir, HK, null, { t: 'dirty', id: 'd1', k: '5,64,0', h: ['5,64,0'], at: Date.now(), bot: 'Other', by: 'x', phase: 'pre', op: 'op1' })
   return w
 }
-const draw = async (S, w, take = { dirt: 14 }) => {
+const draw = async (S, w, take = { dirt: 14 }, zeroSkip = true) => {
   RECS.length = 0
   const t0 = Date.now()
-  const out = await S._draw.matsWithdraw({ bot: w.bot }, take, new AbortController().signal, 0, {}, (n, want) => want)
+  const out = await S._draw.matsWithdraw({ bot: w.bot }, take, new AbortController().signal, 0, {}, (n, want) => want, null, null, { zeroSkip })
   return { out, ms: Date.now() - t0, skip: RECS.map(r => String(r.skill?.detail ?? '')).filter(d => /op=skip_zero_stock/.test(d)) }
 }
 const S0 = await import('../src/skills.mjs')
@@ -57,6 +57,8 @@ await t('stockZero: 0 in every entry (fresh or stale) -> true; any holder, a dir
   assert.equal(IX.stockZero({ a: e({}), b: { last: { t: 'obs', at: now } } }, 'dirt', { now }), false, 'an entry with no observation')
   assert.equal(IX.stockZero({ a: e({}, now + 3600e3) }, 'dirt', { now }), false, 'an observation from the future')
   assert.equal(IX.stockZero(null, 'dirt'), false); assert.equal(IX.stockZero({}, 'dirt'), false)
+  assert.equal(IX.stockZero({ a: e({}, now - 25 * 3600e3) }, 'dirt', { now }), false, 'a zero older than a day is no evidence (Codex r4)')
+  assert.equal(IX.stockZeroCovers({ a: e({}) }, ['a']), true); assert.equal(IX.stockZeroCovers({ a: e({}) }, ['b']), false)
   assert.equal(IX.stockZero({ a: e({}) }, 'pick', { now }), true, '(a plain name is judged by name)')
   assert.equal(IX.stockZero({ a: e({}) }, 'minecraft:dirt', { now }), false)
 })
@@ -82,13 +84,29 @@ await t('CONTROLS: the index shows dirt -> the chest is opened and the dirt take
   const r3 = await draw(S0, w3)
   assert.ok(r3.out.looked >= 1, 'no index: searched as today'); assert.equal(r3.skip.length, 0)
 })
+await t('CODEX r4: a town container the index never observed -> today\'s search; a draw that is not the clean-up\'s -> today\'s search', async () => {
+  const w = town({ index: 'zero' })
+  w.set(8, 64, 0, 'chest'); w.stock(8, 64, 0, [stack('dirt', 30)])   // a chest the index has never seen
+  const r = await draw(S0, w)
+  assert.ok(r.out.looked >= 1, 'searched: an unobserved container may hold it'); assert.equal(r.skip.length, 0)
+  const w2 = town({ index: 'zero' })
+  const r2 = await draw(S0, w2, { dirt: 14 }, false)
+  assert.ok(r2.out.looked >= 1, 'another caller: today\'s search'); assert.equal(r2.skip.length, 0)
+})
 await t('MIXED: dirt skipped, cobblestone (which the index shows) still searched for', async () => {
   const w = town({ chest: [stack('cobblestone', 10)], index: 'zero' })
   const { out } = await draw(S0, w, { dirt: 14, cobblestone: 5 })
   assert.ok(out.looked >= 1, 'the cobblestone search still runs'); assert.deepEqual(out.zero, ['dirt'])
 })
+await t('MUTANT KILLED: the unobserved-container check removed (Codex r4)', async () => {
+  await withMutant(new URL('../src/skills.mjs', import.meta.url), 'if (view.containers.every(c => stockZeroCovers(ents, c.halves?.length ? c.halves : [c.k]))) zero.add(n)', 'zero.add(n)', async M => {
+    const w = town({ index: 'zero' }); w.set(8, 64, 0, 'chest'); w.stock(8, 64, 0, [stack('dirt', 30)])
+    const r = await draw(M, w)
+    assert.ok(r.out.looked === 0, 'killed: the mutant skips the unseen chest')
+  })
+})
 await t('MUTANT KILLED: the zero-stock skip removed (the draw searches the town for dirt it does not have)', async () => {
-  await withMutant(new URL('../src/skills.mjs', import.meta.url), 'for (const n of Object.keys(left)) if (left[n] > 0 && stockZero(ents, n)) zero.add(n)', 'for (const n of Object.keys(left)) if (false) zero.add(n)', async M => {
+  await withMutant(new URL('../src/skills.mjs', import.meta.url), 'if (!(left[n] > 0) || !stockZero(ents, n)) continue', 'continue', async M => {
     let died = null
     try { await scenZero(M) } catch (e) { died = e }
     assert.ok(died instanceof assert.AssertionError, `the mutant survived or died of something else: ${died}`)

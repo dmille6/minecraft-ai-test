@@ -92,11 +92,12 @@ const ITEM_NAME_RE = /^[a-z0-9_]+$/
  * T11REACH2-01show (rig run 25: two of three bots placed nothing -- every visit's draw opened the town's containers for dirt, ~14
  * a visit, while the index showed 0 dirt in all 35, and the visit ran out its clock walking to them). DOES THE INDEX SHOW NONE OF
  * `name` IN EVERY CONTAINER IT KNOWS? -> bool. Pure. True only when the index is readable and non-empty, `name` is a plain item
- * name, and EVERY entry has an observation that is not under a mutation (`known`, or `stale`: an entry nobody has opened or put
- * into for 6 h -- every bot open and deposit writes it -- still says what is in it) holding none of it. An unknown or dirty entry,
+ * name, and EVERY entry has an observation that is not under a mutation (`known`, or `stale` up to STOCKZERO_STALE_MS: an entry
+ * nobody has opened or put into for 6 h -- every bot open and deposit writes it -- still says what is in it; older is no evidence) holding none of it. An unknown or dirty entry,
  * an observation from the future, or no index at all: false (today's search).
  */
-export function stockZero (entries, name, { now = Date.now() } = {}) {
+export const STOCKZERO_STALE_MS = 24 * 60 * 60 * 1000   // Codex r4: a zero older than a day is no evidence (a player may have restocked)
+export function stockZero (entries, name, { now = Date.now(), maxAge = STOCKZERO_STALE_MS } = {}) {
   if (!entries || typeof entries !== 'object' || typeof name !== 'string' || !ITEM_NAME_RE.test(name)) return false
   const es = Object.values(entries)
   if (!es.length) return false
@@ -104,10 +105,19 @@ export function stockZero (entries, name, { now = Date.now() } = {}) {
     const st = indexStateOf(e, now)
     if (st !== 'known' && st !== 'stale') return false
     const at = Number(e.obs?.at)
-    if (!Number.isFinite(at) || at > now + INDEX_FUTURE_SLACK_MS) return false
+    if (!Number.isFinite(at) || at > now + INDEX_FUTURE_SLACK_MS || now - at >= maxAge) return false
     if (heldOf(e.obs.names ?? {}, n => n === name) > 0) return false
   }
   return true
+}
+/** Has the index an entry for this container (either half: a double chest is keyed by its lower half)? -> bool. Pure. */
+export function stockZeroCovers (entries, halves = []) {
+  if (!entries || typeof entries !== 'object') return false
+  for (const h of halves) {
+    if (Object.prototype.hasOwnProperty.call(entries, h)) return true
+    for (const e of Object.values(entries)) if (Array.isArray(e?.obs?.h) && e.obs.h.includes(h)) return true
+  }
+  return false
 }
 /** Can the index judge every one of these needs? Pure. */
 export const indexJudges = (needs = [], { exact = false } = {}) => Array.isArray(needs) && needs.length > 0 && needs.every(n => needLacks(n, {}, { exact }) != null)
