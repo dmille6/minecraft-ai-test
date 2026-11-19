@@ -78,7 +78,14 @@ check(SR.slope_mb_h([(T0, 1), (T0 + 300, 2)]) is None, 'two points give no slope
 st = SR.mem_stats([{'t': z(T0 + 300 * i), 'bot': 'b', 'mem_mb': None if i == 3 else 400 + i} for i in range(10)], 'b', T0, T0 + 3000)
 check(st['n'] == 9 and st['down'] == 1 and st['min'] == 400 and st['max'] == 409, 'a sample of a stopped unit is counted as down, never as 0 MB')
 check(SR.death_delta({'a': 3, 'b': 1}, {'a': 4, 'c': 0}) == {'a': 1, 'b': None, 'c': None}, 'a bot missing at either end is unknown, never 0 deaths')
-check(SR.back_in_world_minutes([(LC + 120, 'showcase-Alpha', 'join', None)], BOTS, LC) == 2.0 and SR.back_in_world_minutes([], BOTS, LC) == 0.0, 'minutes until the last bot is back')
+E = [(LC - 30, 'showcase-Alpha', 'lost', 'Timed out'), (LC + 120, 'showcase-Alpha', 'join', None)]
+check(SR.back_in_world_minutes(E, BOTS, LC) == 2.0 and SR.back_in_world_minutes([], BOTS, LC) == 0.0, 'minutes until every bot is in the world at once; 0 when they all already are')
+check(SR.back_in_world_minutes([(LC - 40, 'showcase-Alpha', 'lost', 'Timed out'), (LC - 5, 'showcase-Alpha', 'join', None),
+                                (LC + 850, 'showcase-Onyx', 'lost', 'Disconnected'), (LC + 860, 'showcase-Onyx', 'join', None)], BOTS, LC) == 0.0,
+      'a bot that drops 14 minutes LATER for another reason is not a slow recovery (the 11-18 stack soak: first read FAIL on exactly this)')
+check(SR.back_in_world_minutes([(LC - 30, 'showcase-Alpha', 'lost', 'Timed out')], BOTS, LC) is None, 'a bot that never rejoins: None')
+check(SR.back_in_world_minutes(E + [(LC + 60, 'showcase-Bravo', 'lost', 'Timed out'), (LC + 300, 'showcase-Bravo', 'join', None)], BOTS, LC) == 5.0,
+      'two bots out at overlapping times: back when BOTH are in at once')
 
 # ---- the two defects, replayed
 good = SR.build_report(run())
@@ -114,8 +121,12 @@ check(r['verdict'] == 'PASS' and any('1 reconnect' in f and 'Timed out' in f for
 i = run(); i['paper'] = [p for p in i['paper'] if not (p[0] > LC - 400 and 'showcase-Onyx joined' in p[1])]
 r = SR.build_report(i)
 check(r['verdict'] == 'FAIL' and any('never came back' in f and 'Onyx' in f for f in r['fails']), 'a bot whose last line is a lost connection FAILS the load step')
-i = run(); i['paper'].append(joined(LC + 11 * 60, 'showcase-Echo')); i['paper'].append(lost(LC + 60, 'showcase-Echo')); i['paper'].sort()
-check(any('min after the last pause' in f for f in SR.build_report(i)['fails']), 'the last bot back 11 minutes after the last pause FAILS (limit 10)')
+i = run(); i['paper'] = [p for p in i['paper'] if not (p[0] > LC - 400 and 'showcase-Echo joined' in p[1])] + [joined(LC + 11 * 60, 'showcase-Echo')]; i['paper'].sort()
+check(any('min after the last pause' in f for f in SR.build_report(i)['fails']), 'a bot out from its last pause until 11 minutes after the last one FAILS (limit 10)')
+i = run(); i['paper'] += [lost(LC + 850, 'showcase-Onyx', 'Disconnected'), joined(LC + 860, 'showcase-Onyx')]; i['paper'].sort()
+r = SR.build_report(i)
+check(r['verdict'] == 'PASS' and r['back_minutes'] <= 1.0 and r['reconnects_load']['showcase-Onyx']['lost'].get('Disconnected') == 1,
+      'POSITIVE CONTROL: the same run with an unrelated drop 14 minutes after the last pause PASSES, and that drop is still counted as a reconnect')
 
 # ---- what it could not see is INCONCLUSIVE, never a pass
 i = run(); i['rows_by_bot']['showcase-Comet'] = 0
@@ -284,7 +295,7 @@ killed('a missing bot is not blind', mutant("    if len(seen) < len(bots):\n", "
 killed('two forced reconnects are enough for the leak rule', mutant("LEAK_MIN_RECONNECTS = 4 ", "LEAK_MIN_RECONNECTS = 1 ")(run(rounds=2, per_reconnect=18)) == 'FAIL')
 killed('the leak rule wants more bots than exist', mutant("LEAK_MIN_BOTS = 10 ", "LEAK_MIN_BOTS = 20 ")(run()) == 'INCONCLUSIVE')
 i = run(); i['paper'] = [p for p in i['paper'] if not (p[0] > LC - 400 and 'showcase-Onyx joined' in p[1])]
-killed('a bot that never came back passes', mutant("        if out_now:\n", "        if False:\n")(i) == 'PASS')
+killed('a bot that never came back passes', mutant("        if back is None:\n", "        if False:\n            pass\n        elif back is None:\n            pass\n        elif False:\n")(i) == 'PASS')
 i = run(); i['stats_end']['showcase-Iris'] = 5; i['death_rows'] = {'showcase-Iris': 2}
 killed('two deaths pass', mutant("    if deaths >= DEATHS_FAIL:\n", "    if False:\n")(i) == 'PASS')
 i = run(load=False); i['paper'] = []

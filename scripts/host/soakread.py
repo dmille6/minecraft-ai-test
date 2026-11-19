@@ -151,10 +151,26 @@ def leak_table(mem, events, bots, pauses_start, load_end):
 
 
 def back_in_world_minutes(events, bots, last_continue):
-    """Minutes after the last pause ended until the last bot's last join; 0 when nobody joined after it (nobody was out).
-    Pure."""
-    later = [t for t, b, kind, _ in events if kind == 'join' and b in bots and t >= last_continue]
-    return round((max(later) - last_continue) / 60.0, 1) if later else 0.0
+    """Minutes after the last pause ended until every bot is in the world at once: 0 when they all already are, None when
+    that never happens. The server's join and lost lines are replayed, so a bot that drops again LATER for another reason
+    is a separate reconnect and not a slow recovery (11-18: every bot was back 12 s after the last pause, one dropped
+    with "Disconnected" 14 minutes on and rejoined in 10 s, and the first version of this rule failed the run on it). Pure."""
+    here = {b: True for b in bots}                 # every bot is in the world when a soak begins
+    after = []
+    for t, b, kind, _ in sorted(events):
+        if b not in here:
+            continue
+        if t <= last_continue:
+            here[b] = kind == 'join'
+        else:
+            after.append((t, b, kind))
+    if all(here.values()):
+        return 0.0
+    for t, b, kind in after:
+        here[b] = kind == 'join'
+        if all(here.values()):
+            return round((t - last_continue) / 60.0, 1)
+    return None
 
 
 def death_delta(start, end):
@@ -359,8 +375,9 @@ def build_report(inp):
             if b in bots and t >= load['start']:
                 last[b] = kind
         out_now = sorted(b for b, k in last.items() if k == 'lost')
-        if out_now:
-            fails.append(f'{len(out_now)} bot(s) never came back after the load step: {", ".join(out_now)}')
+        if back is None:
+            fails.append(f'{len(out_now)} bot(s) never came back after the load step: {", ".join(out_now)}' if out_now else
+                         'the bots were never all in the world at once after the last pause')
         elif back > RECOVER_MIN:
             fails.append(f'the last bot was back {back:.0f} min after the last pause ended (limit {RECOVER_MIN})')
     elif not inp.get('stopped'):
@@ -460,7 +477,7 @@ def render(r):
     if r['leak'] and r['leak'].get('_median_mb_per_reconnect') is not None:
         w('')
         w(f'Median kept per forced reconnect: **{r["leak"]["_median_mb_per_reconnect"]} MB** over {r["leak"]["_bots_counted"]} bots '
-          f'(limit {LEAK_MB:.0f}; the 11-18 leak kept 14-22). Last bot back {r["back_minutes"]} min after the last pause.')
+          f'(limit {LEAK_MB:.0f}; the 11-18 leak kept 14-22). All bots back in the world {r["back_minutes"]} min after the last pause.')
     w('')
     w('## Deaths, kills, building')
     d = r['deaths']
