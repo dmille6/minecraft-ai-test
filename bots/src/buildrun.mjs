@@ -167,6 +167,46 @@ export const TREE_CLEAR = /_(log|leaves)$/
 // A CRAFTING TABLE IN AN OPEN RECORD CELL (shopwalls-05, LIVE 10-28: an idle place put one into the last roof cell): dug like
 // scaffold -- it drops as the item, nothing is lost, and nothing else is in it. Furnaces and containers stay never-dug.
 export const STATION_CLEAR = /^crafting_table$/
+// VEGCLEAR-01show (T11 rig run 11: 11,69,-30 held a brown_mushroom, neither PLACEABLE_INTO nor FOREIGN_CLEAR, so the tidy's cell read
+// `blocked` 63 times with 96 cells waiting on it; the showcase 11-18: 38 of 427 stuck tidy cells hold a spruce sapling): the WILD
+// vegetation an open record cell may hold, dug like scaffold. Never a name a design places here: flowers, saplings, grass and ferns
+// ARE placed by designs (park.mjs SMALL_FLOWERS / PARK_SAPLINGS / meadow short_grass, decorator.mjs borders, pots and blooms,
+// cottage2.mjs flower boxes, forest/upkeep/tidy replants), so the dig is guarded by the CELL (vegForeign): never in a cell whose
+// role's palette names vegetation. Only for open record cells -- overburden and cover digs (non-cells) never take it.
+export const VEG_CLEAR = /^(brown_mushroom|red_mushroom|dandelion|poppy|blue_orchid|allium|azure_bluet|red_tulip|orange_tulip|white_tulip|pink_tulip|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|[a-z_]+_sapling|sweet_berry_bush|pink_petals|moss_carpet|short_grass|tall_grass|fern|large_fern)$/
+/** Does this role's palette name vegetation (a design plant cell: a flower bed, a pot, a sapling, a meadow)? Pure. '$role' entries
+ *  followed. */
+export function roleNamesVeg (palette, role, seen = new Set()) {
+  for (const c of palette?.[role] ?? []) {
+    const s = String(c)
+    if (s.startsWith('$')) { const r = s.slice(1); if (!seen.has(r)) { seen.add(r); if (roleNamesVeg(palette, r, seen)) return true } continue }
+    if (VEG_CLEAR.test(s) || /_sapling$|flower|tulip|azalea|fern|grass$/.test(s)) return true
+  }
+  return false
+}
+/** WILD VEGETATION IN AN OPEN RECORD CELL -> 'scaffold' | null. Pure. Dug only from a cell whose role names no vegetation: a design's
+ *  own plant cell (its block or another flower in it) is never dug by this rule. */
+// Codex vegclear r1: what is DUG is narrower than the list -- never a sapling (a replant of the tidy, the forest or the upkeep stands in
+// cells other records name; it is nobody's wild plant), never what a placement already replaces (short/tall grass, ferns: PLACEABLE_INTO
+// -- a refused dig there would spend the cell's attempts the placement needs)
+export const VEG_DIG = /^(brown_mushroom|red_mushroom|dandelion|poppy|blue_orchid|allium|azure_bluet|red_tulip|orange_tulip|white_tulip|pink_tulip|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|sweet_berry_bush|pink_petals|moss_carpet)$/
+export const vegForeign = (n, palette, role) => (VEG_DIG.test(String(n ?? '')) && !roleNamesVeg(palette, role) ? 'scaffold' : null)
+/** T11C-01show (a): the time a cut and its cap take together, at most (the walk to the cap's stand, the dig, the placement). */
+export const PAIR_MS = 25_000
+/** May this paired cut be dug now? -> null | why. Pure over its arguments: `block` the cap's block the bag spares (or null), `left`/`need`
+ *  the visit's time left and the pair's, `stand()` the placer's stand for the cap (or null). */
+export function pairHeldWhy ({ block, left, need = PAIR_MS, stand, capOk = true, digStandOk = () => true }) {
+  if (!capOk) return 'cap_kept'   // Codex t11c r3: the cap's block is one the foreign rule never digs (a chest, a part)
+  if (!block) return 'no_material'
+  if (!(left >= need)) return 'no_time'
+  if (!stand()) return 'no_stand'
+  if (!digStandOk()) return 'no_dig_stand'   // control (t11c 4d7bcbd18): the cap's block needs a stand to DIG it from (the digger's test)
+  return null
+}
+/** The world as it will be once these cells are dug -> a reader. Pure. */
+export const pairRead = (read, cells) => { const ks = new Set(cells.map(a => a.join(','))); return (x, y, z) => (ks.has(`${x},${y},${z}`) ? { name: 'air', boundingBox: 'empty' } : read(x, y, z)) }
+/** t11c-01show: what may go back on a cut that exposed stone, in order -> [names]. Pure. Its own name, its drop, then dirt and cobblestone. */
+export const PUTBACK_ORDER = n => [...new Set([n, n === 'grass_block' ? 'dirt' : n === 'stone' ? 'cobblestone' : n, 'dirt', 'cobblestone'])]
 export function foreignKind (n, scaffold = FOREIGN_CLEAR) {
   const s = String(n ?? '')
   if (scaffold.test(s) || STATION_CLEAR.test(s)) return 'scaffold'
@@ -727,6 +767,39 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   const supportOk = typeof e.clickClosed === 'function' ? (sup, face) => { try { return !e.clickClosed(sup, face) } catch { return true } } : null
   /** stepFor, never against a support the guard closes (the step's `want` carries the test) */
   const stepZ = (read, hm, cell, nodes, dom = null, want = null) => stepFor(read, hm, cell, nodes, dom, supportOk ? { ...(want ?? {}), supportOk } : want)
+  // T11C-01show (a): THE CAP RIGHT AFTER ITS CUT -> 'placed' | the reason | 'aborted'. Its block dug first when it is not air (a re-top's
+  // stone: the foreign rule's own dig), then laid from the placer's stand under the cap segment's own lease (a fresh walk).
+  // Codex t11c r3: the cap's block is dug only when it is air, a placement replaces it, or the foreign rule would dig it in that cell
+  const capDiggable = capC => { const b = rd(...capC.at), n = nm(b); return AIR(n) || replaceableCell(b) || foreignKind(n, scaffoldRe) === 'scaffold' || vegForeign(n, palette, capC.role) === 'scaffold' }
+  // Codex t11c r5: the block put back is what the bag HOLDS of the cut's kind -- its own name, its drop (grass digs to dirt, stone to
+  // cobblestone), else dirt or cobblestone -- any full block covers the stone; a put-back that cannot be made says so (`failed`)
+  const putBack = async (cut, capC) => {
+    const n = PUTBACK_ORDER(cut.name).find(q => e.has(q)) ?? null
+    if (!AIR(nm(rd(...cut.at)))) { e.log('_build', { op: 'pair_putback', cell: cut.at, block: cut.name, result: 'occupied' }); return }
+    const st = n ? stepZ(rd, home, cut.at, nodesFor(), domain, null) : null
+    const v = st ? await click(cut.at, n, st, capC.seg ?? null, capC.gen ?? null, { want: b => nm(b) === n }) : (n ? 'no_stand' : 'no_block')
+    e.log('_build', { op: 'pair_putback', cell: cut.at, block: n ?? cut.name, result: v === 'placed' ? 'placed' : `failed_${v}` })
+  }
+  const layPair = async (capC, clearHeld) => {
+    if (!capDiggable(capC)) { e.log('_build', { op: 'pair_cap', cell: capC.at, block: nm(rd(...capC.at)), result: 'cap_kept' }); return 'cap_kept' }
+    if (capC.seg && !PJ.holdsLease(dir, key, `seg-${capC.seg}`, me, capC.gen, now())) { e.log('_build', { op: 'pair_cap', cell: capC.at, result: 'lease' }); return 'lease' }
+    const n0 = nm(rd(...capC.at))
+    if (!AIR(n0) && !replaceableCell(rd(...capC.at))) {
+      const dv = await digNamed(capC.at, n0, clearHeld, null, null)
+      if (dv === 'aborted') return 'aborted'
+      if (dv !== 'confirmed') { e.log('_build', { op: 'pair_cap', cell: capC.at, block: n0, result: `dig_${dv}` }); return `dig_${dv}` }
+    }
+    const block = blockFor(palette, capC.role, e.has)
+    const st = block ? stepZ(rd, home, capC.at, nodesFor(), domain, wantOf(capC)) : null
+    if (!st) { e.log('_build', { op: 'pair_cap', cell: capC.at, result: block ? 'no_stand' : 'no_material' }); return block ? 'no_stand' : 'no_material' }
+    const sg = capC.seg
+    // the cap segment's lease was taken before the cut (the clear pass releases it after the pair); still ours here?
+    if (sg && !PJ.holdsLease(dir, key, `seg-${sg}`, me, capC.gen, now())) { e.log('_build', { op: 'pair_cap', cell: capC.at, result: 'lease' }); return 'lease' }
+    const v = await click(capC.at, block, st, sg, capC.gen ?? null, { want: b => cellDone(b, palette, capC.role) })
+    if (v === 'placed') { out.placed++; tally(block) }
+    e.log('_build', { op: 'pair_cap', seg: sg, cell: capC.at, block, result: v })
+    return v
+  }
   // stepclass-01: WHY record cell `c` has no step in `nodes` -> { class } for its row | {} (a step exists, the switch is off, the
   // question threw). stepZ's own inputs; asked once a cell and node map (the stand's refusal and the deferral name the same cell)
   const classMemo = new Map()
@@ -1487,6 +1560,21 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (c.kind !== 'tidy' && p.clearOk && !p.clearOk(c, rd)) continue
         const st0 = digStand(rd, c.at, nodes)
         if (!st0) continue                                          // no stand reaches it now: nothing tried, nothing counted
+        // T11C-01show (a): A CUT AND ITS CAP ARE ONE UNIT (rig run 16: 9 grade cuts exposed stone at the target and their caps were left to
+        // later visits -- the clear pass hit the deadline, then one unreachable cap ate every visit after). A cut carrying `cap` (the
+        // tidy visit marks a stone-exposing grade cut with its column's earth cell) is dug only when the cap can be laid right after it:
+        // the bag spares its block, the time left covers the pair, and the placer's own stand test (stepZ, on the world with the cut and
+        // the cap's block gone) finds a stand. Else the cut is not dug (`pair_held`).
+        let pair = null
+        if (c.kind === 'tidy' && Array.isArray(c.cap)) {
+          const capC = { at: c.cap, role: c.capRole ?? 'topsoil', seg: c.capSeg ?? null }
+          const why = pairHeldWhy({ capOk: capDiggable(capC), block: blockFor(palette, capC.role, e.has), left: deadline - now(), need: p.pairMs ?? PAIR_MS,
+            stand: () => stepZ(pairRead(rd, [c.at, capC.at]), home, capC.at, nodes, domain, wantOf(capC)),
+            // the digger's own test (digNamed: digStand on the walk's nodes), on the world with the cut gone and the cap's block still there
+            digStandOk: () => { const n = nm(rd(...capC.at)); return AIR(n) || replaceableCell(rd(...capC.at)) || !!digStand(pairRead(rd, [c.at]), capC.at, nodes) } })
+          if (why) { (out.pairHeld ??= []).push(kOf(c.at)); e.log('_build', { op: 'pair_held', cell: c.at, block: c.name, why }); continue }
+          pair = capC
+        }
         // leaffell-01show (`e.zoneClosed(cell, name, feet)` -> the zone's id | null: buildbot.mjs asks the guard's own decision for a dig
         // from that stand): a listed clear the protected-zone rule refuses is SET ASIDE for the visit -- no walk, no dig, no step spent
         // (LIVE 11-12: the tower's 9 leaf clears in village-taiga-6_1 were walked to and refused on every visit, 243 refusals, nothing
@@ -1499,7 +1587,25 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         }
         const g = guard(); if (g) return g
         tried++
-        const v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
+        // Codex t11c r1/r2: the cap segment's lease is taken right before the cut -- after every skip and the step guard, so no path
+        // between the take and the release in the finally below -- and another bot holding it means the cut is not dug
+        if (pair?.seg) {
+          const l = PJ.takeLease(dir, key, `seg-${pair.seg}`, me, { now: now() })
+          if (!l?.ok) { (out.pairHeld ??= []).push(kOf(c.at)); e.log('_build', { op: 'pair_held', cell: c.at, block: c.name, why: 'lease' }); continue }
+          pair.gen = l.gen
+        }
+        let v
+        try {
+          v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
+          if (v === 'confirmed' && pair) {
+            const pv = await layPair(pair, held)
+            if (pv === 'aborted') return 'aborted'
+            // the cap could not be laid after all (a walk that did not arrive, a refused placement): the cut's own block goes back on
+            // top, so the visit never leaves the stone it exposed (rig run 19: 8,69,-32 `dig_unreached` -> one grey top)
+            if (pv !== 'placed' && pv !== 'already') await putBack(c, pair)
+            nodes = null
+          }
+        } finally { if (pair?.seg && pair.gen != null) PJ.releaseLease(dir, key, `seg-${pair.seg}`, me, pair.gen) }
         if (v === 'unsafe') { (out.tidyWet ??= []).push(kOf(c.at)); nodes = null; continue }
         if (v !== 'no_stand') nodes = null
         // zigtidy-02: a tidy walk that did not arrive ends the tidy (the lease freed for a builder who can), the visit goes on
@@ -1676,7 +1782,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // one -- dug, the ground would be a hole
         // townstyle-01: A MISORIENTED CELL (the role's block in the WRONG state: a stair facing away, a log on its side) is dug like a
         // foreign block (`reorient`) and placed again aimed -- never left, never clicked into (a slab clicked into a slab doubles)
-        const kindAt = c => (misorientedAt(c) ? 'reorient' : foreignKind(nm(rd(...c.at)), scaffoldRe))
+        const kindAt = c => (misorientedAt(c) ? 'reorient' : foreignKind(nm(rd(...c.at)), scaffoldRe) ?? vegForeign(nm(rd(...c.at)), palette, c.role))   // vegclear-01show: wild vegetation in a non-plant cell
         // citywall-01 (`p.swap`, THE IN-PLACE SWAP): a swapped cell (`sw`: a standing block the generation replaces) is dug only when
         // swapDigOk says so -- no hole open in this segment and the bag holding its block -- so it is placed before the next dig
         // (an ADDED clear cell -- an underpinning under a hanging run -- holds the dig back only while a stand can fill it NOW: one no stand
@@ -1768,7 +1874,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
           const kindRow = kind === 'tree' ? 'tree' : kind === 'reorient' ? 'reorient' : 'foreign'
-          if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kindRow, result: v }); continue }
+          if (v !== 'confirmed') { bump(f.at); if (v === 'unreached') (out.unreached ??= []).push(kOf(f.at)); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kindRow, result: v }); continue }   // t11c-01show (b): the caller hears of an unreached cell
           out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kindRow })
           continue
         }

@@ -200,11 +200,11 @@ await t('a later stage tidies only its band: a pillar inside the town square is 
 })
 
 console.log('THE VISIT: buried fills take the cobble; cuts in walking order; a spent cell does not end the visit')
-await t('coreFills: every fill under its column\'s top is `core` (cobblestone first); the top stays `earth` (dirt first)', async () => {
+await t('coreFills: every fill under its column\'s top is `core` (cobblestone first); the top is `topsoil` (dirt only, tidytop-01show)', async () => {
   const rec = { cells: [{ at: [1, G - 2, 1], role: 'earth' }, { at: [1, G - 1, 1], role: 'earth' }, { at: [1, G, 1], role: 'earth' }, { at: [2, G, 2], role: 'earth' }] }
   const c = T.coreFills(rec)
-  assert.deepStrictEqual(c.cells.map(q => q.role), ['core', 'core', 'earth', 'earth'])
-  assert.strictEqual(T.TIDY_PALETTE.core[0], 'cobblestone'); assert.strictEqual(T.TIDY_PALETTE.earth[0], 'dirt')
+  assert.deepStrictEqual(c.cells.map(q => q.role), ['core', 'core', 'topsoil', 'topsoil'])
+  assert.strictEqual(T.TIDY_PALETTE.core[0], 'cobblestone'); assert.deepStrictEqual(T.TIDY_PALETTE.topsoil, ['dirt', 'grass_block'])
 })
 await t('chainCuts: column by column from the bot, top first in a column (control: tidy-01\'s order is highest first across town)', async () => {
   const cuts = [{ at: [30, G + 3, 0] }, { at: [30, G + 2, 0] }, { at: [1, G + 2, 0] }, { at: [-30, G + 4, 0] }, { at: [1, G + 1, 0] }]

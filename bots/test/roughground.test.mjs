@@ -401,7 +401,7 @@ await t('2 wiring (Codex r1): a topsoil cell reads done while the bag holds no d
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/const noSoil = q => soilSkip\(q, n => !!effects\?\.has\?\.\(n\)\)/.test(sk))
-  assert.ok((sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 2, 'the visit (alsoDone) and the progress read')
+  assert.ok((sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 1 && /noTorch\(q\) \|\| \(tidyTopOn\(\) \? soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\), q\) : noSoil\(q\)\)/.test(sk)   /* tidytop-01show: the completion keeps a hole or a grey top open (tidytop.mjs soilPassDone) */, 'the visit (alsoDone) and the progress read')
   assert.ok(/const openSoil = \(visitRec\.cells \?\? \[\]\)\.filter\(q => q\.role === 'topsoil'/.test(sk) && /if \(wantSoil > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ wantSoil/.test(sk) && /q\.role !== 'topsoil' && !PARK_ROLES\.has\(q\.role\)/.test(sk), 'topsoil billed as DIRT, drawn from the town (Codex 3 r2)')
 })
 console.log(`\n${pass} passed, ${fail} failed`)
