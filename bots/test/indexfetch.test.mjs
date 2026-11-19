@@ -173,6 +173,42 @@ await t('MUTANT KILLED: the bag\'s gain ignored at the trip', async () => {
     assert.deepEqual(m.fetchStillWanted({ spruce_planks: 12 }, { spruce_planks: 0 }, { spruce_planks: 16 }), {}, 'killed')
   }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
 })
+await t('THE PEAK IS SAMPLED AFTER A SLOT BATCH (Codex r5): a stack moved between slots in one window_items pass is not a gain', async () => {
+  const K = await import('../src/skills.mjs')
+  const { EventEmitter } = await import('node:events')
+  const slots = new Map([[36, { name: 'torch', count: 8, slot: 36 }]])
+  const inv = new EventEmitter(); inv.items = () => [...slots.values()]
+  const bot = { username: 'TestBot', entity: { position: { x: 0, y: 64, z: 0 } }, inventory: inv }
+  K.bagRoomInstall(bot)
+  bot.indexFetchWant = { state: 'fetch', plot: 'stepwell', items: { torch: 7 }, bag0: { torch: 8 }, peak: { torch: 8 }, pol: {}, at: Date.now() }
+  K._indexfetch.fetchPeakWatch(bot)
+  // the pass: slot 9 set first (both stacks counted), then slot 36 cleared -- synchronously, as mineflayer's window_items does
+  slots.set(9, { name: 'torch', count: 8, slot: 9 }); inv.emit('updateSlot', 9)
+  slots.delete(36); inv.emit('updateSlot', 36)
+  await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r))
+  assert.equal(bot.indexFetchWant.peak.torch, 8, 'no spike')
+  assert.deepEqual(F.fetchStillWanted(bot.indexFetchWant.items, bot.indexFetchWant.bag0, bot.indexFetchWant.peak), { torch: 7 })
+  // a real gain (a craft of 4 stairs-worth: 8 more torches) is seen
+  slots.set(10, { name: 'torch', count: 8, slot: 10 }); inv.emit('updateSlot', 10)
+  await new Promise(r => setImmediate(r))
+  assert.equal(bot.indexFetchWant.peak.torch, 16)
+  bot.indexFetchWant = null; S.setFetchAsk(null)
+})
+await t('MUTANT KILLED: the peak read mid-batch (a moved stack reads as a gain)', async () => {
+  await withMutant(new URL('../src/skills.mjs', import.meta.url), 'if (!queued) { queued = true; setImmediate(sample) }', 'sample()', async K => {
+    const { EventEmitter } = await import('node:events')
+    const slots = new Map([[36, { name: 'torch', count: 8, slot: 36 }]])
+    const inv = new EventEmitter(); inv.items = () => [...slots.values()]
+    const bot = { username: 'TestBot', entity: { position: { x: 0, y: 64, z: 0 } }, inventory: inv }
+    K.bagRoomInstall(bot)
+    bot.indexFetchWant = { state: 'fetch', plot: 'stepwell', items: { torch: 7 }, bag0: { torch: 8 }, peak: { torch: 8 }, pol: {}, at: Date.now() }
+    K._indexfetch.fetchPeakWatch(bot)
+    slots.set(9, { name: 'torch', count: 8, slot: 9 }); inv.emit('updateSlot', 9)
+    slots.delete(36); inv.emit('updateSlot', 36)
+    await new Promise(r => setImmediate(r))
+    assert.equal(bot.indexFetchWant.peak.torch, 8, 'killed')
+  }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
+})
 await t('A STALE INDEX: the far chest the index says holds 116 shows 0 -> a miss, its entry corrected, never retried in the trip; the item backs off (no loop)', async () => {
   const w = town({ [MID]: { index: { torch: 116 }, real: {} }, [FAR]: { index: { torch: 3 }, real: { torch: 3 } } })
   const r = await F.runFetchTrip({ items: { torch: 7 }, plan: w.plan([0, 64, 0]), ops: w.ops, deadline: NOW + F.FETCH.tripMs })
@@ -309,7 +345,7 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
     'const c = pol.allow(n, c0, { others, here, reserve: pol.reserve, taking: matsTaking(bot, n) })',
     'minMs: WITHDRAW_VISIT_MIN_MS,',
     'const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))',
-    "bot.inventory?.on?.('updateSlot', () => {",
+    "bot.inventory?.on?.('updateSlot', () => { if (!queued) { queued = true; setImmediate(sample) } })",
     "if (dr.at == null) throw new Error('no drawn record')",
     'w.items = fetchStillWanted(w.items, w.bag0, top)',
   ]) assert.ok(src.includes(line), `missing: ${line}`)
