@@ -975,7 +975,7 @@ await kills('a cell kept this round holds nothing (not the cell over it, not the
 await kills('water no longer stops the column', "        if (isLiquid(b) || String(b.name ?? '').includes('waterlogged')) { why = 'water'; break }\n", '', scenWater)
 await kills('another record\'s cell and the protected zone no longer stop the column', "        if (guard.has(qk) || !mayAdd(q)) { why = 'guarded'; break }\n", '', scenGuard)
 await kills('the exclusions no longer stop the column', "let why = keepOff(x, z) ? 'excluded' : null", 'let why = null', scenReserved)
-await kills('a cell left out for whose ground it is comes back', "if (!/^fillcolumn:(?!guarded$|excluded$)/.test(String(v?.why ?? ''))) return false", "if (!/^fillcolumn:/.test(String(v?.why ?? ''))) return false", scenReserved)
+await kills('a cell left out for whose ground it is comes back', "if (!/^fillcolumn:(?!guarded$|excluded$|keepoff:)/.test(String(v?.why ?? ''))) return false", "if (!/^fillcolumn:(?!keepoff:)/.test(String(v?.why ?? ''))) return false", scenReserved)   // t11reach2: the keepoff waiver joined the list
 await kills('the hold while the last repair left cells unresolved (a cell hidden behind a repair that is not coming)', '  if (repairLedger(rec).left > 0) return false\n', '', scenHold)
 await kills('the repair asks the done test of the world once and then never again (a cell laid is read open)', 'if (v === undefined) { v = !!done(c); dm.set(k, v) } return v }', 'if (v === undefined) { v = false; dm.set(k, v) } return v }', scenDone)
 await kills('a waived cell under the column no longer stops it', "        if (hasOwn(w, qk)) { why = 'waived_below'; break }\n        if (known.has(qk)) { why = 'record_below'; break }\n", '', scenWaivedBelow)
