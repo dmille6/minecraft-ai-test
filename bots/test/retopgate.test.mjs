@@ -180,6 +180,10 @@ await t('MUTANT KILLED: the segment\'s other fills not set aside first (the Code
     assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
   })
 })
+await t('WIRED (structural, comments stripped): every gate cave cap is named cave_deferred on each visit (parked:air_below)', () => {
+  const sk = readFileSync(P('skills.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  assert.ok(/for \(const k of airBelow\) \{ const \[x, , z\] = k\.split\(','\); if \(gNow2\?\.has\?\.\(`\$\{x\},\$\{z\}`\)\) logEvent\([^\n]*op: 'cave_deferred'[^\n]*why: 'parked:air_below'/.test(sk))
+})
 await t('WIRED (structural, comments stripped): the visit hands retopHeld the gate, capHeldCols the remedy, runVisit the held reasons', () => {
   const sk = readFileSync(P('skills.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\), gate: inGate \}\)/.test(sk))

@@ -373,16 +373,9 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
     const k = colOf(c.at), o = lows.get(k)
     if (!o || c.at[1] < o.at[1]) lows.set(k, c)
   }
-  // CODEX r9 BLOCKER (t11reach2): A GREY RE-TOP WITH AIR UNDER IT (the visit holds it `air_below`: digging it opens the cave) would
-  // hold its column's cut for good -- the cap is never dug, never waived (an empty-bag wait is no strike). The refresh DEFERS it:
-  // waived `fillcolumn:air_below` (the grey crust left alone), and the grade cuts above it in its column leave the record with it
+  // t11reach3-01show (control: the cave-cap unit PARKED): a grey re-top with air under it is DEFERRED at the visit (held `air_below`,
+  // a `cave_deferred` row, never a strike) and never waived here -- its column waits, named, for a later piece
   const ab = {}
-  for (const c of rec.cells ?? []) {
-    if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at) || hasOwn(rec.waived, kOf(c.at)) || done(c)) continue
-    const top = read(...c.at), under = read(c.at[0], c.at[1] - 1, c.at[2])
-    if (!top || AIRN(nm(top)) || !refUsable(top)) continue
-    if (!under || AIRN(nm(under)) || isLiquid(under) || under.boundingBox === 'empty') ab[kOf(c.at)] = { why: 'fillcolumn:air_below', at: now, by: 'fillcolumn' }
-  }
   if (!lows.size && !Object.keys(ab).length) return { rec: null, n, added, hollow, dropped }
   const known = new Set([...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].filter(q => Array.isArray(q?.at)).map(q => kOf(q.at)))
   const w = rec.waived ?? null

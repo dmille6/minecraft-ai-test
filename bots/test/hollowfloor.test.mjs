@@ -153,23 +153,19 @@ const scenK = M => {
 await t('(keepOff) -33,68,-12 in house1\'s columns: waived as another project\'s ground, its cut retired, nothing stuck', () => scenK(FC))
 await kills('(keepOff) the cell skipped as before (the dead end)', 'fillcolumn.mjs', "    if (ko) { off[kOf(L.at)] = { why: `fillcolumn:keepoff:${String(ko).slice(0, 40)}`, at: now, by: 'fillcolumn' }; continue }", '    if (ko) continue', scenK)
 await kills('(keepOff) the waiver comes back at the next refresh', 'fillcolumn.mjs', '(?!guarded$|excluded$|keepoff:)', '(?!guarded$|excluded$)', scenK)
-// CODEX r9 (t11reach2): a grey re-top cap over air with a grade cut above -> the visit holds the cap (air_below); without the refresh
-// that would hold the column's cut for good. The refresh defers it: the cap waived fillcolumn:air_below, the cut above retired, a row
-const scenAirCap = M => {
+// t11reach3-01show (the cave-cap unit PARKED): a grey re-top cap over a cave is DEFERRED at the visit (held air_below, a cave_deferred
+// row) and the refresh NEVER waives it nor retires the cut above it -- the column waits, named
+const scenParked = M => {
   const cells = { ...scene, '-33,69,-12': 'cobblestone', '-33,70,-12': 'grass_block' }
   const read = readOf(cells)
   const rec = { blueprint: 'tidy@1', home: { x: 0, y: 70, z: 0 }, cells: [{ at: [-33, 69, -12], role: 'topsoil', seg: 'G-0', grade: true, retop: 1, opener: [-33, 70, -12] }],
-    cut: [{ at: [-33, 70, -12], kind: 'tidy', name: 'grass_block', grade: true }, { at: [5, 70, 5], kind: 'tidy', name: 'stone', grade: true }], clear: [], waived: {}, segments: [{ seg: 'G-0', deps: [] }] }
+    cut: [{ at: [-33, 70, -12], kind: 'tidy', name: 'grass_block', grade: true }], clear: [], waived: {}, segments: [{ seg: 'G-0', deps: [] }] }
   const { res, fx } = M.refreshRepair({ rec }, rec, read, { done: c => /^(dirt|grass_block)$/.test(read(...c.at)?.name ?? ''), now: 3 }, {})
-  assert.strictEqual(res.rec.waived['-33,69,-12']?.why, 'fillcolumn:air_below', 'the grey cap over the cave is deferred, named')
-  assert.deepStrictEqual(res.rec.cut.map(q => q.at.join(',')), ['5,70,5'], 'its column\'s cut retired with it; the other kept')
-  assert.ok(fx.hollow.some(h => h.kind === 'air_below'), 'a row')
-  // a cap with ground under it is left to the visit
-  const solid = readOf({ ...cells, '-33,68,-12': 'dirt' })
-  assert.strictEqual(M.refreshRepair({ rec }, rec, solid, { done: () => false, now: 3 }, {}).res.rec.waived?.['-33,69,-12'], undefined)
+  assert.strictEqual(res.rec.waived?.['-33,69,-12'], undefined, 'never waived')
+  assert.deepStrictEqual(res.rec.cut.map(q => q.at.join(',')), ['-33,70,-12'], 'its cut kept (the column waits)')
+  assert.ok(!(fx.hollow ?? []).some(h => h.kind === 'air_below'))
 }
-await t('(air_below) a grey re-top cap over a cave: deferred at the refresh, its column\'s grade cut retired -- never a held column for good', () => scenAirCap(FC))
-await kills('(air_below) the deferral removed (the cap and its cut held for ever)', 'fillcolumn.mjs', "    if (!under || AIRN(nm(under)) || isLiquid(under) || under.boundingBox === 'empty') ab[kOf(c.at)] = { why: 'fillcolumn:air_below', at: now, by: 'fillcolumn' }", '    void under', scenAirCap)
+await t('(parked) a grey re-top cap over a cave: the refresh never waives it nor retires its cut -- deferred at the visit instead', () => scenParked(FC))
 await kills('(a) the floor\'s cells never added', 'fillcolumn.mjs', '    if (floor && gap.length && gap.length <= T.hollowMax) {', '    if (false) {', scenA)
 await kills('(b) the deep mark never set', 'fillcolumn.mjs', '      deepCols.add(k)\n', '\n', M => scenB({ fc: M }))
 await kills('(b) the opener cut kept', 'fillcolumn.mjs', '  const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut\n', '  const cut = rec.cut\n', M => scenB({ fc: M }))

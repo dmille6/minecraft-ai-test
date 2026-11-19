@@ -96,6 +96,12 @@ def run(GP, GT):
     check('a 1-deep hollow (the target cell alone) is not deferred: the grade fills it', GP.deferred_cols(p, Hd, blk1, list(p.gate)) == set())
     cr2 = GP.criteria(p, Hd, TOP, deferred=dfr)
     check('the bar: ceil(0.95 * (9 - 1)) = 8', cr2['keep']['need'] == 8 and cr2['deferred'] == 1)
+    # t11reach2: a grey cap AT the target over air (the cave-cap columns) is counted apart; a deep hollow is not counted twice; the bar is as before
+    blkc = lambda x, y, z: ('cobblestone' if y == 69 else 'air' if y == 68 else 'stone') if (x, z) == (10, -25) else ('air' if (x, z) == (9, -26) and y in (68, 69) else 'stone')
+    cave = GP.cave_cols(p, Hd, blkc, list(p.gate), dfr)
+    check('cave caps: the grey cap over air, read from the world; the deep hollow not again', cave == {(10, -25)})
+    cr3 = GP.criteria(p, Hd, TOP, deferred=dfr, cave=cave)
+    check('cave_deferred reported beside the deep hollows; the bar unchanged', cr3['cave_deferred'] == 1 and cr3['deferred'] == 1 and cr3['keep']['need'] == 8)
     check('criteria: owned 8 of 9 (one is another record\'s, at grade: it stays in the keep on both sides), keep 7 of 9', cr['owned'] == 8 and cr['keep']['count'] == 7 and cr['keep']['of'] == 9 and cr['keep']['grade_owned_ok'] == 6)
     check('criteria: the grey top at height is counted against its max', cr['grey']['count'] == 1 and not cr['grey']['pass'])
     check('criteria: a grade cell outside the gate fails', cr['outside']['count'] == 1 and not cr['outside']['pass'])
@@ -119,6 +125,7 @@ def main():
         ('gradepct.py', "                'grade_pct': round(100.0 * len(ok) / len(allc), 1) if allc else None,", "                'grade_pct': round(100.0 * len(ok) / len(cols), 1) if cols else None,", 'the unread in the denominator'),
         ('gradepct.py', "    owned = sorted(c for c in gate if c not in others)", "    owned = sorted(gate)", 'the owned denominator'),
         ('gradepct.py', "        if H[c] > y and blk(c[0], y, c[1]) in AIRY and blk(c[0], y - 1, c[1]) in AIRY:", "        if H[c] > y and blk(c[0], y, c[1]) in AIRY:", 'the deferred depth'),
+        ('gradepct.py', "and blk(c[0], y - 1, c[1]) in AIRY:\n            out.add(c)\n    return out\n\n\ndef criteria", "and False:\n            out.add(c)\n    return out\n\n\ndef criteria", 'the cave caps read'),
         ('gradetarget.py', "            if n not in run and at(*n) == (y, 't'):\n", "            if n not in run and at(*n)[1] == 't':\n", 'the height in the flood'),
     ]:
         src = open(os.path.join(HERE, f)).read()

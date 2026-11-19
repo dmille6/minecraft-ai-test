@@ -30791,6 +30791,8 @@ async function buildTidyVisit (ctx, args, signal) {
     // t11reach2-01show (run 28, 9,69,-22): a grey re-top with air under it is never dug -- held, `air_below` on the rows
     const airBelow = tidyTopOn() ? retopAirBelow(visitRec.cells, read, { waived: rec.waived }) : new Set()
     for (const k of airBelow) retopPass.add(k)
+    // t11reach3-01show (the cave-cap unit parked): every gate cave cap is DEFERRED -- named on each visit, never dug, never a strike
+    if (gradeOn() && airBelow.size) { try { const gNow2 = gradeNow(bot)?.t?.gate; for (const k of airBelow) { const [x, , z] = k.split(','); if (gNow2?.has?.(`${x},${z}`)) logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'cave_deferred', cell: k.split(',').map(Number), why: 'parked:air_below' }) }) } } catch { /* telemetry */ } }
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
     // control 11-18 (gradetidy.mjs gradeCutsHeld): a grade cut that would expose stone waits while its column's earth cap is held

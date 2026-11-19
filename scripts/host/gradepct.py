@@ -212,7 +212,21 @@ def deferred_cols(plan, H, blk, cols):
     return out
 
 
-def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=None, steps_floor=30, grey_max=39, deferred=frozenset(), keep_share=0.95):
+def cave_cols(plan, H, blk, cols, deferred=frozenset()):
+    """t11reach2-01show: the columns whose top AT the target is a grey cap over air (the cave-cap unit's columns; the ones it cannot work
+    are deferred, never waived) -> set. Read from the world alone; a deep hollow (`deferred`) is not counted again. Reported next to the
+    deep hollows; the bar does not change."""
+    out = set()
+    for c in cols:
+        if c not in H or c in deferred:
+            continue
+        y = plan.at(*c)[0]
+        if H[c] >= y and blk(c[0], y, c[1]) not in AIRY and blk(c[0], y, c[1]) not in EARTH and blk(c[0], y - 1, c[1]) in AIRY:
+            out.add(c)
+    return out
+
+
+def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=None, steps_floor=30, grey_max=39, deferred=frozenset(), keep_share=0.95, cave=frozenset()):
     """THE RELEASE-1 READ (control 11-18), each criterion with its count and its verdict. Pure.
        owned   the gate's columns no other record (paths, decor, dress) names: the denominator
        keep    owned columns at target height with an earth top >= `keep`
@@ -245,6 +259,7 @@ def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=None, steps_floor=
            # records' columns already at grade stay in it on both sides (a path at its height with its dirt_path is a graded column)
            # control 11-18 (on d80208101): the bar is ceil(95% of (the denominator less the DEFERRED columns)), unless `keep` is given
            'deferred': len(deferred_owned),
+           'cave_deferred': len([c for c in owned if c in cave and c not in deferred]),
            'keep': {'count': len(ok) + len(others_ok), 'of': den, 'deferred': len(deferred_owned), 'grade_owned_ok': len(ok), 'grade_owned': len(owned),
                     'need': need, 'pass': len(ok) + len(others_ok) >= need and not unread},
            'steps': {'count': len(pairs), 'floor': steps_floor, 'pass': len(pairs) <= steps_floor},
@@ -299,7 +314,8 @@ def main(argv=None):
                 return '?'
             return names[d['cells'][(x - x0) + nx * ((z - z0) + nz * (y - a.y0))]]
         gate_g = [c for c in plan.gate if plan.at(*c)[1] in GROUND_CLS]
-        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep, steps_floor=a.steps, deferred=deferred_cols(plan, H, blk, gate_g))
+        dfr = deferred_cols(plan, H, blk, gate_g)
+        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep, steps_floor=a.steps, deferred=dfr, cave=cave_cols(plan, H, blk, gate_g, dfr))
     if a.out:
         json.dump(m, open(a.out, 'w'))
     show = {k: v for k, v in m.items() if k != 'heights'}
