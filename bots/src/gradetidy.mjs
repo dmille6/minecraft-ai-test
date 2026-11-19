@@ -356,3 +356,25 @@ export function gradeCutOk (q, read, has = () => false) {
   if (EARTH_TOP.test(n) || /^(air|cave_air|void_air)$/.test(n)) return true
   return !!has('dirt')
 }
+
+/**
+ * Control 11-18 decision 2 (T11 ff935d4e2): WHILE A GATE IS SET, ROUGHGROUND'S IN-TOWN LAWN SWAPS PAUSE (the plan supersedes them:
+ * design (e)). A lawn swap is roughground-2's re-soil -- a tidy cut and a `topsoil` fill on the SAME cell, outside the grade.
+ *   lawnSwapKeys(rec)        -> Set of 'x,y,z': the record's open swaps (their cells and cuts); the visit passes them while a gate
+ *                               is set (never dug, never laid; the completion still counts them)
+ *   dropLawnSwaps(survey)    -> the survey part without its new swaps (roughground's `rt<n>` pillar cuts and `rt<n>f` pit fills)
+ * Pure.
+ */
+export function lawnSwapKeys (rec) {
+  const cutK = new Set((rec?.cut ?? []).filter(c => !c?.grade).map(c => c.at.join(',')))
+  const out = new Set()
+  for (const c of rec?.cells ?? []) if (c?.role === 'topsoil' && !c.grade && !c.retop && cutK.has(c.at.join(','))) out.add(c.at.join(','))
+  return out
+}
+export function dropLawnSwaps (sv) {
+  const isSwapPit = id => /(^|:)rt\d+f$/.test(String(id ?? ''))   // (merged surveys prefix their ids: r0:rt0f)
+  const isSwapCut = c => /(^|:)rt\d+$/.test(String(c?.pillar ?? ''))
+  const fill = (sv?.fill ?? []).filter(f => !isSwapPit(f.pit))
+  if (fill.length === (sv?.fill ?? []).length && !(sv?.cut ?? []).some(isSwapCut)) return sv
+  return { ...sv, fill, cut: (sv.cut ?? []).filter(c => !isSwapCut(c)), pits: (sv.pits ?? []).filter(p => !isSwapPit(p.id)), pillars: (sv.pillars ?? []).filter(p => !(p?.kind === 'topsoil' && /(^|:)rt\d+$/.test(String(p.id ?? '')))) }
+}

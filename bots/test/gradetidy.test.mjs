@@ -411,6 +411,31 @@ await t('Codex T11 delta r6: a gap deeper than the scan reads unknown (held), ne
   assert.strictEqual(GT.topUnder(srv.read, [0, G + 41, 0]), 'unknown')
   assert.strictEqual(GT.gradeCutOk({ at: [0, G + 41, 0], grade: true }, srv.read, () => false), false)
 })
+console.log('CONTROL 11-18 (ff935d4e2) DECISION 2: LAWN SWAPS PAUSED WHILE A GATE IS SET')
+await t('the survey plans no new lawn swap while a gate is set; without a gate it does (positive control)', () => {
+  const srv = server({ [`-10,${G},-10`]: 'cobblestone' })
+  const swaps = rec => (rec?.cells ?? []).filter(c => c.role === 'topsoil' && !c.grade && (rec.cut ?? []).some(q => q.at.join(',') === c.at.join(','))).length
+  const { rec: r0 } = site(srv, null)
+  assert.ok(swaps(r0) >= 1, 'control: the rough survey swaps a cobblestone top in a lawn')
+  const g = GT.gradeTarget(plan({ gate: [[5, 5]] }))
+  const { rec: r1 } = site(srv, { t: g.t })
+  assert.strictEqual(swaps(r1), 0)
+})
+await t('lawnSwapKeys: a non-grade topsoil cell with a cut on the same cell; never a grade cell or a re-top', () => {
+  const rec = { cells: [{ at: [1, G, 1], role: 'topsoil' }, { at: [2, G, 1], role: 'topsoil', grade: true }, { at: [3, G, 1], role: 'topsoil', retop: 1 }, { at: [4, G, 1], role: 'topsoil' }],
+    cut: [{ at: [1, G, 1] }, { at: [2, G, 1], grade: true }, { at: [3, G, 1] }] }
+  assert.deepStrictEqual([...GT.lawnSwapKeys(rec)], [`1,${G},1`])
+  const sv = { fill: [{ at: [1, G, 1], pit: 'rt0f' }, { at: [9, G, 9], pit: 'p3' }], cut: [{ at: [1, G, 1], pillar: 'rt0' }, { at: [8, G, 8], pillar: 'p1' }], pits: [{ id: 'rt0f' }, { id: 'p3' }], pillars: [{ id: 'rt0', kind: 'topsoil' }, { id: 'p1' }] }
+  const d = GT.dropLawnSwaps(sv)
+  assert.deepStrictEqual([d.fill.length, d.cut.length, d.pits.length, d.pillars.length], [1, 1, 1, 1])
+})
+await t('WIRED (comments stripped): the visit passes the record\'s lawn swaps while a gate is set (cells and cuts)', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
+  assert.ok(/const lawnPaused = gradeOn\(\) && gradeNow\(bot\)\?\.t \? lawnSwapKeys\(visitRec\) : new Set\(\)\n\s*for \(const k of lawnPaused\) retopPass\.add\(k\)/.test(sk))
+  assert.ok(/for \(const k of lawnPaused\) cutHeld\.add\(k\)/.test(sk))
+  assert.ok(/if \(gw\) Object\.assign\(sv0, dropLawnSwaps\(sv0\)\)/.test(strip(readFileSync(P('tidy.mjs'), 'utf8'))))
+})
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
   const rec = { cut: [{ at: [0, 1, 0], grade: true, added: 5 }, { at: [1, 1, 0], added: 5 }], cells: [{ at: [0, 0, 0], grade: true, added: 5 }, { at: [2, 0, 0], grade: true, added: 4 }] }

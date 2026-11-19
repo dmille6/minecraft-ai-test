@@ -32,7 +32,7 @@ import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { surfaceFills, tidyTopOn } from './tidytop.mjs'
-import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary, gradeProvided, gradeStamp, RETOP_DIGGABLE } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
+import { GRADE, gradeOn, gradeSurvey, dropGradeCols, gradeSummary, gradeProvided, gradeStamp, RETOP_DIGGABLE, dropLawnSwaps } from './gradetidy.mjs'   // gradetidy-01show   // tidytop-01show
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut expires
@@ -1614,6 +1614,8 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       // Codex 1c r1 BLOCKER: a stand never stands on a wall extension's reserved plot (the whole box)
       const plotBoxesR = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite))
       sv0.rough = roughIn(read, { home, boxes, env, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [], litter: terrace?.litter ?? [], now, standOff: (x, z) => plotBoxesR.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) || !!gw?.cols?.has(k2(x, z)) }, sv0)
+      // gradetidy-01show (control 11-18): while a gate is set the plan supersedes roughground's lawn swaps -- no new ones are planned
+      if (gw) Object.assign(sv0, dropLawnSwaps(sv0))
     }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
     // roughground-1c: the rough survey's stands are platforms too (laid as access fills, torn down by platformTeardown)

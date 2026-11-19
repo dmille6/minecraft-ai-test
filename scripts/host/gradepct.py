@@ -199,12 +199,12 @@ def newest_tidy(pool):
     return json.load(open(max(fs, key=lambda f: int(re.search(r'\.g(\d+)\.json$', f).group(1))))) if fs else None
 
 
-def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=175, steps_floor=8, grey_max=39):
+def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=175, steps_floor=30, grey_max=39):
     """THE RELEASE-1 READ (control 11-18), each criterion with its count and its verdict. Pure.
        owned   the gate's columns no other record (paths, decor, dress) names: the denominator
        keep    owned columns at target height with an earth top >= `keep`
        outside grade cells and cuts on the tidy record outside the gate == 0 (needs `rec`)
-       steps   ground-ground 2+ pairs with a side in the gate <= `steps_floor` (the inherent floor: neighbours off their own targets)
+       steps   ground-ground 2+ pairs with a side in the gate <= `steps_floor` (control 11-18: 30, the 06:30Z baseline; 8 is the floor)
        grey    gate columns at target height with a grey top <= `grey_max` (11-18 06:30Z: 39)"""
     gate = {c for c in plan.gate if plan.at(*c)[1] in GROUND_CLS}
     owned = sorted(c for c in gate if c not in others)
@@ -244,7 +244,8 @@ def main(argv=None):
     ap.add_argument('--before', help='an earlier run\'s --out (its heights)')
     ap.add_argument('--out')
     ap.add_argument('--tlregion', default=None)
-    ap.add_argument('--keep', type=int, default=175, help='the KEEP count (control 11-18: 175)')
+    ap.add_argument('--keep', type=int, default=175, help='the KEEP count (control 11-18: 175 of 185)')
+    ap.add_argument('--steps', type=int, default=30, help='2+ step pairs touching the gate, at most (control 11-18: 30)')
     ap.add_argument('--pool', help='a pool copy: the paths/decor/dress records (the criteria\'s owned columns) and the newest tidy record')
     ap.add_argument('--y0', type=int, default=50)
     ap.add_argument('--y1', type=int, default=115)
@@ -271,7 +272,7 @@ def main(argv=None):
     m = measure(plan, H, TOP, before)
     m['control']['missing_chunks'] = len(d.get('missing') or [])
     if a.pool and plan.gate:
-        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep)
+        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep, steps_floor=a.steps)
     if a.out:
         json.dump(m, open(a.out, 'w'))
     show = {k: v for k, v in m.items() if k != 'heights'}
