@@ -1182,7 +1182,9 @@ function buildOrderOwn ({ cooldown = true, look = false, on = SHOP.on, shared = 
   { let w = null; try { w = waitOf(plot0) } catch { w = null } if (w && Object.hasOwn(WAIT_STOPS, w)) return { order: null, skip: w } }
   // projturn-01: the pick is still a project inside its no-progress back-off (nothing else is open for this bot: the picker put
   // every other one first): no order for it until the back-off is over -- the grounds are asked instead (grounds2.mjs NO_ORDER_SKIPS)
-  if (turn && turnOf) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) } catch { bo = false } if (bo) return { order: null, skip: 'no_progress' } }
+  // indexfetch-01show (rig run 8): the build that follows a trip that FETCHED for this pick is not held by the no-progress back-off -- the
+  // visits that made no progress were the ones short of what the trip brought (one visit; the stuck and wait holds above still hold)
+  if (turn && turnOf && !fetchFree) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) } catch { bo = false } if (bo) return { order: null, skip: 'no_progress' } }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null
