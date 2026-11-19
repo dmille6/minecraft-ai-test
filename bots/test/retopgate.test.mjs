@@ -120,6 +120,32 @@ await t('MUTANT KILLED: the gate\'s own holes not set aside first (the Codex r7 
     assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
   })
 })
+// RUN 28, 9,69,-22 (the rig's start world, read from its region): a grey cap at 69 over air 65-68, stone at 64. The re-top dug it and
+// opened the cave down to 64. Now: held `air_below`, never dug, its row says so -- with dirt in the bag and in the gate
+const CAVE = JSON.parse(readFileSync(new URL('./fixtures/retop-cave-9_69_-22.json', import.meta.url), 'utf8')).cells
+const caveRead = (placed = {}) => (x, y, z) => { const n = placed[`${x},${y},${z}`] ?? CAVE[`${x},${y},${z}`] ?? null; return n ? { name: n, boundingBox: /^(air|cave_air)$/.test(n) ? 'empty' : 'block' } : null }
+const scenCave = async (M = TT) => {
+  const read = caveRead(), cell = { at: [9, 69, -22], role: 'topsoil', seg: 'T-2830-0', grade: true, retop: 1 }
+  assert.strictEqual(read(9, 69, -22).name, 'cobblestone'); assert.strictEqual(read(9, 68, -22).name, 'air'); assert.strictEqual(read(9, 64, -22).name, 'stone')
+  assert.deepStrictEqual([...M.retopAirBelow([cell], read)], ['9,69,-22'], 'air under the grey cap: held')
+  assert.deepStrictEqual([...M.retopAirBelow([cell], caveRead({ '9,68,-22': 'dirt' }))], [], 'ground under it: the re-top may go')
+  // in the visit (real runVisit on the fake world shaped like the column): 40 dirt, in the gate -> the cap stays, the row says air_below
+  const srv = B.server({ [`0,${G},0`]: 'cobblestone', ...Object.fromEntries([1, 2, 3, 4].map(i => [`0,${G - i},0`, 'air'])), [`0,${G - 5},0`]: 'stone' })
+  const rec = { cells: [{ at: [0, G, 0], role: 'topsoil', seg: 'R', grade: true, retop: 1 }], segments: [{ seg: 'R', deps: [] }], cut: [], clear: [], waived: {} }
+  const air = M.retopAirBelow(rec.cells, srv.read)
+  const { p } = B.project(rec); const e = B.bot(srv, 'A', { inv: { dirt: 40, cobblestone: 64 } })
+  const rows = []; const l0 = e.log; e.log = (k, d) => { rows.push([k, { ...d }]); l0(k, d) }
+  await B.R.runVisit({ ...p('A'), palette: T.TIDY_PALETTE, alsoDone: q => air.has(q.at.join(',')), heldWhy: q => (air.has(q.at.join(',')) ? 'air_below' : null), blockLayer: false, domain: () => true, walkR: 20 }, e, { maxSteps: 200 })
+  assert.strictEqual(srv.read(0, G, 0).name, 'cobblestone', 'never dug: the cave stays closed')
+  assert.ok(segRows(rows, 'R').some(d => d.held_why === 'air_below'), 'the row names it')
+}
+await t('RUN 28 9,69,-22: a grey re-top over a cave is held air_below and never dug (the exact column; and in a real visit with dirt)', () => scenCave())
+await t('MUTANT KILLED: the air-below check removed (the re-top digs into the cave)', async () => {
+  await withMutant(P('tidytop.mjs'), "    if (!b || !u || AIRY.test(u) || /^(water|lava)$/.test(u) || b.boundingBox === 'empty') out.add(kOf(c.at))", '    void b', async M => {
+    let died = null; try { await scenCave(M) } catch (e) { died = e }
+    assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
+  })
+})
 // THE ZERO-DIRT CHAIN: in the gate with no dirt the re-top is HELD -- not done on the rows (above), never dug, and never a strike toward
 // a waiver (tidytop.mjs dirtWait: an empty bag is not "nobody can lay it"); the draw then skips the town's zero (drawzero.test.mjs) and
 // its exhausted search raises the dirt refill job (skills.mjs refillOnShortfall) -- the remedy that exists today, and it is another bot's
@@ -157,7 +183,7 @@ await t('MUTANT KILLED: the segment\'s other fills not set aside first (the Code
 await t('WIRED (structural, comments stripped): the visit hands retopHeld the gate, capHeldCols the remedy, runVisit the held reasons', () => {
   const sk = readFileSync(P('skills.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\), gate: inGate \}\)/.test(sk))
-  assert.ok(/heldWhy: q => \(lawnPaused\.has\(q\.at\.join\(','\)\) \? 'lawn_paused' : retopPass\.has\(q\.at\.join\(','\)\) \? 'retop_no_dirt' : null\)/.test(sk))
+  assert.ok(/heldWhy: q => \(lawnPaused\.has\(q\.at\.join\(','\)\) \? 'lawn_paused' : airBelow\.has\(q\.at\.join\(','\)\) \? 'air_below' : retopPass\.has\(q\.at\.join\(','\)\) \? 'retop_no_dirt' : null\)/.test(sk))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
