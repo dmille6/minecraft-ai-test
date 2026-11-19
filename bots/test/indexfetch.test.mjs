@@ -165,6 +165,8 @@ await t('THE WANT RECONCILED AT THE TRIP (Codex r3): what the bag gained since t
   assert.deepEqual(F.fetchStillWanted({ torch: 7 }, { torch: 5 }, { torch: 1 }), { torch: 7 }, 'spent meanwhile: still the want, never more')
   assert.deepEqual(F.fetchStillWanted({ torch: 7 }, { torch: 0 }, { torch: 3 }), { torch: 4 })
   assert.deepEqual(F.fetchStillWanted({ torch: 7 }, {}, { torch: 30 }), { torch: 7 }, 'no baseline: as noted')
+  // Codex r4: crafted 4 stairs then placed them -- the bag is back at its baseline, the PEAK (skills.mjs fetchPeakWatch) covers it
+  assert.deepEqual(F.fetchStillWanted({ spruce_stairs: 4 }, { spruce_stairs: 0 }, { spruce_stairs: 4 }), {}, 'the peak since the want')
 })
 await t('MUTANT KILLED: the bag\'s gain ignored at the trip', async () => {
   await withMutant(F_PATH, '    if (c - gained > 0) out[n] = c - gained\n', '    if (c > 0) out[n] = c\n', async m => {
@@ -304,9 +306,12 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
     "if (why === 'aborted') { fetchSettle(bot, w, plot, r, held0, 'stop', row); throw e }",
     'for (const [k, c] of Object.entries(v?.took ?? {})) if (Number(c) > 0) sofar[k] = (sofar[k] ?? 0) + Number(c)',
     'for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve };',
-    'const c = p.allow(n, c0, { others, here, reserve: p.reserve, taking: matsTaking(bot, n) })',
+    'const c = pol.allow(n, c0, { others, here, reserve: pol.reserve, taking: matsTaking(bot, n) })',
+    'minMs: WITHDRAW_VISIT_MIN_MS,',
+    'const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))',
+    "bot.inventory?.on?.('updateSlot', () => {",
     "if (dr.at == null) throw new Error('no drawn record')",
-    'if (w?.state === \'fetch\') w.items = fetchStillWanted(w.items, w.bag0, heldMap(bot))',
+    'w.items = fetchStillWanted(w.items, w.bag0, top)',
   ]) assert.ok(src.includes(line), `missing: ${line}`)
   // Codex r1 BLOCKER 2: the trip's one-container visit never skips the container itself (its retry would be filtered out)
   const body = src.slice(src.indexOf('async function fetchVisitOne'), src.indexOf('async function indexFetchVisit'))
