@@ -35,11 +35,13 @@ bot.loadPlugin(pathfinder)
 // the world id as the bots' own (index.mjs: the hashed seed). The dimension name here read as another world to the zones file, so every
 // refresh's repair was closed (`st=closed:excl_unread:zones`, runs 19 and 21)
 const { worldIdFromLogin } = await imp('composter.mjs')
-// run 22: the sandbox's login carries no hashed seed (''), and the town plan's head is keyed by the world id -- the rig world is a
-// copy of the showcase, so its id is the pool's own zones file's `hashed_seed` (the value the showcase bots log in with)
+// run 22-24: the sandbox's login id is not the showcase's, and the town plan's head and the zones are keyed by the world id -- the
+// rig world is a copy of the showcase, so its id IS the pool's own zones file's `hashed_seed` (the value the showcase bots log in with)
 const POOL_SEED = (() => { try { return String(JSON.parse(fs.readFileSync(path.join(OUT, 'pool', 'protected-zones.json'), 'utf8')).hashed_seed ?? '') } catch { return '' } })()
-bot._client.on('login', p => { bot.worldId = worldIdFromLogin(p) || POOL_SEED })
+bot._client.on('login', p => { bot.loginWorldId = worldIdFromLogin(p); bot.worldId = POOL_SEED || bot.loginWorldId })
 await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); setTimeout(() => rej(new Error('no spawn')), 240000) })
+// the refresh repair is open only when the survey's inputs read whole: say what the rig gives it (run 22/23: closed on `zones`)
+try { P('world', JSON.stringify(bot.worldId), 'login', JSON.stringify(bot.loginWorldId), 'keep-out report', JSON.stringify(SK._fillcol.keepInputs(bot, SK.townPlanHead(bot)).report).slice(0, 600)) } catch (e) { P('keep-out report threw', JSON.stringify(bot.worldId), JSON.stringify(bot.loginWorldId), String(e?.message ?? e).slice(0, 200)) }
 let deaths = 0
 bot.on('death', () => { deaths++; W('events.jsonl', { bot: NAME, t: new Date().toISOString(), death: true }) })
 ;(await imp('craftsync.mjs')).installCraftSync(bot, { log: () => {} })
