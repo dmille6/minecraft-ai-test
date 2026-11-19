@@ -88,6 +88,21 @@ export function fetchTargets (entries, short = {}, { now = Date.now(), exclude =
   return out.sort((a, b) => a.d - b.d || Object.values(b.names).reduce((s, c) => s + c, 0) - Object.values(a.names).reduce((s, c) => s + c, 0) || (a.k < b.k ? -1 : 1))
 }
 
+/**
+ * THE TARGETS THE DRAW'S OWN ALLOWANCE LETS GO -> targets, each naming only the items `allows(item, target)` (> 0) would take there;
+ * a target left with none is dropped. Pure (the allowance is the caller's). Rig run 7 (sandbox2 11-19): the trip walked 81 blocks to
+ * the hall's two torch chests first (15 and 11, each under the 32 torch reserve: nothing could go) and the cap ended it before the
+ * one chest the reserve allowed (50).
+ */
+export function fetchAllowed (targets = [], allows = () => Infinity) {
+  const out = []
+  for (const t of targets ?? []) {
+    const names = {}
+    for (const [n, c] of Object.entries(t?.names ?? {})) { let a = 0; try { a = Number(allows(n, t)) || 0 } catch { a = 0 } if (a > 0) names[n] = c }
+    if (Object.keys(names).length) out.push({ ...t, names })
+  }
+  return out
+}
 /** Is `item` backed off for this bot now? Pure over the map ({ item: until }). */
 export const fetchBackedOff = (backoff, item, now = Date.now()) => { const u = Number(backoff?.get?.(item) ?? backoff?.[item]); return Number.isFinite(u) && u > now }
 
