@@ -52,6 +52,7 @@ const REQUIRED = [
   'bots/test/hollowfloor.test.mjs',
   'bots/test/drawzero.test.mjs',
   'bots/test/retopgate.test.mjs',
+  'bots/test/fixtures/retop-cave-9_69_-22.json',
   'bots/test/_base-tidytop-e8c55.mjs',
   'docs/reports/t11reach2-2026-11-19.md',
   'bots/test/fixtures/hollow-t11-33_68_-12.json',

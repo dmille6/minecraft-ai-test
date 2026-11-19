@@ -150,6 +150,23 @@ export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFi
   out.gate = held.size
   return out
 }
+/**
+ * t11reach2-01show (rig run 28: 9,69,-22, a grey cap over air 65-68 -- the re-top dug it and opened the cave down to stone at 64). A
+ * RE-TOP NEVER DIGS A GREY TOP WITH AIR UNDER IT -> Set of 'x,y,z' (the re-topped cells to hold: deferred, never dug; the visit's
+ * `_build_seg` row names them `air_below`). Pure over `read`. Air or an unread cell under it holds it (an unread cell is no evidence
+ * of ground); a liquid too. Only a grey re-top (one the visit would dig) is judged.
+ */
+export function retopAirBelow (cells, read, { waived = null } = {}) {
+  const out = new Set()
+  for (const c of cells ?? []) {
+    if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at) || hasOwn(waived, kOf(c.at))) continue
+    const n = nm(read(...c.at))
+    if (!n || AIRY.test(n) || SOIL_NEAR.test(n)) continue
+    const b = read(c.at[0], c.at[1] - 1, c.at[2]), u = nm(b)
+    if (!b || !u || AIRY.test(u) || /^(water|lava)$/.test(u) || b.boundingBox === 'empty') out.add(kOf(c.at))
+  }
+  return out
+}
 function retopHeldBase (cells, read, dirt = 0, { waived = null, open = openFill } = {}) {
   let left = Math.max(0, Math.floor(Number(dirt) || 0))
   // Codex r2 BLOCKER 1: the visit's OTHER open earth cells (air, not waived: topsoil or earth, dirt first) spend the bag's dirt too, and

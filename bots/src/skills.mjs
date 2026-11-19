@@ -212,7 +212,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
-import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
+import { retopCells, retopHeld, retopAirBelow, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
 import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols, setGradeSource, gradeFirst, dropStaleGrade, gradeStamp, retopKeepOff, gradeCutsHeld, capHeldCols, dropOrphanCuts, exposeDirtNeed, gradeCutOk, lawnSwapKeys, pairCuts, noteUnreached } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
@@ -30788,6 +30788,9 @@ async function buildTidyVisit (ctx, args, signal) {
     const inGate = gGate && typeof gGate.has === 'function' ? q => !!q?.grade && gGate.has(`${q.at[0]},${q.at[2]}`) : null
     const retopPass = tidyTopOn() ? retopHeld(lawnPaused.size ? visitRec.cells.filter(q => !lawnPaused.has(q.at.join(','))) : visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived, open: q => !buildCellDone(read(...q.at), palette, q.role), gate: inGate }) : new Set()
     for (const k of lawnPaused) retopPass.add(k)
+    // t11reach2-01show (run 28, 9,69,-22): a grey re-top with air under it is never dug -- held, `air_below` on the rows
+    const airBelow = tidyTopOn() ? retopAirBelow(visitRec.cells, read, { waived: rec.waived }) : new Set()
+    for (const k of airBelow) retopPass.add(k)
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
     // control 11-18 (gradetidy.mjs gradeCutsHeld): a grade cut that would expose stone waits while its column's earth cap is held
@@ -30867,7 +30870,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // floor or a site prep is the visit's only work.
     if (stairsHead) { try { share = stairsShare(share, stairSeg(visitRec, workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: true }), stairOpenQ)) } catch { /* the share as it was */ } }
     const r = await runVisit({ dir, key, me, home, stood, record: GKW_ON ? dropWaivedClears(recV) : recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), heldWhy: q => (lawnPaused.has(q.at.join(',')) ? 'lawn_paused' : retopPass.has(q.at.join(',')) ? 'retop_no_dirt' : null), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || retopPass.has(q.at.join(',')) || !!skipV(q), stuckStalledOnly: true,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), heldWhy: q => (lawnPaused.has(q.at.join(',')) ? 'lawn_paused' : airBelow.has(q.at.join(',')) ? 'air_below' : retopPass.has(q.at.join(',')) ? 'retop_no_dirt' : null), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || retopPass.has(q.at.join(',')) || !!skipV(q), stuckStalledOnly: true,
       ...tempStandOf(bot, c, TIDY_PLOT), ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree; tempstand-01
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
