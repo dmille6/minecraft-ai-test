@@ -365,8 +365,9 @@ export function gradeCutOk (q, read, has = () => false) {
  *   dropLawnSwaps(survey)    -> the survey part without its new swaps (roughground's `rt<n>` pillar cuts and `rt<n>f` pit fills)
  * Pure.
  */
-export function lawnSwapKeys (rec) {
-  const cutK = new Set((rec?.cut ?? []).filter(c => !c?.grade).map(c => c.at.join(',')))
+export function lawnSwapKeys (rec, standing = () => true) {
+  // Codex T11 new r1: only a swap whose cut still STANDS is paused -- one already dug out is a hole to fill, and is filled
+  const cutK = new Set((rec?.cut ?? []).filter(c => !c?.grade && standing(c)).map(c => c.at.join(',')))
   const out = new Set()
   for (const c of rec?.cells ?? []) if (c?.role === 'topsoil' && !c.grade && !c.retop && cutK.has(c.at.join(','))) out.add(c.at.join(','))
   return out

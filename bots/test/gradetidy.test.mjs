@@ -432,9 +432,14 @@ await t('lawnSwapKeys: a non-grade topsoil cell with a cut on the same cell; nev
 await t('WIRED (comments stripped): the visit passes the record\'s lawn swaps while a gate is set (cells and cuts)', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/const lawnPaused = gradeOn\(\) && gradeNow\(bot\)\?\.t \? lawnSwapKeys\(visitRec\) : new Set\(\)\n\s*for \(const k of lawnPaused\) retopPass\.add\(k\)/.test(sk))
+  assert.ok(/const lawnPaused = gradeOn\(\) && gradeNow\(bot\)\?\.t \? lawnSwapKeys\(visitRec, q => cutStanding\(read, q\)\) : new Set\(\)\n\s*for \(const k of lawnPaused\) retopPass\.add\(k\)/.test(sk))
   assert.ok(/for \(const k of lawnPaused\) cutHeld\.add\(k\)/.test(sk))
   assert.ok(/if \(gw\) Object\.assign\(sv0, dropLawnSwaps\(sv0\)\)/.test(strip(readFileSync(P('tidy.mjs'), 'utf8'))))
+})
+await t('Codex T11 new r1: a swap whose cut is already dug out is not paused (its hole is filled)', () => {
+  const rec = { cells: [{ at: [1, G, 1], role: 'topsoil' }], cut: [{ at: [1, G, 1] }] }
+  assert.strictEqual(GT.lawnSwapKeys(rec, () => true).size, 1)
+  assert.strictEqual(GT.lawnSwapKeys(rec, () => false).size, 0)
 })
 console.log('THE ROWS')
 await t('gradeAdded counts what a refresh added of the grade; retopWhy leaves a graded cell to the target', () => {
