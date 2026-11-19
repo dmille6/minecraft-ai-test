@@ -303,7 +303,7 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, set
 setBagDraw(() => activeMem?.bot?.drawLog ?? null)
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setFetchAsk } from './shop.mjs'   // indexfetch-01show: the short draw's fetch trip
-import { FETCH as INDEXFETCH, fetchStillWanted, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
+import { FETCH as INDEXFETCH, fetchStillWanted, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexFetchDistDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
@@ -14942,6 +14942,10 @@ async function indexFetchVisit (ctx, args, signal) {
   const deadline = Math.min(t0 + INDEXFETCH.tripMs, runEnd - INDEXFETCH.tailMs)
   const held0 = heldMap(bot)
   bot.useWhy = 'build'
+  // the trip's first plan and where it began: the `op=dist` row's (a refused, unreached or capped trip)
+  const from = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null
+  let plan0 = []
+  try { plan0 = fetchPlanNow(bot, w.items) } catch { plan0 = [] }
   // every verified take is counted as it lands (Codex r1 BLOCKER 4): a throw or an abort later in the trip keeps what was fetched
   const sofar = {}, tried = []
   let r = null, why = null
@@ -14969,6 +14973,7 @@ async function indexFetchVisit (ctx, args, signal) {
     if (why === 'aborted') { fetchSettle(bot, w, plot, r, held0, 'stop', row); throw e }
   }
   const got = fetchSettle(bot, w, plot, r, held0, null, row)
+  if (r.cap || ['trip_cap', 'refused', 'unreachable', 'no_target'].includes(r.outcome)) { try { logEvent({ kind: 'index_fetch', status: 'no_effect', snapshot: snapshot(bot), detail: indexFetchDistDetail({ plot, outcome: r.outcome, ms: r.ms, from, targets: plan0, tried: r.tried }) }) } catch { /* telemetry */ } }
   // THEN: a NEW visit with the material (Codex r1 BLOCKER 1: a visit resumed in this run would start its own clocks past the
   // runner's) -- the order's next build is issued without its cooldown
   if (got) { bot.indexFetchWant = { state: 'build', plot, items: {}, at: Date.now() }; return { status: 'success', stop: 'index_fetched', detail: `fetched ${Object.entries(r.found).map(([k, c]) => `${c} ${k}`).join(', ')}; the next visit builds with it` } }

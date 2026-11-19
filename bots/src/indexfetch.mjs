@@ -240,6 +240,24 @@ export function indexFetchDetail ({ plot = '-', items = {}, r = null, then = '-'
   const miss = (r?.misses ?? []).map(m => `${m.k}:${m.item}:${m.idx}>${m.saw}`).join(';') || '-'
   return `op=trip plot=${plot ?? '-'} item=${Object.keys(items ?? {}).join('+').slice(0, 30) || '-'} need=${kv(items).slice(0, 40)} tried=${tried.length}:${tried.map(x => String(x).replace(/:chest_unreachable$/, ':unreach')).join(';').slice(0, 110) || '-'} found=${kv(r?.found).slice(0, 40)} miss=${miss.slice(0, 45)} fixed=${r?.fixed ?? 0} ms=${Math.round(Number(r?.ms) || 0)} outcome=${why ?? r?.outcome ?? '-'} then=${then}`
 }
+/** THE TRIP'S DISTANCES (control 11-19: does the 120 s cap bite in practice?) -> the `_index_fetch op=dist` row, written when a trip
+ *  ends refused, unreached or at its cap. Pure. Every container the trip's first plan named, nearest first, with its distance from
+ *  where the trip began and what became of it (the tried list's result, else `untried`); `near`/`far` the plan's extremes. Under 300. */
+export function indexFetchDistDetail ({ plot = '-', outcome = '-', ms = 0, from = null, targets = [], tried = [] } = {}) {
+  const res = new Map()
+  for (const t of tried ?? []) { const i = String(t).lastIndexOf(':'); if (i > 0) res.set(String(t).slice(0, i), String(t).slice(i + 1).replace(/^chest_unreachable$/, 'unreach')) }
+  const ts = [...(targets ?? [])].sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity))
+  const ds = ts.map(t => Number(t.d)).filter(Number.isFinite)
+  const f = from ? `${Math.round(from.x)},${Math.round(from.y)},${Math.round(from.z)}` : '-'
+  const head = `op=dist plot=${plot ?? '-'} outcome=${outcome} ms=${Math.round(Number(ms) || 0)} from=${f} n=${ts.length} near=${ds.length ? Math.round(Math.min(...ds)) : '-'} far=${ds.length ? Math.round(Math.max(...ds)) : '-'} dist=`
+  let body = ''
+  for (const t of ts) {
+    const e = `${t.k}:${Number.isFinite(Number(t.d)) ? Math.round(t.d) : '?'}:${res.get(t.k) ?? 'untried'}`
+    if ((head + body + e).length + 1 > 300) { body += body ? ';+' : '+'; break }
+    body += (body ? ';' : '') + e
+  }
+  return head + (body || '-')
+}
 /** The `_index_fetch` want row (a draw noted a trip). Pure. */
 export const indexWantDetail = ({ plot = '-', items = {}, targets = 0, near = '-' } = {}) =>
   `op=want plot=${plot ?? '-'} need=${Object.entries(items ?? {}).map(([n, c]) => `${n}:${c}`).join(',').slice(0, 80) || '-'} targets=${targets} first=${near}`
