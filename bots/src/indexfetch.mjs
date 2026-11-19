@@ -111,6 +111,21 @@ export function fetchWantOf (left = {}, targets = [], { allows = () => Infinity,
 }
 
 /**
+ * THE WANT AT THE TRIP'S START -> { item: n }. Pure. Each item less what the bag has GAINED of it since the want was noted (`bag0`, the
+ * count then; `held` now): the visit that noted it may still have crafted or drawn it. An item the bag spent meanwhile is still wanted
+ * in full (never more). An item with no baseline is kept as it is.
+ */
+export function fetchStillWanted (items = {}, bag0 = {}, held = {}) {
+  const out = {}
+  for (const [n, c0] of Object.entries(items ?? {})) {
+    const c = Math.floor(Number(c0) || 0)
+    const gained = Object.prototype.hasOwnProperty.call(bag0 ?? {}, n) ? Math.max(0, (Number(held?.[n]) || 0) - (Number(bag0[n]) || 0)) : 0
+    if (c - gained > 0) out[n] = c - gained
+  }
+  return out
+}
+
+/**
  * WHAT ONE OPEN SAID AGAINST THE INDEX -> { miss: [{ item, idx, saw }] }. Pure. A wanted item the index said the container held
  * (`expected` { item: n }) that it shows FEWER of now (`saw` { item: n }; none at all included) is a miss. More than the index is no
  * miss. `saw` null (nothing seen: the open never happened) -> no verdict ([]).
