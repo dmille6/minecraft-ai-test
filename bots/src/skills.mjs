@@ -14834,10 +14834,13 @@ function indexFetchNote (bot, left, allow, reserve, now = Date.now()) {
     if (!Object.keys(items).length) return null
     const plot = bot.shopVisitPlot ?? null
     const prev = bot.indexFetchWant
-    const merged = prev && prev.state === 'fetch' && prev.plot === plot ? { ...prev.items } : {}
-    for (const [n, c] of Object.entries(items)) merged[n] = Math.max(merged[n] ?? 0, c)
-    // `book`: the build visit's own draw (its drawn record makes the fetched share the project's at the next visit)
-    bot.indexFetchWant = { state: 'fetch', plot, items: merged, allow, reserve, book: bot.bfShortExtra === true || prev?.book === true, at: now }
+    const same = prev && prev.state === 'fetch' && prev.plot === plot
+    const merged = same ? { ...prev.items } : {}
+    // EACH ITEM KEEPS THE ALLOWANCE OF THE DRAW THAT WANTED IT (Codex r2 BLOCKER 2: a decorator visit's shears iron and its nursery's
+    // bone meal are judged by different rules)
+    const pol = same ? { ...(prev.pol ?? {}) } : {}
+    for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve } }
+    bot.indexFetchWant = { state: 'fetch', plot, items: merged, pol, at: now }
     try { logEvent({ kind: 'index_fetch', status: 'success', snapshot: snapshot(bot), detail: indexWantDetail({ plot, items, targets: targets.length, near: targets[0]?.k ?? '-' }) }) } catch { /* telemetry */ }
     return items
   } catch { return null }
@@ -14879,7 +14882,9 @@ async function fetchVisitOne (ctx, tg, { walkMs, want }, w, signal, deadline) {
     const others = (matsTownStock(bot, { exclude: tg.k }) ?? { stock: {} }).stock
     const takes = []
     for (const [n, c0] of Object.entries(want)) {
-      const c = w.allow(n, c0, { others, here, reserve: w.reserve, taking: matsTaking(bot, n) })
+      const p = w.pol?.[n]
+      if (!p) continue
+      const c = p.allow(n, c0, { others, here, reserve: p.reserve, taking: matsTaking(bot, n) })
       if (c > 0) takes.push({ name: n, count: c })
     }
     return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
@@ -14945,11 +14950,14 @@ function fetchSettle (bot, w, plot, r, held0, then, row) {
   // NO LOOPS: every item the trip left short sits out this bot's back-off
   try { bot.indexFetchBackoff = fetchBackoff(bot.indexFetchBackoff ?? new Map(), w.items, r.found) } catch { /* memory */ }
   const got = Object.values(r.found ?? {}).some(c => c > 0)
-  // THE PROJECT'S SHARE: what the build visit's draw fetched is booked to its drawn record (the next visit spends it as drawn)
-  if (got && w.book && plot) {
+  // THE PROJECT'S SHARE: what the trip fetched is booked to the plot's drawn record WHEN THE PROJECT KEEPS ONE (Codex r2 BLOCKER 1:
+  // every visit that spends a drawn share writes its record before its first draw -- the shop's, the tidy's, the monument's, the
+  // wall's, the tree farm's), so the next visit spends it as drawn; a project with none reads the bag itself (the stepwell, the decor)
+  if (got && plot) {
     try {
       const dir = townDir(), key = projKeyOf(plot), me = bot.username ?? 'bot'
       const dr = drawnRead(dir, key, me)
+      if (dr.at == null) throw new Error('no drawn record')
       const cur = drawnHeld(dr.drawn, held0, dr.bag)
       for (const [k, c] of Object.entries(r.found)) cur[k] = (cur[k] ?? 0) + c
       drawnWrite(dir, key, me, cur, { bag: heldMap(bot) })
