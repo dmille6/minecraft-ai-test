@@ -37,7 +37,7 @@ Of 245 blocks placed in 210 build visits, 0 (0%) went into unfinished buildings.
 - slots used: no `_build_first` row carried a count (0 rows): this release may not be buildfirst
 
 ## Idle orders
-- idle build orders (`_work_order build_shop ... "why":"idle"`): 199; building 0 (0%), grounds 199
+- idle orders: 199; to a building 0 (0%; `_build_first why=building`), to the grounds 199 (`_work_order build_shop {"grounds":true,"why":"idle"}`)
 - the steer's decisions (`_build_first why=`): no row
 
 ## Visits that ended for want of material

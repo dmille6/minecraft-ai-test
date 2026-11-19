@@ -126,9 +126,32 @@ on another version, thin memory samples, too few forced reconnects, a run the gu
 table puts each bot's memory beside its reconnect count; the load step fails a release that keeps more than 8 MB of
 chunk buffers per forced reconnect (the fixed build keeps under 4; the 11-18 leak kept 14 to 22).
 
-The read also counts **saplings against the showcase's protected village** (x 49..157, z -59..45; on 11-18 a sapling
-that grew into a tree there tripped the showcase's tripwire): plant spots chosen, orders to plant, and saplings placed
-by the bots' rows and by the block history, each with how many fell inside. Reported, never part of the verdict.
+The read has a **protected zones** section (every box in the pool's `protected-zones.json`; on 11-18 a sapling that
+grew into a tree inside the village stopped the showcase): plant spots chosen inside a zone or within 8 blocks of
+one, orders to plant and plantings there, what the block history shows placed, grown and broken inside the boxes,
+refusals by kind, zone walks by outcome, deaths in a zone, and what each bot that began inside a zone did. Named in the
+read, never part of the verdict.
+
+Other reads of the same run:
+
+```bash
+ssh $TW sudo /srv/testworld/bin/buildfirstread.py --run <run>
+```
+
+That one is the building read (blocks by project and hour, bag-room trips, plot holds, idle orders, the materials
+draw, completions). Run it before the next world restore: it reads the live world's folders.
+
+To read a run again after a later restore, point the soak read at the world that restore set aside:
+
+```bash
+ssh $TW sudo /srv/testworld/bin/soakread.py --run <run> --server /srv/testworld/old/<time>/server
+```
+
+**The load step alone**, for a release whose untouched hours are not the question (about 1 h 25 min):
+
+```bash
+ssh $TW sudo systemd-run --unit testworld-soak-<run> --collect /usr/bin/python3 -B /srv/testworld/bin/testworld.py soak --run <run> --load-only
+```
 
 Stopping a soak (`systemctl stop testworld-soak-<run>`) puts the CPU quota back and continues every paused bot by
 itself. If the host went down mid-step, or to be sure:
