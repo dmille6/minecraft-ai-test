@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT = os.path.join(HERE, 'agent', 'mcai-dash-agent.py')
@@ -178,6 +179,25 @@ def main():
     check('a missing file fails the collector', raises(lambda: ag2._trip(mC)))
     check('and exports no level', 'mcai_trip_level' not in mC.rows)
     check('and drops the cached level', 'mcai_trip_level' not in getattr(ag2, 'slow_metrics', {}))
+
+    # TRIPSTALE-01: a check that crashed or went stale shows level 3 (red), never the old green verdict; a TRIP stays a TRIP.
+    lg = os.path.join(d2, 'trip.log')
+    open(tl, 'w').write('{"t": "2026-11-19T10:35:01Z", "verdict": "WATCH", "why": []}')
+    open(lg, 'w').write('===== 2026-11-19T10:35:01Z rc=0\nVERDICT      WATCH\n===== 2026-11-19T11:35:01Z rc=1\nTraceback\n')
+    mD = A.Metrics(); ag2._trip(mD)
+    check('the newest run ended rc=1: level 3', mval(mD, 'mcai_trip_level') == 3, mval(mD, 'mcai_trip_level'))
+    open(lg, 'a').write('===== 2026-11-19T13:38:25Z rc=0\nVERDICT      WATCH\n')
+    mE = A.Metrics(); ag2._trip(mE)
+    check('a later rc=0 run clears it: level 0', mval(mE, 'mcai_trip_level') == 0, mval(mE, 'mcai_trip_level'))
+    old_t = time.time() - (A.TRIP_STALE_S + 60); os.utime(tl, (old_t, old_t))
+    mF = A.Metrics(); ag2._trip(mF)
+    check('a verdict older than 75 min: level 3', mval(mF, 'mcai_trip_level') == 3, mval(mF, 'mcai_trip_level'))
+    open(tl, 'w').write('{"verdict": "TRIP"}'); os.utime(tl, (old_t, old_t))
+    mG = A.Metrics(); ag2._trip(mG)
+    check('a stale TRIP still reads TRIP (2), not 3', mval(mG, 'mcai_trip_level') == 2, mval(mG, 'mcai_trip_level'))
+    check('trip_health: no log and a fresh file is ok', A.trip_health(tl, os.path.join(d2, 'none.log'), os.path.getmtime(tl) + 60) == 'ok')
+    check('trip_health: a missing verdict file is stale', A.trip_health(os.path.join(d2, 'nope.json'), lg, time.time()) == 'stale')
+    os.unlink(lg)
 
     # A FAILING SLOW COLLECTOR STAYS FAILING between its runs (Codex r3).
     o3 = type('O', (), {'trip_last': os.path.join(d2, 'nope.json'), 'every': 60, 'slow_every': 3600})()

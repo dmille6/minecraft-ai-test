@@ -318,6 +318,11 @@
          "text": "TRIP (stopped)",
          "color": "red",
          "index": 2
+        },
+        "3": {
+         "text": "CHECK FAILED",
+         "color": "red",
+         "index": 3
         }
        }
       }

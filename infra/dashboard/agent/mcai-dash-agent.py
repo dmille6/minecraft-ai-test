@@ -785,6 +785,34 @@ def serve_file(handler, root, rel):
 
 
 # --------------------------------------------------------------------------------------- the agent
+TRIP_STALE_S = 75 * 60   # the read runs hourly at :35 and takes minutes; past 75 min the newest verdict is not current
+
+
+def last_trip_rc(log_path, tail_bytes=65536):
+    """The exit code of the newest tripwire run in trip.log (`===== <ISO> rc=N` lines, trip-cron.sh), or None."""
+    try:
+        with open(log_path, 'rb') as f:
+            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - tail_bytes))
+            tail = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return None
+    hits = re.findall(r'^===== \S+ rc=(-?\d+)\s*$', tail, re.M)
+    return int(hits[-1]) if hits else None
+
+
+def trip_health(last_path, log_path, now):
+    """tripstale-01 (11-19: the read crashed 11:35-13:35Z on WalkTooWide and the tile kept showing the 10:35 WATCH, green).
+    -> 'ok', 'stale' (trip-last.json older than TRIP_STALE_S, or missing) or 'failed' (the newest run in trip.log ended rc != 0)."""
+    rc = last_trip_rc(log_path)
+    if rc is not None and rc != 0:
+        return 'failed'
+    try:
+        age = now - os.path.getmtime(last_path)
+    except OSError:
+        return 'stale'
+    return 'stale' if age > TRIP_STALE_S else 'ok'
+
+
 class Agent:
     def __init__(self, role, opts):
         self.role, self.o = role, opts
@@ -1035,6 +1063,8 @@ class Agent:
 
     def _trip(self, m):
         """trip-last.json: the showcase tripwire's newest verdict (statusreport reads it through the dashboard host)."""
+        health = trip_health(self.o.trip_last, getattr(self.o, 'trip_log', None) or
+                             os.path.join(os.path.dirname(self.o.trip_last), 'trip.log'), time.time())
         try:
             d = json.load(open(self.o.trip_last))
         except (OSError, ValueError):
@@ -1046,8 +1076,10 @@ class Agent:
             getattr(self, 'slow_metrics', {}).pop('mcai_trip_level', None)   # Codex r2: cycle() would republish the old level
             raise RuntimeError(f'{self.o.trip_last}: unreadable or no verdict')
         lvl = {'TRIP': 2, 'REPORT': 1}.get(str(d.get('verdict') or '').upper(), 0)
-        m.add('mcai_trip_level', lvl, {'verdict': str(d.get('verdict') or 'none')},
-              'the showcase tripwire verdict: 0 WATCH/clear, 1 REPORT, 2 TRIP (bots stopped)')
+        if health != 'ok' and lvl < 2:
+            lvl = 3   # tripstale-01: the check itself failed or went stale; a real TRIP still shows as TRIP
+        m.add('mcai_trip_level', lvl, {'verdict': str(d.get('verdict') or 'none'), 'health': health},
+              'the showcase tripwire verdict: 0 WATCH/clear, 1 REPORT, 2 TRIP (bots stopped), 3 the check failed or is stale')
         self.keep_slow(m, ['mcai_trip_level'])
         self.put('trip', {'t': d.get('t'), 'verdict': d.get('verdict'), 'why': (d.get('why') or [])[:8],
                           'quarantine': d.get('quarantine') or [],

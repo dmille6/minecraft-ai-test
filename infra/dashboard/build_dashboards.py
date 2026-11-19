@@ -301,7 +301,8 @@ ON_BUILDINGS = PLACE + ' AND NOT skill.detail:"project=tidy" AND NOT skill.detai
 ON_CLEANUP = PLACE + ' AND (skill.detail:"project=tidy" OR skill.detail:"project=yard")'
 TRIP_MAP = [{'type': 'value', 'options': {'0': {'text': 'CLEAR / WATCH', 'color': GREEN, 'index': 0},
                                           '1': {'text': 'REPORT', 'color': ORANGE, 'index': 1},
-                                          '2': {'text': 'TRIP (stopped)', 'color': RED, 'index': 2}}}]
+                                          '2': {'text': 'TRIP (stopped)', 'color': RED, 'index': 2},
+                                          '3': {'text': 'CHECK FAILED', 'color': RED, 'index': 3}}}]
 
 
 def es_show(query, **kw):
