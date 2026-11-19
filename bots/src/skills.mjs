@@ -14844,10 +14844,26 @@ function indexFetchNote (bot, left, allow, reserve, now = Date.now()) {
     const held = heldMap(bot)
     const bag0 = same ? { ...(prev.bag0 ?? {}) } : {}
     for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve }; if (!(n in bag0)) bag0[n] = Number(held[n]) || 0 }
-    bot.indexFetchWant = { state: 'fetch', plot, items: merged, pol, bag0, at: now }
+    // ...and the PEAK of each since (Codex r4 BLOCKER 1): an item the visit crafted or drew and then placed is covered too
+    const peak = same ? { ...(prev.peak ?? {}) } : {}
+    for (const n of Object.keys(merged)) peak[n] = Math.max(peak[n] ?? 0, Number(held[n]) || 0)
+    bot.indexFetchWant = { state: 'fetch', plot, items: merged, pol, bag0, peak, at: now }
+    fetchPeakWatch(bot)
     try { logEvent({ kind: 'index_fetch', status: 'success', snapshot: snapshot(bot), detail: indexWantDetail({ plot, items, targets: targets.length, near: targets[0]?.k ?? '-' }) }) } catch { /* telemetry */ }
     return items
   } catch { return null }
+}
+/** The bag's PEAK count of each wanted item while a want waits (the inventory's own slot updates; one listener a bot). Never throws. */
+function fetchPeakWatch (bot) {
+  try {
+    if (bot.indexFetchPeakOn) return
+    bot.indexFetchPeakOn = true
+    bot.inventory?.on?.('updateSlot', () => {
+      const w = bot.indexFetchWant
+      if (!w || w.state !== 'fetch' || !w.peak) return
+      try { const h = heldMap(bot); for (const n of Object.keys(w.items ?? {})) w.peak[n] = Math.max(w.peak[n] ?? 0, Number(h[n]) || 0) } catch { /* the peak as it was */ }
+    })
+  } catch { /* no peak: the bag now is read at the trip */ }
 }
 /** THE ORDER'S ASK (shop.mjs setFetchAsk) -> { order } | { cooldownFree } | null. Reads only (the look stamps nothing). */
 function fetchAsk ({ now = Date.now(), plot = null, freeSlots = 36 } = {}) {
@@ -14864,20 +14880,21 @@ function fetchAsk ({ now = Date.now(), plot = null, freeSlots = 36 } = {}) {
 async function fetchVisitOne (ctx, tg, { walkMs, want }, w, signal, deadline) {
   const { bot } = ctx
   const p = keyVec(tg.k)
-  const until = Date.now() + walkMs
-  const msLeft = cap => Math.max(0, Math.min(cap, until - Date.now(), deadline - Date.now()))
-  let block = bot.blockAt?.(p)
-  // ANYWHERE IN TOWN: a container in a chunk not loaded here is walked to first, then read
-  if (!block || !CONTAINER_RE.test(blockNameOf(bot, block) ?? '')) {
-    try { await chestWalk(bot, new goals.GoalNear(p.x, p.y, p.z, 2), Math.max(1, msLeft(walkMs))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  // THE WALK CAP IS THE WALK'S ONLY (Codex r4 BLOCKER 2): the open, the transfer and the server's recounts run on the trip's clock
+  const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
+  // THE WALK, bounded by the container's cap: ANYWHERE IN TOWN (a chunk not loaded here is walked into, then read); withdrawVisit's own
+  // walk then starts in reach. A walk that ends out of reach is this container's miss of a reach (the trip's one retry decides)
+  if (!(eyeToBlock(bot.entity.position, p) <= OPEN_REACH)) {
+    try { await chestWalk(bot, new goals.GoalNear(p.x, p.y, p.z, 2), Math.max(1, Math.min(walkMs, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
-    block = bot.blockAt?.(p)
-    if (!block) return { opened: false, fail: 'unloaded' }
-    if (!CONTAINER_RE.test(blockNameOf(bot, block) ?? '')) {
-      // the container is gone: its entry is corrected (dirty: no reader trusts it) and it is no target again
-      try { townIndexDirty(bot, p, 'index_fetch', 'post') } catch { /* index */ }
-      return { opened: true, saw: {}, took: {}, ix: null, fail: 'gone' }
-    }
+  }
+  let block = bot.blockAt?.(p)
+  if (!block) return { opened: false, fail: 'unloaded' }
+  if (!(eyeToBlock(bot.entity.position, p) <= OPEN_REACH)) return { opened: false, fail: 'chest_unreachable' }
+  if (!CONTAINER_RE.test(blockNameOf(bot, block) ?? '')) {
+    // the container is gone: its entry is corrected (dirty: no reader trusts it) and it is no target again
+    try { townIndexDirty(bot, p, 'index_fetch', 'post') } catch { /* index */ }
+    return { opened: true, saw: {}, took: {}, ix: null, fail: 'gone' }
   }
   const keep = roomKeep(bot.currentWants ?? [])
   const decide = (inChest, bag, { chestEmpty }) => {
@@ -14886,9 +14903,9 @@ async function fetchVisitOne (ctx, tg, { walkMs, want }, w, signal, deadline) {
     const others = (matsTownStock(bot, { exclude: tg.k }) ?? { stock: {} }).stock
     const takes = []
     for (const [n, c0] of Object.entries(want)) {
-      const p = w.pol?.[n]
-      if (!p) continue
-      const c = p.allow(n, c0, { others, here, reserve: p.reserve, taking: matsTaking(bot, n) })
+      const pol = w.pol?.[n]
+      if (!pol) continue
+      const c = pol.allow(n, c0, { others, here, reserve: pol.reserve, taking: matsTaking(bot, n) })
       if (c > 0) takes.push({ name: n, count: c })
     }
     return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
@@ -14912,7 +14929,7 @@ async function indexFetchVisit (ctx, args, signal) {
   const plot = w?.plot ?? args?.plot ?? null
   const row = (r, then, why = null, items = w?.items ?? {}) => { try { logEvent({ kind: 'index_fetch', status: Object.values(r?.found ?? {}).some(c => c > 0) ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: indexFetchDetail({ plot, items, r, then, why }) }) } catch { /* telemetry */ } }
   // THE WANT RECONCILED WITH THE BAG NOW (Codex r3 BLOCKER): what the bag gained of an item since the want was noted comes off it
-  if (w?.state === 'fetch') w.items = fetchStillWanted(w.items, w.bag0, heldMap(bot))
+  if (w?.state === 'fetch') { const h = heldMap(bot); const top = { ...h }; for (const [n, c] of Object.entries(w.peak ?? {})) top[n] = Math.max(Number(top[n]) || 0, Number(c) || 0); w.items = fetchStillWanted(w.items, w.bag0, top) }
   if (!w || w.state !== 'fetch' || !Object.keys(w.items ?? {}).length) { row(null, 'stop', 'no_want'); return { status: 'no_effect', stop: 'index_fetch_none', detail: 'no fetch was wanted' } }
   // AN UNREADABLE INDEX: nothing is fetched; the next visit draws as it always has
   if (!townIndexEntries(bot)) { row(null, 'stop', 'unreadable'); return { status: 'no_effect', stop: 'index_unreadable', detail: "the town's index could not be read: no trip" } }
@@ -14939,6 +14956,7 @@ async function indexFetchVisit (ctx, args, signal) {
         correct: k => townIndexDirty(bot, keyVec(k), 'index_fetch', 'post'),
       },
       deadline,
+      minMs: WITHDRAW_VISIT_MIN_MS,   // a container is begun only with a visit's least time left (its open, transfer and recounts)
     })
   } catch (e) {
     why = e?.aborted || signal?.aborted ? 'aborted' : 'error'
