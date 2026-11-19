@@ -238,7 +238,7 @@ export function indexFetchDetail ({ plot = '-', items = {}, r = null, then = '-'
   const kv = m => Object.entries(m ?? {}).filter(([, c]) => Number(c) > 0).map(([n, c]) => `${n}:${c}`).join(',') || '-'
   const tried = r?.tried ?? []
   const miss = (r?.misses ?? []).map(m => `${m.k}:${m.item}:${m.idx}>${m.saw}`).join(';') || '-'
-  return `op=trip plot=${plot ?? '-'} item=${Object.keys(items ?? {}).join('+').slice(0, 50) || '-'} need=${kv(items).slice(0, 60)} tried=${tried.length}:${tried.join(';').slice(0, 70) || '-'} found=${kv(r?.found).slice(0, 50)} miss=${miss.slice(0, 50)} fixed=${r?.fixed ?? 0} ms=${Math.round(Number(r?.ms) || 0)} outcome=${why ?? r?.outcome ?? '-'} then=${then}`
+  return `op=trip plot=${plot ?? '-'} item=${Object.keys(items ?? {}).join('+').slice(0, 30) || '-'} need=${kv(items).slice(0, 40)} tried=${tried.length}:${tried.map(x => String(x).replace(/:chest_unreachable$/, ':unreach')).join(';').slice(0, 110) || '-'} found=${kv(r?.found).slice(0, 40)} miss=${miss.slice(0, 45)} fixed=${r?.fixed ?? 0} ms=${Math.round(Number(r?.ms) || 0)} outcome=${why ?? r?.outcome ?? '-'} then=${then}`
 }
 /** The `_index_fetch` want row (a draw noted a trip). Pure. */
 export const indexWantDetail = ({ plot = '-', items = {}, targets = 0, near = '-' } = {}) =>
