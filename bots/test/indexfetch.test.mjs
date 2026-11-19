@@ -272,6 +272,14 @@ await t('the rows: _index_fetch names item, need, tried, found, the miss correct
   assert.ok(F.indexFetchDetail({ items: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`item_${i}_long_name`, 64])), r: { tried: Array(40).fill('-100,64,-100:chest_unreachable') } }).length <= 300)
 })
 
+await t('THE DISTANCE ROW (control 11-19): a capped / refused trip names every planned container, its distance from the start and what became of it', () => {
+  const targets = [{ k: FAR, d: 125.4 }, { k: MID, d: 50.2 }, { k: NEAR, d: 14.1 }]
+  const d = F.indexFetchDistDetail({ plot: 'stepwell', outcome: 'trip_cap', ms: 120001, from: { x: -2.3, y: 62, z: -72.8 }, targets, tried: [`${NEAR}:chest_unreachable`, `${MID}:ok`] })
+  assert.equal(d, `op=dist plot=stepwell outcome=trip_cap ms=120001 from=-2,62,-73 n=3 near=14 far=125 dist=${NEAR}:14:unreach;${MID}:50:ok;${FAR}:125:untried`)
+  const many = Array.from({ length: 40 }, (_, i) => ({ k: `${-100 - i},64,${-100 - i}`, d: 100 + i }))
+  const big = F.indexFetchDistDetail({ outcome: 'refused', targets: many })
+  assert.ok(big.length <= 300, String(big.length)); assert.match(big, /;\+$/)
+})
 await t('MUTANT KILLED: a visited chest not excluded (the stale chest is reopened while its entry could not be corrected)', async () => {
   await withMutant(F_PATH, '    for (const h of halves) visited.add(h)   // never again', '    void halves   // never again', async m => {
     const w = town({ [MID]: { index: { torch: 116 }, real: {} } }, { ix: false })
@@ -347,6 +355,7 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
     'const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))',
     "bot.inventory?.on?.('updateSlot', () => { if (!queued) { queued = true; setImmediate(sample) } })",
     "if (dr.at == null) throw new Error('no drawn record')",
+    "if (r.cap || ['trip_cap', 'refused', 'unreachable', 'no_target'].includes(r.outcome)) { try { logEvent({ kind: 'index_fetch', status: 'no_effect', snapshot: snapshot(bot), detail: indexFetchDistDetail({ plot, outcome: r.outcome, ms: r.ms, from, targets: plan0, tried: r.tried }) })",
     'w.items = fetchStillWanted(w.items, w.bag0, top)',
   ]) assert.ok(src.includes(line), `missing: ${line}`)
   // Codex r1 BLOCKER 2: the trip's one-container visit never skips the container itself (its retry would be filtered out)
