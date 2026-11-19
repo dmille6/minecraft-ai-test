@@ -310,6 +310,8 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, set
 // drawshort-01show: the `_build_bag` row's draw is this process's bot's (matsWithdraw's record of the visit)
 setBagDraw(() => activeMem?.bot?.drawLog ?? null)
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
+import { setFetchAsk } from './shop.mjs'   // indexfetch-01show: the short draw's fetch trip
+import { FETCH as INDEXFETCH, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
@@ -12312,6 +12314,7 @@ async function withdrawVisit0 (ctx, chestBlock, decide, signal, msLeft, deadline
   const opened = await openForWithdraw(bot, chestBlock, signal, msLeft)
   if (opened.fail) return { result: opened.fail, diag }
   const win = opened.chest
+  diag.ix = opened.ix ?? null   // indexfetch-01show: the open's own index observation (the trip's miss correction)
   const double = (win.inventoryStart ?? 27) >= 54
   let saw = [], plan = null, moved = null, unresolved = null, ixDirty = false
   const ixOp = indexId(bot, 'wd')
@@ -14921,6 +14924,12 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     next = nextOf()
   }
   out.short = want()
+  // INDEXFETCH-01SHOW (indexfetch.mjs): a build visit's draw still short of what the readable index shows in some container notes a
+  // fetch want -- the order's next ask is a dedicated trip to those containers (its own run). No index: nothing noted (as before)
+  // (the line top has no skip_zero_stock set: `left` is the whole short)
+  if (why === 'build' && out.short && !out.unsettled && INDEXFETCH.on && bot.shopVisitBusy === true) {
+    try { const fw = indexFetchNote(bot, Object.fromEntries(Object.entries(left).filter(([, n]) => n > 0)), allow, reserve); if (fw) out.fetch = fw } catch { /* the draw stands as it is */ }
+  }
   // drawshort-01show: the visit's draw, kept for its `_build_bag` row (every build draw of this visit, merged)
   if (why === 'build') {
     const d = (bot.drawLog ??= { need: {}, tried: [], short: {} })
@@ -14934,6 +14943,166 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
   if (why === 'build' && out.short) out.refill = refillOnShortfall(bot, left, { exhausted: !next.block, unsettled: out.unsettled, by: 'bill' })
   return out
 }
+
+// ---- INDEXFETCH-01SHOW (indexfetch.mjs): the short draw's fetch trip -------------------------------------------------------------
+/** A container the trip may go to -> bool: in town, not shut in the town's memory, not in a protected zone, not skipped by this bot's
+ *  search (a recent visit that could not look inside). Never throws (false). */
+function fetchOkNow (bot) {
+  let mem = {}
+  try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+  let zones = []
+  try { zones = bot.protectZones?.() ?? [] } catch { zones = [] }
+  const home = homeVec(), now = Date.now(), me = bot.entity?.position ?? null
+  return k => {
+    try {
+      const p = keyVec(k)
+      if (!inTown(home, p)) return false
+      if (['unusable', 'unavailable'].includes(containerStatus(mem?.[k]))) return false
+      if (zones.length && blocked(zones, p.x, p.y, p.z, me)) return false
+      const until = bot.withdrawSearchSkip?.get?.(k)
+      return !(Number.isFinite(until) && until > now)
+    } catch { return false }
+  }
+}
+/** The trip's plan for `short` now, from the index re-read -> fetchTargets (nearest first from where the bot stands). */
+function fetchPlanNow (bot, short, exclude = new Set(), entries = undefined) {
+  const ents = entries === undefined ? townIndexEntries(bot) : entries
+  if (!ents) return []
+  const me = bot.entity?.position ?? null
+  return fetchTargets(ents, short, { exclude, ok: fetchOkNow(bot), dist: k => (me ? me.distanceTo(keyVec(k)) : 0) })
+}
+/** The draw's allowance at a target, judged on the index's counts (the town's stock less that container: matsWithdraw's `others`). */
+function fetchAllows (bot, allow, reserve, stock) {
+  return (n, t) => {
+    const here = Object.fromEntries(Object.entries(t.names ?? {}))
+    const others = { ...stock }
+    for (const [k, c] of Object.entries(here)) others[k] = Math.max(0, (Number(others[k]) || 0) - c)
+    return allow(n, here[n] ?? 0, { others, here, reserve, taking: matsTaking(bot, n) })
+  }
+}
+/** A SHORT BUILD DRAW -> the fetch want it notes on the bot ({ item: n }) or null. Never throws. */
+function indexFetchNote (bot, left, allow, reserve, now = Date.now()) {
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return null   // unreadable or off: today's behaviour
+    const targets = fetchPlanNow(bot, left, new Set(), entries)
+    if (!targets.length) return null
+    const stock = matsTownStock(bot)?.stock ?? {}
+    const items = fetchWantOf(left, targets, { allows: fetchAllows(bot, allow, reserve, stock), backoff: bot.indexFetchBackoff ?? null, now })
+    if (!Object.keys(items).length) return null
+    const plot = bot.shopVisitPlot ?? null
+    const prev = bot.indexFetchWant
+    const merged = prev && prev.state === 'fetch' && prev.plot === plot ? { ...prev.items } : {}
+    for (const [n, c] of Object.entries(items)) merged[n] = Math.max(merged[n] ?? 0, c)
+    // `book`: the build visit's own draw (its drawn record makes the fetched share the project's at the next visit)
+    bot.indexFetchWant = { state: 'fetch', plot, items: merged, allow, reserve, book: bot.bfShortExtra === true || prev?.book === true, at: now }
+    try { logEvent({ kind: 'index_fetch', status: 'success', snapshot: snapshot(bot), detail: indexWantDetail({ plot, items, targets: targets.length, near: targets[0]?.k ?? '-' }) }) } catch { /* telemetry */ }
+    return items
+  } catch { return null }
+}
+/** THE ORDER'S ASK (shop.mjs setFetchAsk) -> { order } | { cooldownFree } | null. Reads only (the look stamps nothing). */
+function fetchAsk ({ now = Date.now(), plot = null, freeSlots = 36 } = {}) {
+  const bot = sbBot
+  const w = bot?.indexFetchWant
+  if (!INDEXFETCH.on || !w) return null
+  if (!(now - w.at < INDEXFETCH.wantTtlMs)) return null
+  if (w.plot != null && plot != null && w.plot !== plot) return null   // the pick moved on: the want lapses with its ttl
+  if (w.state === 'build') return { cooldownFree: true }
+  if (w.state !== 'fetch' || freeSlots < 1) return null
+  return { order: { skill: 'build_shop', args: { indexFetch: true, plot: w.plot ?? null }, why: `the draw came up short of ${Object.keys(w.items).join(', ')} that the town's index shows in chests: fetch it, then build` } }
+}
+/** ONE CONTAINER OF THE TRIP: walk (the trip's cap), open, verify, take what the want's allowance lets go. -> runFetchTrip's visit. */
+async function fetchVisitOne (ctx, tg, { walkMs, want }, w, signal, deadline) {
+  const { bot } = ctx
+  const p = keyVec(tg.k)
+  const until = Date.now() + walkMs
+  const msLeft = cap => Math.max(0, Math.min(cap, until - Date.now(), deadline - Date.now()))
+  let block = bot.blockAt?.(p)
+  // ANYWHERE IN TOWN: a container in a chunk not loaded here is walked to first, then read
+  if (!block || !CONTAINER_RE.test(blockNameOf(bot, block) ?? '')) {
+    try { await chestWalk(bot, new goals.GoalNear(p.x, p.y, p.z, 2), Math.max(1, msLeft(walkMs))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    block = bot.blockAt?.(p)
+    if (!block) return { opened: false, fail: 'unloaded' }
+    if (!CONTAINER_RE.test(blockNameOf(bot, block) ?? '')) {
+      // the container is gone: its entry is corrected (dirty: no reader trusts it) and it is no target again
+      try { townIndexDirty(bot, p, 'index_fetch', 'post') } catch { /* index */ }
+      return { opened: true, saw: {}, took: {}, ix: null, fail: 'gone' }
+    }
+  }
+  const keep = roomKeep(bot.currentWants ?? [])
+  const decide = (inChest, bag, { chestEmpty }) => {
+    const here = {}
+    for (const it of inChest) if (it?.name) here[it.name] = (here[it.name] ?? 0) + (it.count ?? 0)
+    const others = (matsTownStock(bot, { exclude: tg.k }) ?? { stock: {} }).stock
+    const takes = []
+    for (const [n, c0] of Object.entries(want)) {
+      const c = w.allow(n, c0, { others, here, reserve: w.reserve, taking: matsTaking(bot, n) })
+      if (c > 0) takes.push({ name: n, count: c })
+    }
+    return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
+  }
+  const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000)
+  if (v.result && v.result.status !== 'success') searchFailSkip(bot, block, v.result.failClass)
+  const fail = v.result?.failClass ?? v.skip ?? null
+  if (!Array.isArray(v.saw)) return { opened: false, fail: fail ?? 'unreached', stop: false }
+  const saw = {}
+  for (const it of v.saw) if (it?.name) saw[it.name] = (saw[it.name] ?? 0) + (it.count ?? 0)
+  const took = v.verified ? (v.moved?.took ?? {}) : {}
+  const stop = fail === 'transfer_unsettled' || fail === 'no_room' || fail === 'inventory_full' || (!!v.result && !v.verified && !!v.moved)
+  return { opened: true, saw, took, ix: v.diag?.ix ?? null, fail, stop }
+}
+/** THE FETCH TRIP (build_shop { indexFetch }): the want's items from the containers the index names, then the build. One row. */
+async function indexFetchVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const w = bot.indexFetchWant
+  bot.indexFetchWant = null
+  const plot = w?.plot ?? args?.plot ?? null
+  const row = (r, then, why = null, items = w?.items ?? {}) => { try { logEvent({ kind: 'index_fetch', status: Object.values(r?.found ?? {}).some(c => c > 0) ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: indexFetchDetail({ plot, items, r, then, why }) }) } catch { /* telemetry */ } }
+  if (!w || w.state !== 'fetch' || !Object.keys(w.items ?? {}).length) { row(null, 'stop', 'no_want'); return { status: 'no_effect', stop: 'index_fetch_none', detail: 'no fetch was wanted' } }
+  // AN UNREADABLE INDEX: nothing is fetched; the next visit draws as it always has
+  if (!townIndexEntries(bot)) { row(null, 'stop', 'unreadable'); return { status: 'no_effect', stop: 'index_unreadable', detail: "the town's index could not be read: no trip" } }
+  const runEnd = withdrawClock(ctx).deadline
+  const deadline = Math.min(t0 + INDEXFETCH.tripMs, runEnd - INDEXFETCH.tailMs)
+  const held0 = heldMap(bot)
+  bot.useWhy = 'build'
+  let r = null
+  try {
+    r = await runFetchTrip({
+      items: w.items,
+      plan: (short, exclude) => fetchPlanNow(bot, short, exclude),
+      ops: {
+        now: () => Date.now(),
+        visit: (tg, o) => { check(signal); return fetchVisitOne(ctx, tg, o, w, signal, deadline) },
+        correct: k => townIndexDirty(bot, keyVec(k), 'index_fetch', 'post'),
+      },
+      deadline,
+    })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { row({ found: {}, tried: [], ms: Date.now() - t0 }, 'stop', 'aborted'); throw e }
+    r = { found: {}, left: w.items, tried: [], misses: [], fixed: 0, outcome: 'error', ms: Date.now() - t0 }
+  }
+  // NO LOOPS: every item the trip left short sits out this bot's back-off
+  bot.indexFetchBackoff = fetchBackoff(bot.indexFetchBackoff ?? new Map(), w.items, r.found)
+  const got = Object.values(r.found ?? {}).some(c => c > 0)
+  // THE PROJECT'S SHARE: what the build visit's draw fetched is booked to its drawn record (the next visit spends it as drawn)
+  if (got && w.book && plot) {
+    try {
+      const dir = townDir(), key = projKeyOf(plot), me = bot.username ?? 'bot'
+      const dr = drawnRead(dir, key, me)
+      const cur = drawnHeld(dr.drawn, held0, dr.bag)
+      for (const [k, c] of Object.entries(r.found)) cur[k] = (cur[k] ?? 0) + c
+      drawnWrite(dir, key, me, cur, { bag: heldMap(bot) })
+    } catch { /* the bag still holds it */ }
+  }
+  const resume = got && !signal?.aborted && runEnd - Date.now() >= INDEXFETCH.buildMinMs
+  row(r, got ? (resume ? 'build' : 'next_visit') : 'stop')
+  if (resume) return buildShop(ctx, {}, signal, t0)   // the visit resumes with the material, in this run
+  if (got) { bot.indexFetchWant = { state: 'build', plot, items: {}, at: Date.now() }; return { status: 'success', stop: 'index_fetched', detail: `fetched ${Object.entries(r.found).map(([k, c]) => `${c} ${k}`).join(', ')}; the next visit builds with it` } }
+  return { status: 'no_effect', stop: `index_fetch_${r.outcome}`, detail: `the trip found nothing it could take (${r.outcome}); ${Object.keys(w.items).join(', ')} back off ${Math.round(INDEXFETCH.backoffMs / 60_000)} min for this bot` }
+}
+export const _indexfetch = Object.freeze({ indexFetchNote, fetchAsk, indexFetchVisit, fetchPlanNow })
 
 /**
  * ONE FURNACE SESSION ON PLANKS ONLY (design 3.2 step 4; the existing `smelt` is not reused: its chooseFuel ranks coal and
@@ -19628,6 +19797,8 @@ function shareBankAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
 export function bagRoomInstall (bot) {
   sbBot = bot
   if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)
+  if (INDEXFETCH.on) setFetchAsk(fetchAsk)   // indexfetch-01show
+  try { logEvent({ kind: 'indexfetch_mode', status: 'success', snapshot: snapshot(bot), detail: indexFetchModeDetail() }) } catch { /* telemetry */ }
   // buildfirst-01show: a pick no room remedy serves steps aside for this bot (shop.mjs WAIT_STOPS `room`); one `_room_hold` row a hold
   if (BUILDFIRST.on) setRoomHold((plot, now) => roomHoldNote(sbBot, plot, now))
   try { logEvent({ kind: 'bagroom_mode', status: 'success', snapshot: snapshot(bot), detail: bagRoomModeDetail(BAGROOM) }) } catch { /* telemetry */ }
@@ -24555,6 +24726,9 @@ async function buildShop (ctx, args, signal, t00 = null) {
   // buildfirst-01show: the well trip the room route ordered (cobble family above the yard's keep), then the build
   if (args?.roomWell === true && BUILDFIRST.on) return roomWellVisit(ctx, args, signal)
   if (args?.roomYard === true && BUILDFIRST.on) return roomYardVisit(ctx, args, signal)
+  // indexfetch-01show: the short draw's fetch trip, then the build; any other visit spends a trip's no-cooldown follow-up
+  if (args?.indexFetch === true && INDEXFETCH.on) return indexFetchVisit(ctx, args, signal)
+  if (ctx.bot.indexFetchWant?.state === 'build') ctx.bot.indexFetchWant = null
   // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
   // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
