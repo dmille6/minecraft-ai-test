@@ -169,7 +169,7 @@ import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodKitStillMs, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownExtra, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
-import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges, stockZero } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
+import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges, stockZero, stockZeroCovers } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
@@ -14686,7 +14686,7 @@ export function uncertainTakes ({ err = null, visit = null } = {}) {
 }
 /** drawshort-01show: the build draw's extra container visits for a name still short that the town's index stocks. */
 const WITHDRAW_SHORT_EXTRA = 6
-async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null, { first = [], why = 'build', shortExtra = false } = {}) {
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null, { first = [], why = 'build', shortExtra = false, zeroSkip = false } = {}) {
   const { bot } = ctx
   bot.useWhy = why   // useledger-01: a build's bill, unless the caller says a clerk's move
   const { deadline } = withdrawClock(ctx)
@@ -14717,10 +14717,19 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
   const tried = new Set()
   // t11reach2-01show (rig run 25): A KIND THE READABLE INDEX SHOWS AT 0 IN EVERY CONTAINER IS NOT SEARCHED FOR (indexsearch2.mjs
   // stockZero) -- the visit keeps its clock for the work it can do (cuts, which yield dirt; fills from the bag). It stays short
-  // (`out.short`, the refill job, the bag row). An unreadable or unknown index: today's search. A `skip_zero_stock` row names it
+  // (`out.short`, the refill job, the bag row). The clean-up's own draws only (`zeroSkip`: their kinds have a yard lane and a
+  // refill; Codex r4). An unreadable or unknown index, or a container the town's search would visit that the index has never
+  // observed (Codex r4): today's search. A `skip_zero_stock` row names it
   const zero = new Set()
-  if (INDEXSEARCH2.on && !firsts.length) {
-    try { const ents = townIndexEntries(bot); for (const n of Object.keys(left)) if (left[n] > 0 && stockZero(ents, n)) zero.add(n) } catch { zero.clear() }
+  if (zeroSkip && INDEXSEARCH2.on && !firsts.length) {
+    try {
+      const ents = townIndexEntries(bot)
+      for (const n of Object.keys(left)) {
+        if (!(left[n] > 0) || !stockZero(ents, n)) continue
+        const view = townSearchView(bot, [n], new Set())
+        if (view.containers.every(c => stockZeroCovers(ents, c.halves?.length ? c.halves : [c.k]))) zero.add(n)
+      }
+    } catch { zero.clear() }
     if (zero.size) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: `op=skip_zero_stock why=${why} kinds=${[...zero].join('+')} n=${[...zero].map(n => left[n]).join('+')}` }) } catch { /* telemetry */ } }
   }
   const searchable = () => Object.keys(left).filter(n => left[n] > 0 && !zero.has(n))
@@ -30756,10 +30765,10 @@ async function buildTidyVisit (ctx, args, signal) {
       check(signal)
     }
     if (Object.keys(need).length && workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: GROUNDS.on })) {
-      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain, { zeroSkip: true }); took = w.took ?? {}
     }
     // gradetidy-01show (Codex T11 delta r3): a visit with only the grade's held cuts left (no workable segment) still draws the dirt they wait on
-    else if (exposeNeed > 0 && (need.dirt ?? 0) > 0) { const w2 = await matsWithdraw(ctx, { dirt: need.dirt }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w2.took ?? {} }
+    else if (exposeNeed > 0 && (need.dirt ?? 0) > 0) { const w2 = await matsWithdraw(ctx, { dirt: need.dirt }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain, { zeroSkip: true }); took = w2.took ?? {} }
     check(signal)
     effects = botBuildEffects(bot, {
       acks,
