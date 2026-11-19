@@ -105,6 +105,21 @@ const scenMix = async (M = TT) => {
   assert.deepStrictEqual([...M.retopHeld(rec.cells, srvOf().read, 2, { open: openOf(srv), gate: inGate })], [], 'two dirt: both')
 }
 await t('CODEX r6: a gate re-top and an open fill in one segment, 1 dirt -> the re-top is held, never dug into a hole', () => scenMix())
+// Codex r7: a grey gate re-top first in record order and an already dug gate re-top (a hole, lower) in one segment, 1 dirt -> the hole
+// takes it, the grey one is held: never a second hole
+const holeRec = () => ({ cells: [{ at: [0, G, 0], role: 'topsoil', seg: 'R', grade: true, retop: 1 }, { at: [2, G - 1, 0], role: 'topsoil', seg: 'R', grade: true, retop: 1 }],
+  segments: [{ seg: 'R', deps: [] }], cut: [], clear: [], waived: {} })
+const scenHole = async (M = TT) => {
+  const srv = B.server({ [`0,${G},0`]: 'cobblestone', [`2,${G - 1},0`]: 'air' }), rec = holeRec()
+  assert.deepStrictEqual([...M.retopHeld(rec.cells, srv.read, 1, { open: openOf(srv), gate: inGate })], ['0,69,0'])
+}
+await t('CODEX r7: a grey gate re-top and a dug one (a hole) in one segment, 1 dirt -> the hole first, the grey held', () => scenHole())
+await t('MUTANT KILLED: the gate\'s own holes not set aside first (the Codex r7 hole)', async () => {
+  await withMutant(P('tidytop.mjs'), '    if (isG(c)) { if (!greyNow(c) && open(c, read)) d = Math.max(0, d - 1); continue }', '    if (isG(c)) continue', async M => {
+    let died = null; try { await scenHole(M) } catch (e) { died = e }
+    assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
+  })
+})
 // THE ZERO-DIRT CHAIN: in the gate with no dirt the re-top is HELD -- not done on the rows (above), never dug, and never a strike toward
 // a waiver (tidytop.mjs dirtWait: an empty bag is not "nobody can lay it"); the draw then skips the town's zero (drawzero.test.mjs) and
 // its exhausted search raises the dirt refill job (skills.mjs refillOnShortfall) -- the remedy that exists today, and it is another bot's

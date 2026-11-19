@@ -132,17 +132,18 @@ export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFi
   // Codex r6 BLOCKER 1: a gate re-top's SEGMENT is worked in one pass, and its other open earth cells may take the dirt before the
   // re-top is laid (a re-top dug and then starved is a hole) -- so those cells' dirt is set aside first, as the base does town-wide
   const gSegs = new Set((cells ?? []).filter(isG).map(c => c.seg))
+  // Codex r7 BLOCKER: a gate re-top already dug (a hole) is one of them -- its dirt is set aside before any grey re-top's
+  const greyNow = c => { const n = nm(read(...c.at)); return !!n && !AIRY.test(n) && !SOIL_NEAR.test(n) }
   for (const c of cells ?? []) {
-    if (isG(c) || !gSegs.has(c?.seg) || !Array.isArray(c?.at) || c.prev || !COLUMN_ROLES.has(c.role) || hasOwn(waived, kOf(c.at))) continue
+    if (isG(c)) { if (!greyNow(c) && open(c, read)) d = Math.max(0, d - 1); continue }
+    if (!gSegs.has(c?.seg) || !Array.isArray(c?.at) || c.prev || !COLUMN_ROLES.has(c.role) || hasOwn(waived, kOf(c.at))) continue
     if (c.retop && c.role === 'topsoil' && !AIRY.test(nm(read(...c.at))) && !SOIL_NEAR.test(nm(read(...c.at)))) { d = Math.max(0, d - 1); continue }
     if (open(c, read)) d = Math.max(0, d - 1)
   }
   const held = new Set()
   for (const c of cells ?? []) {
     if (!isG(c)) continue
-    const n = nm(read(...c.at))
-    if (n && !AIRY.test(n) && !SOIL_NEAR.test(n)) { if (d > 0) d--; else held.add(kOf(c.at)); continue }   // grey: dug and laid
-    if (open(c, read)) d = Math.max(0, d - 1)   // an in-gate re-top already dug (a hole): its dirt first too
+    if (greyNow(c)) { if (d > 0) d--; else held.add(kOf(c.at)) }   // grey: dug and laid (a hole's dirt was set aside above)
   }
   const out = retopHeldBase((cells ?? []).filter(c => !isG(c)), read, d, { waived, open })
   for (const k of held) out.add(k)
