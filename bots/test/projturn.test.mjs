@@ -421,7 +421,7 @@ await t('THE REFUSAL CHAIN (the order): the pick inside its back-off is skipped 
     assert.deepEqual(Sm.buildOrder({ ...q, record: { plot: 'cottage2' }, freeSlots: 3 }), { order: null, skip: 'room' })
     Sm.setGroundsFall(null)
   }
-  await killed([], [['  if (turn && turnOf) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) }', '  if (turnOf) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) }']], scenario)
+  await killed([], [['  if (turn && turnOf && !fetchFree) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) }', '  if (turnOf && !fetchFree) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) }']], scenario)
 })
 
 await t('REVIEW r1, BLOCKER 1 -- a REPAIR is not held by another kind of visit\'s back-off: fresh cell damage on a backed-off building is the pick and passes the order\'s gate; the paths\' extension (damage that is no cell\'s) still backs off; a repair that keeps failing backs off on the repairs\' own count; MUTANT killed', async () => {
