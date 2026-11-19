@@ -50,6 +50,8 @@ const REQUIRED = [
   // gradetidy-01show (T11 bundle, 11-18): the clean-up grades the gated columns toward the published ground plan
   'bots/src/gradetidy.mjs',
   'bots/test/gradetidy.test.mjs',
+  'bots/test/hollowfloor.test.mjs',
+  'bots/test/fixtures/hollow-t11-33_68_-12.json',
   // vegclear-01show (11-19): wild vegetation in an open record cell is dug, never a design's own plant cell
   'bots/test/vegclear.test.mjs',
   'scripts/host/gradepct.py',

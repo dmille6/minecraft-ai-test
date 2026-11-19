@@ -128,7 +128,7 @@ export const gkwClosing = (pending, now = Date.now(), G = GKW) => !!pending && N
 export function stallWaive (rec, deferred = [], { stalled = false, waivedNow = 0, G = GKW } = {}) {
   if (!stalled || Number(waivedNow) > 0) return []
   // roughground-1b (Codex r1): a fill that names the cut opening it (`opener`: a hollow under a crust, a cave seal) is never waived
-  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light' && !c.opener).map(c => c.at.join(',')))
+  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light' && (!c.opener || c.hollowDeep)).map(c => c.at.join(',')))   // t11reach2-01show: a deep hollow's fill may go
   const have = rec?.waived ?? {}
   let room = Math.min(G.stallMax, Math.ceil(G.stallShare * cells.size) - stuckWaivedN(have))   // fillcolumn-01 r2 (waiveroom.mjs)
   const out = []
@@ -188,7 +188,7 @@ export function leftWaiveDue (rec, town, openNow = [], { G = GKL, share = GKW.st
   const out = []
   // the release fold (Codex BLOCKER): a fill that names the cut opening it (roughground-1b `opener`: a hollow under a crust) is
   // never waived here either -- as gkWaivable and stallWaive keep it -- or the crust could come off with the hollow left open
-  const sealed = new Set((rec?.cells ?? []).filter(c => c?.opener && Array.isArray(c.at)).map(c => c.at.join(',')))
+  const sealed = new Set((rec?.cells ?? []).filter(c => c?.opener && !c.hollowDeep && Array.isArray(c.at)).map(c => c.at.join(',')))
   for (const k of openNow ?? []) {
     if (room <= 0) break
     if (sealed.has(k)) continue
