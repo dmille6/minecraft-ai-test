@@ -703,9 +703,26 @@ def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
         at = g.get('at')
         if t_ms is not None and isinstance(at, (int, float)) and at > t_ms + skew_ms:
             continue
-        if any(ck(c.get('at')) == ck(cell) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at')):
+        if ck(cell) in gen_cell_keys(g):
             return True
     return False
+
+
+_GEN_KEYS = {}
+
+
+def gen_cell_keys(g):
+    """placeok-01 (11-19): the set of one generation's cell keys, built once per generation object. tidy_place_ok used to
+    rebuild it for EVERY tidy placement, so a pass over the town epoch grew as placements x every cell of every generation:
+    on 11-19 one `items` pass ran past 45 min on the showcase VM (two buildfirst-01show stages refused "R3 ... timed out after
+    2700 seconds"), and the hourly read took 47 min. Same cells, same test (a dict with a truthy `at`), same key. Keyed by
+    id() with the object kept, so a freed generation's id can never alias a new one."""
+    hit = _GEN_KEYS.get(id(g))
+    if hit is not None and hit[0] is g:
+        return hit[1]
+    keys = frozenset(ck(c.get('at')) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+    _GEN_KEYS[id(g)] = (g, keys)
+    return keys
 
 
 # YARDREAD-01 (11-03, the showcase TRIP 07:35Z: H1 off_record 138, every one a cobblestone the yard clerk stocked on a PILE slot
@@ -2231,6 +2248,13 @@ def selftest():
     assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'
     assert tpl('50,70,50', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0 and tpl('17,64,-2', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0, 'after it: both stages in force'
     assert tidy_place_ok(chain, [17, 64, -2], None) and not tidy_place_ok(chain, [5, 70, 5], None) and not tidy_place_ok([], [17, 64, -2], 0)
+    # placeok-01: a generation's keys are its dict cells with a truthy `at`, built once, never another object's cached keys
+    assert gen_cell_keys({'cells': [{'at': [1, 2, 3]}, 'junk', {'role': 'x'}, {'at': None}, {'at': [-4, 70, 5]}]}) == {'1,2,3', '-4,70,5'}
+    g_own = {'cells': [{'at': [1, 2, 3]}]}
+    _GEN_KEYS[id(g_own)] = ({'cells': []}, frozenset(['9,9,9']))   # a stale entry under the same id (a freed generation's)
+    assert gen_cell_keys(g_own) == {'1,2,3'} and tidy_place_ok([g_own], [1, 2, 3], None) and not tidy_place_ok([g_own], [9, 9, 9], None)
+    g_late = {'at': 10_000_000, 'cells': [{'at': [7, 7, 7]}]}
+    assert tidy_place_ok([g_own, g_late], [7, 7, 7], None) and not tidy_place_ok([g_own, g_late], [7, 7, 7], 0), 'every generation in force is asked'
     # country-01 (CO1): the countryside's own chain, judged by the tidy's rules -- a stage-1 cut read after the head moved on, a fill of an
     # earlier band, a listed fill on another project's cell (` guarded`), a dig off every list, a replant on a road; and its cells are no guard
     cn1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'country', 'stageId': 'c48', 'at': T0MS - 60_000, 'cells': [{'at': [60, 66, 0], 'role': 'earth', 'seg': 'T-00-0'}, {'at': [62, 66, 0], 'role': 'sapling3', 'seg': 'C-P0'}],
