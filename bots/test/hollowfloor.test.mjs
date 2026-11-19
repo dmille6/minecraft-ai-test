@@ -166,6 +166,21 @@ const scenParked = M => {
   assert.ok(!(fx.hollow ?? []).some(h => h.kind === 'air_below'))
 }
 await t('(parked) a grey re-top cap over a cave: the refresh never waives it nor retires its cut -- deferred at the visit instead', () => scenParked(FC))
+// Codex t11reach3 r1: nor the column repair (a cap with no side support either) nor the keep-off branch
+const scenParked2 = M => {
+  // a lone grey cap at 0,69,0 over air 66-68 (stone at 65), nothing beside it
+  const read = (x, y, z) => { const n = x === 0 && z === 0 ? (y === 69 ? 'cobblestone' : y <= 65 ? 'stone' : 'air') : (y <= 65 ? 'stone' : 'air'); return { name: n, boundingBox: n === 'air' ? 'empty' : 'block' } }
+  const rec = { blueprint: 'tidy@1', home: { x: 0, y: 70, z: 0 }, cells: [{ at: [0, 69, 0], role: 'topsoil', seg: 'G-0', grade: true, retop: 1 }], cut: [], clear: [], waived: {}, segments: [{ seg: 'G-0', deps: [] }] }
+  assert.strictEqual(M.caveCap(rec.cells[0], read), true)
+  const a = M.refreshRepair({ rec }, rec, read, { done: () => false, now: 3 }, {})
+  assert.strictEqual(a.res.rec.waived?.['0,69,0'], undefined, 'the column repair leaves it')
+  const rec2 = { ...rec, cells: [{ ...rec.cells[0], opener: [0, 70, 0] }], cut: [{ at: [0, 70, 0], kind: 'tidy', name: 'grass_block', grade: true }] }
+  const b = M.refreshRepair({ rec: rec2 }, rec2, read, { done: () => false, keepOff: () => 'project:house1', now: 3 }, {})
+  assert.strictEqual(b.res.rec.waived?.['0,69,0'], undefined, 'the keep-off branch leaves it')
+  assert.strictEqual(b.res.rec.cut.length, 1, 'its cut kept')
+}
+await t('(parked) nor the column repair (no side support) nor the keep-off branch waives a cave cap', () => scenParked2(FC))
+await kills('(parked) the cave cap judged by the column repair again', 'fillcolumn.mjs', '  const sp = new Set(open.filter(c => special(c) || caveCap(c, read)).map(c => colOf(c.at)))', '  const sp = new Set(open.filter(special).map(c => colOf(c.at)))', scenParked2)
 await kills('(a) the floor\'s cells never added', 'fillcolumn.mjs', '    if (floor && gap.length && gap.length <= T.hollowMax) {', '    if (false) {', scenA)
 await kills('(b) the deep mark never set', 'fillcolumn.mjs', '      deepCols.add(k)\n', '\n', M => scenB({ fc: M }))
 await kills('(b) the opener cut kept', 'fillcolumn.mjs', '  const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut\n', '  const cut = rec.cut\n', M => scenB({ fc: M }))

@@ -86,6 +86,14 @@ const special = c => c.plot != null || !!c.opener || !!c.prep || !!c.floorFix ||
 
 /** IS THERE A SUPPORT AT (x, y, z)? -> a memoised reader over `read`: the visit's own test (buildsite.mjs refUsable). An UNREAD cell
  *  is no evidence and reads as a support: nothing is ever called floating on a cell nobody read. */
+/** t11reach3-01show: a CAVE CAP -- a re-top topsoil cell holding a solid non-air block with air (or nothing, or liquid) under it: the
+ *  visit holds it (`air_below`), deferred while the cave-cap unit is parked -> bool. Pure over `read`. */
+export function caveCap (c, read) {
+  if (!c?.retop || c.role !== 'topsoil' || !Array.isArray(c.at)) return false
+  const top = read(...c.at), under = read(c.at[0], c.at[1] - 1, c.at[2])
+  if (!top || AIRN(nm(top)) || !refUsable(top)) return false
+  return !under || AIRN(nm(under)) || isLiquid(under) || under.boundingBox === 'empty'
+}
 export function supportOf (read) {
   const m = new Map()
   return (x, y, z) => {
@@ -136,7 +144,8 @@ export function openFills (rec, { done = () => false, guard = new Set() } = {}) 
 export function floatCells (rec, read, { done = () => false, guard = new Set(), support = supportOf(read) } = {}) {
   const open = openFills(rec, { done, guard })
   const po = planOrder(open, read, { support })
-  const sp = new Set(open.filter(special).map(c => colOf(c.at)))
+  // t11reach3 (Codex r1): a deferred CAVE CAP's column (a grey re-top over air: the visit holds it, parked) is never judged here
+  const sp = new Set(open.filter(c => special(c) || caveCap(c, read)).map(c => colOf(c.at)))
   return { open, stuck: po.left, left: po.left.filter(c => !sp.has(colOf(c.at))) }
 }
 /** THE SELF-CHECK (a survey's or a refresh's last word; logged, never thrown) -> { open, left, first } | null (the switch is off).
@@ -390,6 +399,7 @@ export function hollowFloor (rec, read, { done = () => false, guard = new Set(),
     // the stuck waiver's -- waiveroom.mjs), and its pending crust cut with it (below). Only a cell no order reaches: one the visit
     // can still lay is laid as before
     const ko = keepOff(x, z)
+    if (ko && caveCap(L, read)) continue   // t11reach3 (Codex r1): a deferred cave cap is never waived by the keep-off
     if (ko) { off[kOf(L.at)] = { why: `fillcolumn:keepoff:${String(ko).slice(0, 40)}`, at: now, by: 'fillcolumn' }; continue }
     const gap = []
     let floor = false, stop = false

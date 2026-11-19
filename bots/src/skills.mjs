@@ -31003,6 +31003,8 @@ async function buildTidyVisit (ctx, args, signal) {
         // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)
         if (PLANAHEAD_ON && caps.waive && r.stop === 'complete') due.push(...puWaiveDue(rw, left, { already: [...due], confirm: paConfirm(bot, rw, home, stood) }))
         if (due.length) due.push(...waiveRests(rw, due, read2, { done: q => buildCellDone(read2(...q.at), palette, q.role), guard }))   // fillcolumn-01: with the cells resting on them
+        // t11reach3 (Codex r1): a deferred cave cap (a grey re-top over air, held air_below) is never waived here
+        if (due.length) { let cave = new Set(); try { cave = retopAirBelow(rw.cells, read2, { waived: rw.waived }) } catch { cave = new Set() } for (let i = due.length - 1; i >= 0; i--) if (cave.has(String(due[i]?.k ?? ''))) due.splice(i, 1) }
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             if (!cur || cur.structure_complete || cur.cells.length !== rw.cells.length || gkwSig(cur) !== gkwSig(rw)) return null
