@@ -165,7 +165,7 @@ await t('MUTANT: re-tops not held by the dirt budget -> one dirt digs both greys
 await t('WIRED: the visit holds re-tops by dirt in its alsoDone and the completion uses soilPassDone (comments stripped)', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const sk = strip(readFileSync(P('skills.mjs'), 'utf8'))
-  assert.ok(/retopHeld\(lawnPaused\.size \? visitRec\.cells\.filter\(q => !lawnPaused\.has\(q\.at\.join\(','\)\)\) : visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\), \{ waived: rec\.waived, open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\) \}\)/.test(sk))
+  assert.ok(/retopHeld\(lawnPaused\.size \? visitRec\.cells\.filter\(q => !lawnPaused\.has\(q\.at\.join\(','\)\)\) : visitRec\.cells, read, spare\('dirt'\) \+ \(took\.dirt \?\? 0\), \{ waived: rec\.waived, open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\), gate: inGate \}\)/.test(sk))   // t11reach2: the gate
   assert.ok(/alsoDone: q => [^\n]*retopPass\.has\(q\.at\.join\(','\)\)/.test(sk))
   assert.ok(/soilPassDone\(noSoil\(q\), read2\(\.\.\.q\.at\), q\)/.test(sk))
 })

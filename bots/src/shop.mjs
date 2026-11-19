@@ -1242,5 +1242,5 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // fellfirst-01: `first` (a tree felled before its sapling: none of its kind anywhere -- the tripwire's G5 reads it)
 // stepclass-01: `class` (why a deferred cell or a refused temporary stand has no step: buildsite.mjs stepRefusal)
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'st', 'kind', 'class', 'saplings', 'first', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'grade_v', 'why'], f)
-export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
+export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'held', 'held_why', 'material_open', 'found_done', 'found_open', 'why'], f)
 export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'fromYard', 'meals', 'blooms', 'pots', 'lane', 'held', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor; yarduse-01: fromYard; decorator-01: meals blooms pots

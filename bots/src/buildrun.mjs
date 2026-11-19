@@ -656,6 +656,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // `alsoDone(cell, read)` (monument-01: ziggurat.mjs zigHidden, a core cell sealed on all six faces) counts a cell done that its
   // block alone does not; every completeness test of the visit goes through isDone
   const alsoDone = p.alsoDone ?? null
+  const heldWhy = typeof p.heldWhy === 'function' ? p.heldWhy : null   // t11reach2-01show: held cells, not done, on the rows
   // townterrace-01: `useFor(cell)` -> the tool use for THAT cell (the park's hoe and bone meal) or null; else `use` for every cell
   // (paths-01's shovel). `openRole(role)`: a role a builder walks through once placed (a torch, a flower, a crop) is never an
   // obstacle to the visit's walk (default: the light only)
@@ -1718,7 +1719,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   try {
   for (const { seg, deps } of segmentsOf(record)) {
     if (winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
-    if (segComplete(rd, record, palette, seg, alsoDone)) continue
+    if (segComplete(rd, record, palette, seg, alsoDone)) {
+      // t11reach2-01show: a segment "complete" only because the visit holds cells of it is not done -- one row says so (held=, why)
+      if (heldWhy) {
+        const mine = record.cells.filter(c => c.seg === seg), hw = mine.filter(c => !cellDone(rd(...c.at), palette, c.role, c.ws) && heldWhy(c))
+        if (hw.length) e.log('_build_seg', { seg, open: 0, done: mine.length - hw.length, held: hw.length, held_why: [...new Set(hw.map(c => heldWhy(c)))].join('+') })
+      }
+      continue
+    }
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
     if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) {
       // gkhelpers-01 (`p.skipOpenDeps`, the groundskeeper's crew): a segment whose layer below is open (another bot's, or not
@@ -1744,6 +1752,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const mine = record.cells.filter(c => c.seg === seg)
         const openAll = mine.filter(c => !isDone(c))
         row.open = openAll.length; row.done = mine.length - openAll.length
+        // t11reach2-01show: a cell the visit HOLDS (passed for this visit: `heldWhy(cell)` -> reason) is not done -- the row says held
+        if (heldWhy) { const hw = mine.filter(c => !cellDone(rd(...c.at), palette, c.role, c.ws) && heldWhy(c)); if (hw.length) { row.done -= hw.length; row.held = hw.length; row.held_why = [...new Set(hw.map(c => heldWhy(c)))].join('+') } else { delete row.held; delete row.held_why } }
         if (!openAll.length) { finished = true; break }
         // zonesite-01show (Codex r1 blocker 1, r2 blocker 1): THE OPEN CELLS THE PROTECTED-ZONE GUARD CLOSES TO A PLACEMENT (clear
         // now: nothing of theirs to dig) are SET ASIDE for the visit -- never a candidate, never an attempt, never deferred (no
@@ -2163,7 +2173,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v === 'refused') out.refused++
         if (v === 'silent') out.silent++
       }
-    } finally { PJ.releaseLease(dir, key, `seg-${seg}`, me, segGen); out.segs.push(row); e.log('_build_seg', { seg, open: row.open, done: row.done }) }
+    } finally { PJ.releaseLease(dir, key, `seg-${seg}`, me, segGen); out.segs.push(row); e.log('_build_seg', { seg, open: row.open, done: row.done, ...(row.held ? { held: row.held, held_why: row.held_why } : {}) }) }
     if (finished && !p.clearsLast) { const s = await clears(); if (s) { out.stop = s; return out } }
   }
     // fillshare-01: the clears last, inside the try (an early stop here still settles the stuck map in the finally)
