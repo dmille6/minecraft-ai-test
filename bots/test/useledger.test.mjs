@@ -106,7 +106,7 @@ await t('MUTANTS KILLED: a move counted as a use; the window ignored; an older s
 await t('WIRED: every verified take and every deposit record writes its line; a clerk\'s is a move; the piles\' intake, the draw, the cap\'s waste, the stock', () => {
   const sk = strip(readFileSync(P('skills'), 'utf8'))
   one(sk, "if \\(v\\?\\.verified && v\\.moved\\?\\.took\\) useNote\\(ctx\\.bot, why === 'move' \\? 'move' : why === 'prune' \\? 'waste' : 'out', v\\.moved\\.took, why\\)", 'the takes')
-  assert.equal((sk.match(/await withdrawVisit\(/g) ?? []).length, 9, 'nine callers, every one through the wrapper')
+  assert.equal((sk.match(/await withdrawVisit\(/g) ?? []).length, 10, 'ten callers (indexfetch-01show: the fetch trip), every one through the wrapper')
   one(sk, "const why = decide\\?\\.name === 'pickDecision' \\? 'tool' : decide\\?\\.name === 'ingredientDecision' \\? 'craft' : String\\(ctx\\?\\.bot\\?\\.useWhy \\?\\? 'other'\\)", 'the consumer is named')
   for (const w of ['withdraw', 'prune', 'toolkit', 'smelt']) assert.equal((sk.match(new RegExp(`\\.useWhy = '${w}'`, 'g')) ?? []).length, 1, w)
   assert.equal((sk.match(/ctx\.bot\.useWhy = 'move'/g) ?? []).length, 2, 'the two clerks')
