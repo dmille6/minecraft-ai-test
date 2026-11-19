@@ -466,6 +466,38 @@ await t('pairCuts marks the lowest stone-exposing grade cut with its cap; an ear
   srv.set([5, G, 5], 'dirt')
   assert.ok(!GT.pairCuts([{ at: [5, G + 1, 5], grade: true }], cells, srv.read)[0].cap)
 })
+// t11reach2-01show (rig run 28, e.g. 9,-31): grass cut at 70 over a 1-deep hollow (air at 69, the target) over grass at 68 -- the cut
+// left the top at 68 (a step of 2 with each neighbour) and the hollow's fill came later or never. Now the cut and its fill are one unit
+const hollowWorld = () => server({ [`5,${G + 1},5`]: 'grass_block', [`5,${G},5`]: 'air', [`5,${G - 1},5`]: 'grass_block' })
+const hollowVisit = async ({ dirt = 4, PC = GT.pairCuts, RV = R.runVisit } = {}) => {
+  const srv = hollowWorld()
+  const rec = { cells: [{ at: [5, G, 5], role: 'topsoil', grade: true, seg: 'S', opener: [5, G + 1, 5] }], segments: [{ seg: 'S', deps: [] }],
+    cut: [{ at: [5, G + 1, 5], kind: 'tidy', name: 'grass_block', grade: true, hollow: [[5, G, 5]] }], clear: [], waived: {} }
+  const cuts = PC(rec.cut, rec.cells, srv.read)
+  const inv = { stone_pickaxe: 1, ...(dirt ? { dirt } : {}) }
+  const digDrops = async (c, expect) => { const n = srv.read(...c)?.name; if (expect && n !== expect) return 'refused'; srv.set(c, 'air'); const d = n === 'grass_block' ? 'dirt' : n; inv[d] = (inv[d] ?? 0) + 1; return 'confirmed' }
+  const e = bot(srv, 'A', { inv, feet: [6, G + 1, 3], dig: digDrops })
+  const { p } = project(rec)
+  await RV({ ...p('A'), palette: T.TIDY_PALETTE, tidy: cuts, alsoDone: () => true, blockLayer: false, domain: () => true, walkR: 30 }, e, { maxSteps: 100 })
+  return { cuts, col: [G + 1, G, G - 1].map(y => srv.read(5, y, 5).name), logs: e.logs }
+}
+const scenHollowPair = async PC => {
+  const v = await hollowVisit({ PC })
+  assert.ok(v.cuts[0].cap, 'the cut over the hollow is paired with the hollow\'s fill')
+  assert.deepStrictEqual(v.col, ['air', 'dirt', 'grass_block'], 'the top ends AT the target, never below it')
+}
+await t('THE 70 -> 68 COLUMN: a grass cut over a 1-deep hollow over grass -> cut and fill in one pass; with no dirt, not cut at all', async () => {
+  await scenHollowPair(GT.pairCuts)
+  const none = await hollowVisit({ dirt: 0 })
+  assert.deepStrictEqual(none.col, ['grass_block', 'air', 'grass_block'], 'the fill cannot be done: the cut waits (never a hole under the target)')
+  assert.ok(none.logs.some(([, d]) => d?.op === 'pair_held' && d.why === 'no_material'))
+})
+await t('MUTANT KILLED: the pair judged by the first block under the cut again (the hollow over grass left unpaired)', async () => {
+  await withMutant(P('gradetidy.mjs'), '    const n = nm(read(...cap.at))\n', '    const n = topUnder(read, q.at)\n', async M => {
+    let died = null; try { await scenHollowPair(M.pairCuts) } catch (e) { died = e }
+    assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
+  })
+})
 await t('with dirt, time and a stand: the cut is dug and its cap laid in the same clear pass (no grey top left)', async () => {
   const v = await pairVisit()
   assert.ok(v.cuts[0].cap, 'paired')
