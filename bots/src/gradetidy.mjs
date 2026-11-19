@@ -318,16 +318,8 @@ export function gradeCutsHeld (cuts, read, capHeld) {
  * T11 delta r1 BLOCKER 1 -- every other grade column with a cut that would leave a non-earth block on top (stone between earth
  * layers: no cap is planned there) beyond the bag's unclaimed dirt (`held.left`), one a column, nearest first in cut order.
  */
-export function capHeldCols (cuts, read, held, cells = [], waived = null, { pays = null } = {}) {
+export function capHeldCols (cuts, read, held, cells = [], waived = null) {
   const out = new Set([...(held ?? [])].map(k => { const [x, , z] = k.split(','); return k2(x, z) }))
-  // t11reach2-01show THE REMEDY (control: "with 0 bag dirt inside the gate, the visit runs a remedy rather than holding forever"):
-  // while a gate is set (`pays`: a standing grade cut whose dug block drops dirt -- grass_block, dirt), a column held only for want of
-  // dirt lets that cut go: digging it puts in the bag the dirt its own cap waits on (the town's index has none: matsWithdraw skips
-  // it). A waived cap still holds (below); a cut that drops anything else (cobblestone, stone) still waits
-  if (typeof pays === 'function') {
-    const waivedCol = new Set((cells ?? []).filter(c => c?.retop && c.role === 'topsoil' && !!waived && Object.prototype.hasOwnProperty.call(waived, c.at.join(','))).map(c => k2(c.at[0], c.at[2])))
-    for (const c of cuts ?? []) { const k = k2(c.at[0], c.at[2]); if (c?.grade && out.has(k) && !waivedCol.has(k) && pays(c)) out.delete(k) }
-  }
   // Codex T11 delta r2 BLOCKER 2: a column whose cap is WAIVED is held whatever the dirt (nobody will cap what its cuts expose); the
   // refresh takes those cuts off (dropOrphanCuts), so the hold ends within the hour
   const isW = c => !!waived && Object.prototype.hasOwnProperty.call(waived, c.at.join(','))

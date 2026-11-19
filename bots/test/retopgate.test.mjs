@@ -6,7 +6,6 @@
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 const TT = await import('../src/tidytop.mjs')
-const GT = await import('../src/gradetidy.mjs')
 const T = await import('../src/tidy.mjs')
 const OLD = await import('./_base-tidytop-e8c55.mjs')   // e8c55fdae's tidytop.mjs, verbatim (imports re-pointed to ../src)
 const B = await import('./helpers/buildfake.mjs')
@@ -92,32 +91,30 @@ await t('THE GATE ARM in the visit: 2 dirt and 5 open town fills -> both gate to
   assert.deepStrictEqual([n.srv.read(0, G, 0).name, n.srv.read(2, G, 0).name], ['cobblestone', 'cobblestone'], 'no gate: today\'s order')
 })
 
-// THE REMEDY CHAIN (0 dirt in the bag, 0 in the town): a grade cut of grass over a held cap -> capHeldCols lets it go when the gate is
-// set (`pays`) -> the visit digs it -> its drop is the cap's dirt (the fake world has no item drops: the dirt the dig yields is added to
-// the bag for the next visit, as the bot's pickup does) -> the next visit lays the cap. A cobblestone cut never pays: still held
-const chainRec = () => ({ cells: [{ at: [0, G, 0], role: 'topsoil', seg: 'R', grade: true, retop: 1, opener: [0, G + 1, 0] }], segments: [{ seg: 'R', deps: [] }],
-  cut: [{ at: [0, G + 1, 0], kind: 'tidy', name: 'grass_block', grade: true }], clear: [], waived: {} })
-const PAYS = srv => q => inGate(q) && /^(grass_block|dirt)$/.test(srv.read(...q.at)?.name ?? '')
-const scenChain = async (GM = GT) => {
-  const srv = srvOf({ [`0,${G + 1},0`]: 'grass_block' }), rec = chainRec()
-  const held = TT.retopHeld(rec.cells, srv.read, 0, { open: openOf(srv), gate: inGate })
-  assert.deepStrictEqual([...held], ['0,69,0'], 'no dirt: the cap is held')
-  assert.ok(GT.capHeldCols(rec.cut, srv.read, held, rec.cells, rec.waived).has('0,0'), 'without the remedy: the cut waits on the cap for ever')
-  const cutHeld = GM.capHeldCols(rec.cut, srv.read, held, rec.cells, rec.waived, { pays: PAYS(srv) })
-  assert.ok(!cutHeld.has('0,0'), 'the remedy: the grass cut is let go')
-  await visit({ dirt: 0, srv, rec, tidy: rec.cut.filter(q => !cutHeld.has(`${q.at[0]},${q.at[2]}`)) })
-  assert.strictEqual(srv.read(0, G + 1, 0).name, 'air', 'visit 1 dug the cut')
-  assert.strictEqual(srv.read(0, G, 0).name, 'cobblestone', 'and left the cap (no dirt yet)')
-  await visit({ dirt: 1, srv, rec })   // the dug grass's drop
-  assert.strictEqual(srv.read(0, G, 0).name, 'dirt', 'visit 2 lays the cap: the column at grade with an earth top')
-  // a cut that drops no dirt is never let go
-  const srvC = srvOf({ [`0,${G + 1},0`]: 'cobblestone' })
-  assert.ok(GM.capHeldCols(rec.cut, srvC.read, held, rec.cells, rec.waived, { pays: PAYS(srvC) }).has('0,0'), 'a cobblestone cut still waits')
-  // and a waived cap holds whatever pays
-  assert.ok(GM.capHeldCols(rec.cut, srv.read, new Set(), rec.cells, { '0,69,0': { why: 'x' } }, { pays: () => true }).has('0,0'))
+// Codex r6 BLOCKER 1: a gate re-top and an ordinary open fill in ONE segment, one dirt -> the fill takes it, the re-top is held (never
+// dug and then starved: no hole); with two dirt both are laid
+const mixRec = () => ({ cells: [{ at: [0, G, 0], role: 'topsoil', seg: 'R', grade: true, retop: 1 }, { at: [4, G + 1, 0], role: 'earth', seg: 'R' }],
+  segments: [{ seg: 'R', deps: [] }], cut: [], clear: [], waived: {} })
+const scenMix = async (M = TT) => {
+  const srv = srvOf(), rec = mixRec()
+  const h1 = M.retopHeld(rec.cells, srv.read, 1, { open: openOf(srv), gate: inGate })
+  assert.deepStrictEqual([...h1], ['0,69,0'], 'one dirt: the segment\'s other fill is served first, the re-top held')
+  const v = await visit({ dirt: 1, srv, rec })
+  assert.notStrictEqual(srv.read(0, G, 0).name, 'air', 'never a hole where the re-top was')
+  void v
+  assert.deepStrictEqual([...M.retopHeld(rec.cells, srvOf().read, 2, { open: openOf(srv), gate: inGate })], [], 'two dirt: both')
 }
-await t('THE REMEDY CHAIN: 0 dirt anywhere, in the gate -> the held cap\'s grass cut is dug, its dirt lays the cap next visit; cobblestone still waits', () => scenChain())
-
+await t('CODEX r6: a gate re-top and an open fill in one segment, 1 dirt -> the re-top is held, never dug into a hole', () => scenMix())
+// THE ZERO-DIRT CHAIN: in the gate with no dirt the re-top is HELD -- not done on the rows (above), never dug, and never a strike toward
+// a waiver (tidytop.mjs dirtWait: an empty bag is not "nobody can lay it"); the draw then skips the town's zero (drawzero.test.mjs) and
+// its exhausted search raises the dirt refill job (skills.mjs refillOnShortfall) -- the remedy that exists today, and it is another bot's
+await t('ZERO DIRT: a held gate re-top is waiting (dirtWait), not a strike; the completion still reads it open', () => {
+  const srv = srvOf(), rec = recOf()
+  const held = TT.retopHeld(rec.cells, srv.read, 0, { open: openOf(srv), gate: inGate })
+  assert.ok(held.has('0,69,0') && held.has('2,69,0'))
+  assert.strictEqual(TT.dirtWait(false, held.has('0,69,0')), true, 'a wait, never a strike')
+  assert.strictEqual(TT.soilPassDone(true, srv.read(0, G, 0), rec.cells[0]), false, 'the grey top stays open for the completion')
+})
 await t('MUTANT KILLED: the gate-first allocation removed (the gate re-tops queue behind the town again)', async () => {
   await withMutant(P('tidytop.mjs'), "  if (typeof gate !== 'function') return retopHeldBase(cells, read, dirt, { waived, open })", '  return retopHeldBase(cells, read, dirt, { waived, open })', async M => {
     const srv = srvOf()
@@ -136,16 +133,15 @@ await t('MUTANT KILLED: an all-held segment skipped silently again (the run-26 "
     assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
   })
 })
-await t('MUTANT KILLED: the remedy removed (the cap waits on a cut that would pay for it)', async () => {
-  await withMutant(P('gradetidy.mjs'), 'if (c?.grade && out.has(k) && !waivedCol.has(k) && pays(c)) out.delete(k)', 'void k', async M => {
-    let died = null; try { await scenChain(M) } catch (e) { died = e }
+await t('MUTANT KILLED: the segment\'s other fills not set aside first (the Codex r6 hole)', async () => {
+  await withMutant(P('tidytop.mjs'), '  const gSegs = new Set((cells ?? []).filter(isG).map(c => c.seg))', '  const gSegs = new Set()', async M => {
+    let died = null; try { await scenMix(M) } catch (e) { died = e }
     assert.ok(died instanceof assert.AssertionError, `survived or died otherwise: ${died}`)
   })
 })
 await t('WIRED (structural, comments stripped): the visit hands retopHeld the gate, capHeldCols the remedy, runVisit the held reasons', () => {
   const sk = readFileSync(P('skills.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   assert.ok(/open: q => !buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\), gate: inGate \}\)/.test(sk))
-  assert.ok(/capHeldCols\(tidyCuts\(rec, read, mem\), read, retopPass, visitRec\.cells, rec\.waived, inGate \? \{ pays:/.test(sk))
   assert.ok(/heldWhy: q => \(lawnPaused\.has\(q\.at\.join\(','\)\) \? 'lawn_paused' : retopPass\.has\(q\.at\.join\(','\)\) \? 'retop_no_dirt' : null\)/.test(sk))
 })
 
