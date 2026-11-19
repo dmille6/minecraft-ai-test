@@ -43,6 +43,17 @@ const REQUIRED = [
   'bots/test/minecrew-off.test.mjs',
   // projturn-01 (11-15): the open projects take turns, a no-progress visit backs its project off for the pool, a stuck bot is held
   // off that project only (PROJTURN=off|on)
+  // tidytop-01show (item 8, 11-18): the clean-up's top fills are dirt, never stone; grey tops re-topped
+  'bots/src/tidytop.mjs',
+  'bots/test/tidytop.test.mjs',
+  // gradetidy-01show (T11 bundle, 11-18): the clean-up grades the gated columns toward the published ground plan
+  'bots/src/gradetidy.mjs',
+  'bots/test/gradetidy.test.mjs',
+  // vegclear-01show (11-19): wild vegetation in an open record cell is dug, never a design's own plant cell
+  'bots/test/vegclear.test.mjs',
+  'scripts/host/gradepct.py',
+  'scripts/host/gradetarget.py',
+  'scripts/host/test_gradepct.py',
   'bots/src/projturn.mjs',
   'bots/test/projturn.test.mjs',
   // topdown-01 / landprev-01show (owner 11-15): gather takes ground only from the top; cobblestone before dirt in the escape

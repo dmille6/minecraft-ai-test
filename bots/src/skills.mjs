@@ -212,6 +212,8 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
+import { retopCells, retopHeld, soilPassDone, dirtWait, tidyTopOn } from './tidytop.mjs'   // tidytop-01show: no grey tops from the clean-up's own fills
+import { GRADE, gradeOn, gradeTarget, gradeAdded, releaseGradeCols, setGradeSource, gradeFirst, dropStaleGrade, gradeStamp, retopKeepOff, gradeCutsHeld, capHeldCols, dropOrphanCuts, exposeDirtNeed, gradeCutOk, lawnSwapKeys, pairCuts, noteUnreached } from './gradetidy.mjs'   // gradetidy-01show: the town's ground plan, gated
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
 import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
@@ -30044,6 +30046,24 @@ function fcKeepInputs (bot, h, dir = townDir()) {
   return { c, I, report }
 }
 export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport, plainInputs: (bot, h, dir = townDir()) => { const c = shopCtx(bot); return { c, I: tidyInputs(bot, c, h, dir) } } })
+/** GRADETIDY-01show: the pool's published ground plan (gradetidy.mjs gradeTarget over <pool>/grade-target.json) -> { t, why } | null,
+ *  re-read when the file changes; one `_grade_mode` row a change (v, gate, why). GRADE=off or no file: null (the survey as before). */
+let gradeMemo = { mtime: -1, val: null }
+setGradeSource(() => gradeNow(activeMem?.bot ?? null))   // tidy.mjs siteStage's default `grade` (the inside-the-wall survey only)
+function gradeNow (bot) {
+  try {
+    if (!gradeOn()) return null
+    const f = path.join(townDir(), GRADE.file)
+    let st = null
+    try { st = fs.statSync(f) } catch { st = null }
+    const mt = st ? st.mtimeMs : 0
+    if (mt === gradeMemo.mtime) return gradeMemo.val
+    const g = st ? gradeTarget(JSON.parse(fs.readFileSync(f, 'utf8'))) : { ok: false, t: null, why: 'no_file' }
+    gradeMemo = { mtime: mt, val: g.ok ? { t: g.t, why: 'ok' } : null }
+    try { logEvent({ kind: 'grade_mode', status: g.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `on=1 file=${st ? 1 : 0} why=${g.why} v=${g.ok ? `v${g.t.v}:${String(g.t.sha256).slice(0, 8)}:${g.t.gateId}` : '-'} gate=${g.ok ? g.t.gate.size : 0}` }) } catch { /* telemetry */ }
+    return gradeMemo.val
+  } catch { return null }
+}
 async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const r0 = rh.head.rec
   let s, read, cap = 0, guard, fcKeepOff = null, fcReport = null, cR = c
@@ -30085,13 +30105,24 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fillReportNames(fcReport) })
   const pub = publishRecord(dir, key, cur => {
     if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
+    // gradetidy-01show (gradetidy.mjs releaseGradeCols): a gated column whose named work is all finished or waived is the grade's now
+    const gNow = gradeNow(bot)
+    // Codex T11 r1 BLOCKER 3 (gradetidy.mjs dropStaleGrade): a changed or withdrawn target takes its open grade work off the record
+    const stale = dropStaleGrade(cur, gradeStamp(gNow?.t ?? null), { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), standing: q => cutStanding(read, q, now), empty: q => /^(air|cave_air|void_air)$/.test(String(read(...q.at)?.name ?? '')) })
+    cur = stale.rec
+    { const oc = dropOrphanCuts(cur, { standing: q => cutStanding(read, q, now) }); cur = oc.rec }   // Codex T11 delta r2: no cut over a waived cap
+    const relG = gNow?.t ? releaseGradeCols(cur, gNow.t.gate, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), standing: q => cutStanding(read, q, now) }) : { rec: cur, released: [] }
+    cur = relG.rec
     const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     res = refreshMerge(cur, fresh, { busy, guard, now })
+    if (relG.released.length || stale.dropped) res = { ...res, skipped: { ...(res.skipped ?? {}), ...(relG.released.length ? { grade_released: relG.released.length } : {}), ...(stale.dropped ? { grade_dropped: stale.dropped } : {}) } }
     try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
+    // TIDYTOP-01show (tidytop.mjs retopCells): the grey top fills already laid beside grass go back on the work list (cut, then dirt)
+    if (tidyTopOn()) { try { const rt = retopCells(res.rec ?? cur, read, { guard, keepOff: retopKeepOff(gNow?.t ?? null, fcKeepOff ?? (() => 'closed')), now, done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) }); if (rt.n) { res = { ...res, rec: rt.rec, skipped: { ...(res.skipped ?? {}), retop: rt.n } } } } catch { /* the record as merged */ } }
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
-  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}${s?.grade ? `/gcut${gradeAdded(res?.rec, now).cut}/gfill${gradeAdded(res?.rec, now).fill}` : ''}`, ...(s?.grade ? { grade_v: s.grade.v } : {}), ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: [...Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`), ...Object.entries(s?.grade?.skipped ?? {}).map(([a, b]) => `g.${a}:${b}`)].join(',').slice(0, 400) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
   // (a cell the repair left out is a waiver like any other: one `waived` row each, its reason on it)
   for (const d of fx?.dropped ?? []) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
   const h2 = recordHead(dir, key)
@@ -30689,6 +30720,9 @@ async function buildTidyVisit (ctx, args, signal) {
     // townterrace-01: the park's plants, a hoe for its tilled plots, bone meal for its meadow -- only what the town holds
     if (parkish) { try { Object.assign(extra, parkBill(rec, read, { held: held0, stock: matsTownStock(bot)?.stock ?? {}, done: q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role) })) } catch { /* the park waits for its bill */ } }
     if (wantSoil > 0) extra.dirt = (extra.dirt ?? 0) + wantSoil
+    // gradetidy-01show (Codex T11 delta r2): the dirt the grade's stone-exposing columns with no cap of their own wait on is billed too
+    let exposeNeed = 0
+    if (gradeOn()) { try { const ne = exposeDirtNeed(tidyCuts(rec, read, mem), read, visitRec.cells, rec.waived); exposeNeed = ne; if (ne > 0) extra.dirt = (extra.dirt ?? 0) + Math.min(ne, TIDY_VISIT_FILLS) } catch { /* the bill as it was */ } }
     const need = want > 0 || Object.keys(extra).length ? needFromTown({ ...(want > 0 ? { cobblestone: want } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
     let took = {}
     bag0 = held0
@@ -30709,6 +30743,8 @@ async function buildTidyVisit (ctx, args, signal) {
     if (Object.keys(need).length && workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: GROUNDS.on })) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
+    // gradetidy-01show (Codex T11 delta r3): a visit with only the grade's held cuts left (no workable segment) still draws the dirt they wait on
+    else if (exposeNeed > 0 && (need.dirt ?? 0) > 0) { const w2 = await matsWithdraw(ctx, { dirt: need.dirt }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w2.took ?? {} }
     check(signal)
     effects = botBuildEffects(bot, {
       acks,
@@ -30719,15 +30755,27 @@ async function buildTidyVisit (ctx, args, signal) {
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()
+    // tidytop-01show (Codex r1 BLOCKER): a re-topped cell's grey block is dug only with dirt in the bag to lay in its place (tidytop.mjs retopHeld)
+    // gradetidy-01show (control 11-18): while a gate is set, the record's lawn swaps (roughground-2) are passed -- never dug, never laid --
+    // and (Codex T11 new r2) never charged against the bag's dirt
+    const lawnPaused = gradeOn() && gradeNow(bot)?.t ? lawnSwapKeys(rec, q => cutStanding(read, q)) : new Set()
+    const retopPass = tidyTopOn() ? retopHeld(lawnPaused.size ? visitRec.cells.filter(q => !lawnPaused.has(q.at.join(','))) : visitRec.cells, read, spare('dirt') + (took.dirt ?? 0), { waived: rec.waived, open: q => !buildCellDone(read(...q.at), palette, q.role) }) : new Set()
+    for (const k of lawnPaused) retopPass.add(k)
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
+    // control 11-18 (gradetidy.mjs gradeCutsHeld): a grade cut that would expose stone waits while its column's earth cap is held
+    const capHeld = capHeldCols(tidyCuts(rec, read, mem), read, retopPass, visitRec.cells, rec.waived)
+    const cutHeld = gradeOn() ? gradeCutsHeld(tidyCuts(rec, read, mem), read, capHeld) : new Set()
+    for (const k of lawnPaused) cutHeld.add(k)
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !cutHeld.has(q.at.join(',')) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
     // siteprep-01: a prep's cuts in LAYERS, the highest across the plot first (Codex review r1 BLOCKER 5: never a shaft mid-way)
     // gkcrewcut-01: a helper digs the tidy's cuts too (groundskeeper.mjs crewCaps `cuts`) -- never a terrace's or a site prep's (the keeper's)
     const cuts = !(caps.digs || (caps.cuts && !isTerrace && !prepNow)) || floorOnly ? [] : prepNow ? prepCutOrder(cuts0.filter(q => q.prep === prepNow), fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
+    // t11c-01show (a): a stone-exposing grade cut carries its cap (gradetidy.mjs pairCuts): buildrun.mjs digs it only with its cap laid
+    if (gradeOn()) { try { const pc = pairCuts(cuts, visitRec.cells, read, q => buildCellDone(read(...q.at), palette, q.role)); for (let i = 0; i < cuts.length; i++) cuts[i] = pc[i] } catch { /* the cuts as they were */ } }
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
     // GROUNDS-01 (grounds2.mjs groundsNone): a QUOTA visit with nothing ready for this worker now -- no fill segment it may take (every
     // open one held, within the gap of another bot's, or waiting on its layer below: `g2Seg0`, read before the draws) and no cut it may
@@ -30765,6 +30813,8 @@ async function buildTidyVisit (ctx, args, signal) {
     const stairOpenQ = q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)
     let stairsHead = false
     if (G2.on && !floorOnly && !prepNow) { try { const v0 = visitRec; visitRec = stairsFirst(v0, stairOpenQ, TIDY_PALETTE.access.some(n => !!effects?.has?.(n))); stairsHead = visitRec !== v0 } catch { /* the survey's order */ } }
+    // gradetidy-01show (gradetidy.mjs gradeFirst): the gated terrace's open segments next, ahead of the town's older work
+    if (!floorOnly && !prepNow && gradeOn()) { try { visitRec = gradeFirst(visitRec, q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role), new Set((bot.gradeUnreached = noteUnreached(bot.gradeUnreached, [], Date.now())).keys())) } catch { /* the order as it was */ } }   // t11c-01show (b): unreached grade cells last
     // grounds-01 (grounds2.mjs stuckSegs / stuckLast; LIVE 11-12: seven segments at the head of the order, their first cells tried
     // 100 to 366 times, took every visit's first minute): a segment whose open cell no stand has reached in GROUNDS2.stuckMin visits
     // town-wide goes to the END of this visit's order -- after the stairs, so a stuck staircase is last too
@@ -30790,15 +30840,17 @@ async function buildTidyVisit (ctx, args, signal) {
     // floor or a site prep is the visit's only work.
     if (stairsHead) { try { share = stairsShare(share, stairSeg(visitRec, workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: true }), stairOpenQ)) } catch { /* the share as it was */ } }
     const r = await runVisit({ dir, key, me, home, stood, record: GKW_ON ? dropWaivedClears(recV) : recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || retopPass.has(q.at.join(',')) || !!skipV(q), stuckStalledOnly: true,
       ...tempStandOf(bot, c, TIDY_PLOT), ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree; tempstand-01
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
-      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) && handedBare(q, rd) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it; litter-01 r1: a handed cut is dug only while nothing stands on it NOW
+      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) && gradeCutOk(q, rd, n => !!effects?.has?.(n)) && handedBare(q, rd) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it; litter-01 r1: a handed cut is dug only while nothing stands on it NOW
       ...(parkish ? { useFor: q => (q.role === 'till' ? hoeUse : q.role === 'meadow' ? mealUse : null), openRole: role => OPEN_ROLES.has(role) } : {}),
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
       ...(GROUNDS.on ? { segOk: crew.segOk, segYield: crew.segYield, skipOpenDeps: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // t11c-01show (b): the grade cells this visit could not reach go behind the rest of the grade order from the next visit on
+    if (gradeOn() && r?.unreached?.length) { try { bot.gradeUnreached = noteUnreached(bot.gradeUnreached, r.unreached, Date.now()) } catch { /* the order as it was */ } }
     // siteprep-01 r5: a prep visit that moved nothing counts toward the attempt's stall backstop (siteprep.mjs prepHoldOf); one that
     // placed or cleared resets it
     // (the open work read AFTER the visit, fresh: helpers filling during it are progress -- Codex r6 BLOCKER)
@@ -30868,7 +30920,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
+    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (tidyTopOn() ? soilPassDone(noSoil(q), read2(...q.at), q) : noSoil(q)) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
     let prog = tidyProgress(rw, read2, progOpts)
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
@@ -30909,7 +30961,11 @@ async function buildTidyVisit (ctx, args, signal) {
     if (GKW_ON && GROUNDS.on && (r.stop === 'complete' || caps.waive)) {
       try {
         const left = tidyLeftKeys(rw, read2, progOpts)
-        const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
+        // (the count's own line is as it was -- gkleft.test pins it -- inside `strikes`, whose `left` is the list it is handed)
+        const strikes = left => { const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' }); return town }
+        // tidytop-01show (Codex r2 BLOCKER 2): a topsoil cell waiting for dirt (passed: no dirt in the bag, or a re-top held for the
+        // dirt) is open work but no strike against the cell -- it is never waived for an empty bag (the town's dirt is the remedy)
+        const town = strikes(tidyTopOn() ? tidyLeftKeys(rw, read2, { ...progOpts, fillDone: q => !!progOpts.fillDone(q) || dirtWait(noSoil(q), retopPass.has(q.at.join(','))) }) : left)
         openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
         const due = caps.waive ? leftWaiveDue(rw, town, left) : []
         // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)
