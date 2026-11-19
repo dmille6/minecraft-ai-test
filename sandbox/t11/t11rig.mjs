@@ -35,7 +35,10 @@ bot.loadPlugin(pathfinder)
 // the world id as the bots' own (index.mjs: the hashed seed). The dimension name here read as another world to the zones file, so every
 // refresh's repair was closed (`st=closed:excl_unread:zones`, runs 19 and 21)
 const { worldIdFromLogin } = await imp('composter.mjs')
-bot._client.on('login', p => { bot.worldId = worldIdFromLogin(p) })
+// run 22: the sandbox's login carries no hashed seed (''), and the town plan's head is keyed by the world id -- the rig world is a
+// copy of the showcase, so its id is the pool's own zones file's `hashed_seed` (the value the showcase bots log in with)
+const POOL_SEED = (() => { try { return String(JSON.parse(fs.readFileSync(path.join(OUT, 'pool', 'protected-zones.json'), 'utf8')).hashed_seed ?? '') } catch { return '' } })()
+bot._client.on('login', p => { bot.worldId = worldIdFromLogin(p) || POOL_SEED })
 await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); setTimeout(() => rej(new Error('no spawn')), 240000) })
 let deaths = 0
 bot.on('death', () => { deaths++; W('events.jsonl', { bot: NAME, t: new Date().toISOString(), death: true }) })
