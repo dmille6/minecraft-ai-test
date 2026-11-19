@@ -720,7 +720,14 @@ def gen_cell_keys(g):
     hit = _GEN_KEYS.get(id(g))
     if hit is not None and hit[0] is g:
         return hit[1]
-    keys = frozenset(ck(c.get('at')) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+    keys = set()
+    for c in g.get('cells') or []:
+        if isinstance(c, dict) and c.get('at'):
+            try:
+                keys.add(ck(c.get('at')))
+            except (TypeError, IndexError, ValueError):
+                continue   # a malformed `at` (Codex r1): the old scan raised only when it reached one; it never equals a cell
+    keys = frozenset(keys)
     _GEN_KEYS[id(g)] = (g, keys)
     return keys
 
@@ -2253,6 +2260,7 @@ def selftest():
     g_own = {'cells': [{'at': [1, 2, 3]}]}
     _GEN_KEYS[id(g_own)] = ({'cells': []}, frozenset(['9,9,9']))   # a stale entry under the same id (a freed generation's)
     assert gen_cell_keys(g_own) == {'1,2,3'} and tidy_place_ok([g_own], [1, 2, 3], None) and not tidy_place_ok([g_own], [9, 9, 9], None)
+    assert tidy_place_ok([{'cells': [{'at': [1, 2, 3]}, {'at': [4]}, {'at': 'x'}]}], [1, 2, 3], None), 'a malformed cell is skipped, not a crash'
     g_late = {'at': 10_000_000, 'cells': [{'at': [7, 7, 7]}]}
     assert tidy_place_ok([g_own, g_late], [7, 7, 7], None) and not tidy_place_ok([g_own, g_late], [7, 7, 7], 0), 'every generation in force is asked'
     # country-01 (CO1): the countryside's own chain, judged by the tidy's rules -- a stage-1 cut read after the head moved on, a fill of an

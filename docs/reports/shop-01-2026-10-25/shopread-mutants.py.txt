@@ -317,7 +317,7 @@ M = [
  ("    return [g for plot in GROUNDS_PLOTS for g in tidy_heads_at(project_of(pr, plot).get('chain') or [], t_ms, skew_ms)]", "    return tidy_heads_at(project_of(pr, TIDY).get('chain') or [], t_ms, skew_ms)"),
  # placeok-01: the per-generation key cache (identity-checked; same filter; every generation in force asked)
  ("    if hit is not None and hit[0] is g:\n", "    if hit is not None:\n"),
- ("if isinstance(c, dict) and c.get('at'))\n    _GEN_KEYS", "if isinstance(c, dict))\n    _GEN_KEYS"),
+ ("            except (TypeError, IndexError, ValueError):\n                continue   # a malformed", "            except ZeroDivisionError:\n                continue   # a malformed"),
  ("        if ck(cell) in gen_cell_keys(g):\n", "        if ck(cell) in gen_cell_keys(chain[0]):\n"),
  # upkeep-01 (UK1): the upkeep's job list judged as a sink's growing chain
  ("SINK_PLOTS = SINK_PLOTS + ('upkeep',)\n", ""),
