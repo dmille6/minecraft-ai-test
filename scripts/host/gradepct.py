@@ -199,7 +199,20 @@ def newest_tidy(pool):
     return json.load(open(max(fs, key=lambda f: int(re.search(r'\.g(\d+)\.json$', f).group(1))))) if fs else None
 
 
-def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=175, steps_floor=30, grey_max=39):
+def deferred_cols(plan, H, blk, cols):
+    """The columns the grade DEFERS (gradetidy.mjs GRADE.hollow 1: a hollow deeper than the target cell under a crust) -> set. Read
+    from the world alone, never the survey: ground above the target, and air AT the target and the cell below it."""
+    out = set()
+    for c in cols:
+        if c not in H:
+            continue
+        y = plan.at(*c)[0]
+        if H[c] > y and blk(c[0], y, c[1]) in AIRY and blk(c[0], y - 1, c[1]) in AIRY:
+            out.add(c)
+    return out
+
+
+def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=None, steps_floor=30, grey_max=39, deferred=frozenset(), keep_share=0.95):
     """THE RELEASE-1 READ (control 11-18), each criterion with its count and its verdict. Pure.
        owned   the gate's columns no other record (paths, decor, dress) names: the denominator
        keep    owned columns at target height with an earth top >= `keep`
@@ -219,14 +232,21 @@ def criteria(plan, H, TOP, others=frozenset(), rec=None, keep=175, steps_floor=3
             if n in H and plan.at(*n)[1] in GROUND_CLS and abs(H[c] - H[n]) >= 2:
                 pairs.add(tuple(sorted((c, n))))
     grey = [c for c in gate if c in H and H[c] == plan.at(*c)[0] and TOP[c] in GREY]
+    import math
     others_g = [c for c in gate if c in others]
+    deferred_owned = [c for c in owned if c in deferred]
+    others_ok_n = sum(1 for c in others_g if c in H and H[c] == plan.at(*c)[0] and TOP[c] in EARTH)
+    den = len(gate) - (len(others_g) - others_ok_n)
+    need = keep if keep is not None else math.ceil(keep_share * (den - len(deferred_owned)))
     others_ok = [c for c in others_g if c in H and H[c] == plan.at(*c)[0] and TOP[c] in EARTH]
     out = {'owned': len(owned), 'others_in_gate': len(others_g), 'others_ok': len(others_ok),
            'gate_ok': len(ok) + len(others_ok), 'gate': len(gate), 'unread': len(unread),
            # the KEEP denominator: the gate less the other records' columns NOT at grade (theirs, never the grade's to fix); the other
            # records' columns already at grade stay in it on both sides (a path at its height with its dirt_path is a graded column)
-           'keep': {'count': len(ok) + len(others_ok), 'of': len(gate) - (len(others_g) - len(others_ok)), 'grade_owned_ok': len(ok), 'grade_owned': len(owned),
-                    'need': keep, 'pass': len(ok) + len(others_ok) >= keep and not unread},
+           # control 11-18 (on d80208101): the bar is ceil(95% of (the denominator less the DEFERRED columns)), unless `keep` is given
+           'deferred': len(deferred_owned),
+           'keep': {'count': len(ok) + len(others_ok), 'of': den, 'deferred': len(deferred_owned), 'grade_owned_ok': len(ok), 'grade_owned': len(owned),
+                    'need': need, 'pass': len(ok) + len(others_ok) >= need and not unread},
            'steps': {'count': len(pairs), 'floor': steps_floor, 'pass': len(pairs) <= steps_floor},
            'grey': {'count': len(grey), 'max': grey_max, 'pass': len(grey) <= grey_max}}
     if rec is not None:
@@ -244,7 +264,7 @@ def main(argv=None):
     ap.add_argument('--before', help='an earlier run\'s --out (its heights)')
     ap.add_argument('--out')
     ap.add_argument('--tlregion', default=None)
-    ap.add_argument('--keep', type=int, default=175, help='the KEEP count (control 11-18: 175 of 185)')
+    ap.add_argument('--keep', type=int, default=None, help='a fixed KEEP count; default ceil(95%% of (185 less the deferred columns))')
     ap.add_argument('--steps', type=int, default=30, help='2+ step pairs touching the gate, at most (control 11-18: 30)')
     ap.add_argument('--pool', help='a pool copy: the paths/decor/dress records (the criteria\'s owned columns) and the newest tidy record')
     ap.add_argument('--y0', type=int, default=50)
@@ -272,7 +292,14 @@ def main(argv=None):
     m = measure(plan, H, TOP, before)
     m['control']['missing_chunks'] = len(d.get('missing') or [])
     if a.pool and plan.gate:
-        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep, steps_floor=a.steps)
+        names = [short(p) for p in d['palette']]
+        nx, nz = x1 - x0 + 1, z1 - z0 + 1
+        def blk(x, y, z):
+            if not (x0 <= x <= x1 and z0 <= z <= z1 and a.y0 <= y <= a.y1):
+                return '?'
+            return names[d['cells'][(x - x0) + nx * ((z - z0) + nz * (y - a.y0))]]
+        gate_g = [c for c in plan.gate if plan.at(*c)[1] in GROUND_CLS]
+        m['criteria'] = criteria(plan, H, TOP, owned_by_others(a.pool), newest_tidy(a.pool), keep=a.keep, steps_floor=a.steps, deferred=deferred_cols(plan, H, blk, gate_g))
     if a.out:
         json.dump(m, open(a.out, 'w'))
     show = {k: v for k, v in m.items() if k != 'heights'}

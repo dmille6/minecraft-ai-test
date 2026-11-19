@@ -15,7 +15,9 @@
 // pits, pillars, rough ground, regrade -- stay out of it, `cols`). GRADE=off: no grade (the survey as before).
 // A LEAF but for tidy.mjs's column reader and cut rule (passed in: no import cycle).
 
-export const GRADE = Object.freeze({ file: 'grade-target.json', above: 16, below: 16, hollow: 4 })
+// control 11-18 (option b, on d80208101): hollow 4 -> 1 -- a hollow deeper than the target cell itself is DEFERRED (`hollow_deep`):
+// its crust is left alone (rig run 10: 53 hollow fills under dug crusts, unreached, 2+ steps 30 -> 54). A reach check is a later piece.
+export const GRADE = Object.freeze({ file: 'grade-target.json', above: 16, below: 16, hollow: 1 })
 export const gradeOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.GRADE ?? '').trim())
 /** THE PROCESS'S TARGET SOURCE (skills.mjs sets it once: the pool's grade-target.json) -> { t } | null. tidy.mjs siteStage's default
  *  `grade`; unset or throwing: null (the survey as before). */

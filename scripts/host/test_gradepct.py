@@ -87,6 +87,15 @@ def run(GP, GT):
     check('an unknown class is not ground', (1, -21) not in set(p3.ground()))
     # the release-1 criteria: owned = gate less the other records' columns; keep, steps, grey, outside
     cr = GP.criteria(p, H, TOP, others={(11, -27)}, rec={'cells': [{'at': [0, 69, -30], 'grade': True}], 'cut': []}, keep=6, steps_floor=0, grey_max=0)
+    # deferred: a crust over a 2-deep hollow; the bar is ceil(95% of (denominator - deferred))
+    blk = lambda x, y, z: 'air' if (x, z) == (9, -26) and y in (68, 69) else 'stone'
+    Hd = dict(H); Hd[(9, -26)] = 70
+    dfr = GP.deferred_cols(p, Hd, blk, list(p.gate))
+    check('deferred: the column over a 2-deep hollow, read from the world', dfr == {(9, -26)})
+    blk1 = lambda x, y, z: 'air' if (x, z) == (9, -26) and y == 69 else 'stone'
+    check('a 1-deep hollow (the target cell alone) is not deferred: the grade fills it', GP.deferred_cols(p, Hd, blk1, list(p.gate)) == set())
+    cr2 = GP.criteria(p, Hd, TOP, deferred=dfr)
+    check('the bar: ceil(0.95 * (9 - 1)) = 8', cr2['keep']['need'] == 8 and cr2['deferred'] == 1)
     check('criteria: owned 8 of 9 (one is another record\'s, at grade: it stays in the keep on both sides), keep 7 of 9', cr['owned'] == 8 and cr['keep']['count'] == 7 and cr['keep']['of'] == 9 and cr['keep']['grade_owned_ok'] == 6)
     check('criteria: the grey top at height is counted against its max', cr['grey']['count'] == 1 and not cr['grey']['pass'])
     check('criteria: a grade cell outside the gate fails', cr['outside']['count'] == 1 and not cr['outside']['pass'])
@@ -109,6 +118,7 @@ def main():
         ('gradepct.py', "    if not read:\n        raise ReadFailed(", "    if False:\n        raise ReadFailed(", 'the read control'),
         ('gradepct.py', "                'grade_pct': round(100.0 * len(ok) / len(allc), 1) if allc else None,", "                'grade_pct': round(100.0 * len(ok) / len(cols), 1) if cols else None,", 'the unread in the denominator'),
         ('gradepct.py', "    owned = sorted(c for c in gate if c not in others)", "    owned = sorted(gate)", 'the owned denominator'),
+        ('gradepct.py', "        if H[c] > y and blk(c[0], y, c[1]) in AIRY and blk(c[0], y - 1, c[1]) in AIRY:", "        if H[c] > y and blk(c[0], y, c[1]) in AIRY:", 'the deferred depth'),
         ('gradetarget.py', "            if n not in run and at(*n) == (y, 't'):\n", "            if n not in run and at(*n)[1] == 't':\n", 'the height in the flood'),
     ]:
         src = open(os.path.join(HERE, f)).read()

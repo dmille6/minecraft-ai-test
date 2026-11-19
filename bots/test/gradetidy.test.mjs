@@ -96,11 +96,14 @@ await t('gradeColumn: never half a column -- a tree, a built block, water beside
 })
 
 await t('gradeColumn: a crust over a hollow -> the crust cut, the hollow filled from its floor; too deep -> left; a canopy is no tree', () => {
-  // grass at G+1 over air at G and G-1, stone at G-2 (the bots' layered spoil; replay of T11 11-18: 30 such columns)
-  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air', [`0,${G - 1},0`]: 'air' })
+  // grass at G+1 over air at G, stone under it (the bots' layered spoil; replay of T11 11-18: 30 such columns)
+  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air' })
   const w = GT.gradeColumn(srv.read, 0, 0, G, deps(srv.read))
   assert.deepStrictEqual(w.cut.map(c => c.at[1]), [G + 1])
-  assert.deepStrictEqual(w.fill.map(f => ({ at: f.at, role: f.role })), [{ at: [0, G - 1, 0], role: 'earth' }, { at: [0, G, 0], role: 'topsoil' }])
+  assert.deepStrictEqual(w.fill.map(f => ({ at: f.at, role: f.role })), [{ at: [0, G, 0], role: 'topsoil' }])
+  // control 11-18 (option b): a hollow 2 deep is DEFERRED -- its crust is left alone
+  srv.set([3, G + 1, 0], 'grass_block'); srv.set([3, G, 0], 'air'); srv.set([3, G - 1, 0], 'air')
+  assert.strictEqual(GT.gradeColumn(srv.read, 3, 0, G, deps(srv.read)).why, 'hollow_deep')
   for (let y = G - 6; y <= G; y++) srv.set([1, y, 0], 'air'); srv.set([1, G + 1, 0], 'dirt')
   assert.strictEqual(GT.gradeColumn(srv.read, 1, 0, G, deps(srv.read)).why, 'hollow_deep')
   // leaves over the column are not a trunk: the cobblestone top under them is re-topped
@@ -229,13 +232,13 @@ await t('BLOCKER 1: a reserved column (keepOff: landmark, hold, lawn) is never g
   assert.ok(/gw = gradeSurvey\(read, grade\.t, \{ home, avoid: keepOff,/.test(strip(readFileSync(P('tidy.mjs'), 'utf8'))), 'the survey\'s own keepOff, reservations first')
 })
 await t('BLOCKER 2: a crust over a hollow: the cuts carry the hollow, the hollow cells name their opener (never waived)', () => {
-  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air', [`0,${G - 1},0`]: 'air' })
+  const srv = server({ [`0,${G + 1},0`]: 'grass_block', [`0,${G},0`]: 'air' })
   const w = GT.gradeColumn(srv.read, 0, 0, G, deps(srv.read))
-  assert.deepStrictEqual(w.cut[0].hollow, [[0, G - 1, 0], [0, G, 0]])
+  assert.deepStrictEqual(w.cut[0].hollow, [[0, G, 0]])
   assert.ok(w.fill.every(f => JSON.stringify(f.opener) === JSON.stringify([0, G + 1, 0])))
   const g = GT.gradeTarget(plan({ gate: [[0, 0]] }))
   const { rec } = site(srv, { t: g.t })
-  assert.ok(rec.cells.filter(c => c.grade).every(c => Array.isArray(c.opener)) && rec.cut.find(c => c.grade).hollow.length === 2, 'the record keeps both')
+  assert.ok(rec.cells.filter(c => c.grade).every(c => Array.isArray(c.opener)) && rec.cut.find(c => c.grade).hollow.length === 1, 'the record keeps both')
 })
 await t('BLOCKER 3: a changed or withdrawn target takes the open grade work off; finished work stays; the same plan keeps all', () => {
   const rec = { grade_v: 'A', cells: [{ at: [1, G, 1], grade: true }, { at: [2, G, 1], grade: true }, { at: [3, G, 1] }], cut: [{ at: [1, G + 1, 1], grade: true }], waived: { [`2,${G},1`]: {} } }
