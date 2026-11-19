@@ -150,6 +150,16 @@ await t('THE CHAIN (decor-like, through skills.mjs\'s own ask): a fresh want ord
   assert.equal(K._indexfetch.fetchAsk({ now: Date.now(), plot: 'decor' }), null)
   S.setFetchAsk(null)
 })
+await t('A PENDING FETCH GOES BEFORE THE IDLE-WORK ASKS (Codex r1): a short draw\'s no_material is buildIdle, yet the bot fetches instead of leaving on an expedition', () => {
+  S.setExpeditionAsk(() => ({ ok: true, phase: 'trip' }))
+  try {
+    const base = { on: true, shared: true, atTown: true, planned: true, record: { plot: 'decor', structure_complete: false }, freeSlots: 20 }
+    S.setFetchAsk(() => ({ order: { skill: 'build_shop', args: { indexFetch: true, plot: 'decor' } } }))
+    assert.deepEqual(S.buildOrder({ ...base, now: NOW + 60_000, state: { lastStop: 'no_material', lastAt: NOW } }).order.args, { indexFetch: true, plot: 'decor' })
+    S.setFetchAsk(() => null)
+    assert.deepEqual(S.buildOrder({ ...base, now: NOW + 60_000, state: { lastStop: 'no_material', lastAt: NOW } }).order.args, { expedition: true, phase: 'trip' }, 'no want: the expedition as before')
+  } finally { S.setExpeditionAsk(null); S.setFetchAsk(null) }
+})
 await t('A STALE INDEX: the far chest the index says holds 116 shows 0 -> a miss, its entry corrected, never retried in the trip; the item backs off (no loop)', async () => {
   const w = town({ [MID]: { index: { torch: 116 }, real: {} }, [FAR]: { index: { torch: 3 }, real: { torch: 3 } } })
   const r = await F.runFetchTrip({ items: { torch: 7 }, plan: w.plan([0, 64, 0]), ops: w.ops, deadline: NOW + F.FETCH.tripMs })
@@ -255,7 +265,7 @@ await t('MUTANT KILLED: the allowance not consulted (a trip for reserved stock)'
   }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
 })
 await t('MUTANT KILLED: the order\'s fetch ask not wired (the want waits out the cooldown)', async () => {
-  await withMutant(S_PATH, '    if (fa?.order) return { order: fa.order, skip: null }\n    fetchFree', '    fetchFree', async m => {
+  await withMutant(S_PATH, '      if (fa?.order) return { order: fa.order, skip: null }\n      fetchFree', '      fetchFree', async m => {
     m.setFetchAsk(() => ({ order: { skill: 'build_shop', args: { indexFetch: true, plot: 'stepwell' } } }))
     const base = { on: true, shared: true, atTown: true, planned: true, record: { plot: 'stepwell', structure_complete: false }, freeSlots: 20 }
     assert.deepEqual(m.buildOrder({ ...base, now: NOW + 60_000, state: { lastAt: NOW } }).order?.args, { indexFetch: true, plot: 'stepwell' }, 'killed')
@@ -278,9 +288,14 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
     'if (INDEXFETCH.on) setFetchAsk(fetchAsk)',
     'diag.ix = opened.ix ?? null',
     'bot.indexFetchBackoff = fetchBackoff(bot.indexFetchBackoff ?? new Map(), w.items, r.found)',
-    'if (resume) return buildShop(ctx, {}, signal, t0)',
+    "if (got) { bot.indexFetchWant = { state: 'build', plot, items: {}, at: Date.now() };",
     "if (!townIndexEntries(bot)) { row(null, 'stop', 'unreadable');",
+    "if (why === 'aborted') { fetchSettle(bot, w, plot, r, held0, 'stop', row); throw e }",
+    'for (const [k, c] of Object.entries(v?.took ?? {})) if (Number(c) > 0) sofar[k] = (sofar[k] ?? 0) + Number(c)',
   ]) assert.ok(src.includes(line), `missing: ${line}`)
+  // Codex r1 BLOCKER 2: the trip's one-container visit never skips the container itself (its retry would be filtered out)
+  const body = src.slice(src.indexOf('async function fetchVisitOne'), src.indexOf('async function indexFetchVisit'))
+  assert.ok(body.length > 200 && !body.includes('searchFailSkip('), 'fetchVisitOne calls searchFailSkip')
 })
 
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
