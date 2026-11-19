@@ -99,6 +99,10 @@ const scenB = ({ fc = FC, td = TD, gkw = GKW } = {}) => {
   assert.ok(r.rec.cells.filter(c => c.opener).every(c => c.hollowDeep === 5), 'the column\'s opener cells are a deep hollow')
   // the crust is left alone: nothing cut, nothing added over it
   assert.deepStrictEqual(r.rec.cut, [])
+  // ...and a crust cut still pending leaves the record with the column (Codex r1): it can never be dug after its fills are waived
+  const pend = recOf(); pend.cut = [{ at: OPENER, kind: 'tidy', name: 'grass_block' }, { at: [5, 70, 5], kind: 'tidy', name: 'stone' }]
+  const rp = fc.hollowFloor(pend, read, { done: doneOf(read), now: 6 })
+  assert.deepStrictEqual(rp.rec.cut.map(q => q.at.join(',')), ['5,70,5'], 'the opener cut retired, the other kept')
   // the refusal chain: still nothing lays it, and now the waivers may take it
   assert.deepStrictEqual(layAll(r.rec, cells).left, ['-33,68,-12'])
   assert.deepStrictEqual(td.gkWaivable(r.rec, [{ k: '-33,68,-12' }]).map(d => d.k), ['-33,68,-12'], 'the keeper\'s waiver may take it')
@@ -123,6 +127,7 @@ await t('the bounds: exactly 4 of air is (a); water, a record cell or an unread 
 
 await kills('(a) the floor\'s cells never added', 'fillcolumn.mjs', '    if (floor && gap.length && gap.length <= T.hollowMax) {', '    if (false) {', scenA)
 await kills('(b) the deep mark never set', 'fillcolumn.mjs', '      deepCols.add(k)\n', '\n', M => scenB({ fc: M }))
+await kills('(b) the opener cut kept', 'fillcolumn.mjs', '  const cut = retire.size ? (rec.cut ?? []).filter(q => !(Array.isArray(q?.at) && retire.has(kOf(q.at)))) : rec.cut\n', '  const cut = rec.cut\n', M => scenB({ fc: M }))
 await kills('(b) gkWaivable keeps every opener cell again', 'tidy.mjs', '(!c.opener || c.hollowDeep) && !c.prev', '!c.opener && !c.prev', M => scenB({ td: M }))
 await kills('(b) stallWaive keeps every opener cell again', 'gkwork.mjs', "c.role !== 'light' && (!c.opener || c.hollowDeep)", "c.role !== 'light' && !c.opener", M => scenB({ gkw: M }))
 
