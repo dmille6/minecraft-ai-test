@@ -15016,11 +15016,16 @@ function fetchPeakWatch (bot) {
   try {
     if (bot.indexFetchPeakOn) return
     bot.indexFetchPeakOn = true
-    bot.inventory?.on?.('updateSlot', () => {
+    // SAMPLED AFTER THE BATCH (Codex r5 BLOCKER): a window_items / copyInventory pass updates slot by slot, so a stack moved between
+    // slots is counted twice mid-pass; the count is read once the synchronous pass is over (setImmediate), never mid-pass
+    let queued = false
+    const sample = () => {
+      queued = false
       const w = bot.indexFetchWant
       if (!w || w.state !== 'fetch' || !w.peak) return
       try { const h = heldMap(bot); for (const n of Object.keys(w.items ?? {})) w.peak[n] = Math.max(w.peak[n] ?? 0, Number(h[n]) || 0) } catch { /* the peak as it was */ }
-    })
+    }
+    bot.inventory?.on?.('updateSlot', () => { if (!queued) { queued = true; setImmediate(sample) } })
   } catch { /* no peak: the bag now is read at the trip */ }
 }
 /** THE ORDER'S ASK (shop.mjs setFetchAsk) -> { order } | { cooldownFree } | null. Reads only (the look stamps nothing). */
@@ -15150,7 +15155,7 @@ function fetchSettle (bot, w, plot, r, held0, then, row) {
   row(r, then ?? (got ? 'next_visit' : 'stop'), r.outcome === 'aborted' || r.outcome === 'error' ? r.outcome : null)
   return got
 }
-export const _indexfetch = Object.freeze({ indexFetchNote, fetchAsk, indexFetchVisit, fetchPlanNow })
+export const _indexfetch = Object.freeze({ indexFetchNote, fetchAsk, indexFetchVisit, fetchPlanNow, fetchPeakWatch })
 
 /**
  * ONE FURNACE SESSION ON PLANKS ONLY (design 3.2 step 4; the existing `smelt` is not reused: its chooseFuel ranks coal and
