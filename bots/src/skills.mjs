@@ -30064,8 +30064,6 @@ function fcKeepInputs (bot, h, dir = townDir()) {
   const I = tidyInputs(bot, c, h, dir, { report })
   return { c, I, report }
 }
-/** t11reach2-01show: a grade cut whose dug block drops dirt (the remedy for a cap held for want of dirt). */
-const CUT_PAYS_DIRT = /^(grass_block|dirt)$/
 /** t11reach2-01show: the build draw itself, for its behaviour test (test/drawzero.test.mjs). */
 export const _draw = Object.freeze({ matsWithdraw })
 export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport, plainInputs: (bot, h, dir = townDir()) => { const c = shopCtx(bot); return { c, I: tidyInputs(bot, c, h, dir) } } })
@@ -30793,8 +30791,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
     // control 11-18 (gradetidy.mjs gradeCutsHeld): a grade cut that would expose stone waits while its column's earth cap is held
-    // t11reach2-01show THE REMEDY: in the gate, a held column's grass or dirt cut is dug -- it drops the dirt its cap waits on
-    const capHeld = capHeldCols(tidyCuts(rec, read, mem), read, retopPass, visitRec.cells, rec.waived, inGate ? { pays: q => inGate(q) && CUT_PAYS_DIRT.test(String(read(...q.at)?.name ?? '').replace(/^minecraft:/, '')) } : {})
+    const capHeld = capHeldCols(tidyCuts(rec, read, mem), read, retopPass, visitRec.cells, rec.waived)
     const cutHeld = gradeOn() ? gradeCutsHeld(tidyCuts(rec, read, mem), read, capHeld) : new Set()
     for (const k of lawnPaused) cutHeld.add(k)
     const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !cutHeld.has(q.at.join(',')) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up

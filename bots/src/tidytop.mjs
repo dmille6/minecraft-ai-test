@@ -129,6 +129,14 @@ export function retopHeld (cells, read, dirt = 0, { waived = null, open = openFi
   if (typeof gate !== 'function') return retopHeldBase(cells, read, dirt, { waived, open })
   const isG = c => !!c?.retop && c.role === 'topsoil' && Array.isArray(c.at) && !c.prev && !hasOwn(waived, kOf(c.at)) && !!gate(c)
   let d = Math.max(0, Math.floor(Number(dirt) || 0))
+  // Codex r6 BLOCKER 1: a gate re-top's SEGMENT is worked in one pass, and its other open earth cells may take the dirt before the
+  // re-top is laid (a re-top dug and then starved is a hole) -- so those cells' dirt is set aside first, as the base does town-wide
+  const gSegs = new Set((cells ?? []).filter(isG).map(c => c.seg))
+  for (const c of cells ?? []) {
+    if (isG(c) || !gSegs.has(c?.seg) || !Array.isArray(c?.at) || c.prev || !COLUMN_ROLES.has(c.role) || hasOwn(waived, kOf(c.at))) continue
+    if (c.retop && c.role === 'topsoil' && !AIRY.test(nm(read(...c.at))) && !SOIL_NEAR.test(nm(read(...c.at)))) { d = Math.max(0, d - 1); continue }
+    if (open(c, read)) d = Math.max(0, d - 1)
+  }
   const held = new Set()
   for (const c of cells ?? []) {
     if (!isG(c)) continue
