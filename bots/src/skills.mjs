@@ -169,7 +169,7 @@ import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodKitStillMs, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownExtra, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
-import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
+import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges, stockZero } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
@@ -14715,8 +14715,17 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
   }
   const pc = passClock(deadline, reserveMs)
   const tried = new Set()
-  const want = () => Object.values(left).some(n => n > 0)
-  const nextOf = () => (firsts.length ? { block: firsts.shift(), first: true } : townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried))
+  // t11reach2-01show (rig run 25): A KIND THE READABLE INDEX SHOWS AT 0 IN EVERY CONTAINER IS NOT SEARCHED FOR (indexsearch2.mjs
+  // stockZero) -- the visit keeps its clock for the work it can do (cuts, which yield dirt; fills from the bag). It stays short
+  // (`out.short`, the refill job, the bag row). An unreadable or unknown index: today's search. A `skip_zero_stock` row names it
+  const zero = new Set()
+  if (INDEXSEARCH2.on && !firsts.length) {
+    try { const ents = townIndexEntries(bot); for (const n of Object.keys(left)) if (left[n] > 0 && stockZero(ents, n)) zero.add(n) } catch { zero.clear() }
+    if (zero.size) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: `op=skip_zero_stock why=${why} kinds=${[...zero].join('+')} n=${[...zero].map(n => left[n]).join('+')}` }) } catch { /* telemetry */ } }
+  }
+  const searchable = () => Object.keys(left).filter(n => left[n] > 0 && !zero.has(n))
+  const want = () => searchable().length > 0
+  const nextOf = () => (firsts.length ? { block: firsts.shift(), first: true } : !want() ? { block: null } : townSearchNext(bot, searchable(), tried))
   let next = nextOf()
   // drawshort-01show (sandbox2 11-18, civicH's roof: tried=12 short=spruce_stairs:24 with 132 in the index): the twelve visits went to the
   // near containers for the bill's other names; a name the town's index still stocks gets WITHDRAW_SHORT_EXTRA more, for it alone
@@ -14744,7 +14753,8 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     if (curFirst) out.fromFirst = (out.fromFirst ?? 0) + Object.values(got).reduce((a, b) => a + b, 0)
     next = nextOf()
   }
-  out.short = want()
+  out.short = Object.values(left).some(n => n > 0)
+  if (zero.size) out.zero = [...zero]
   // drawshort-01show: the visit's draw, kept for its `_build_bag` row (every build draw of this visit, merged)
   if (why === 'build') {
     const d = (bot.drawLog ??= { need: {}, tried: [], short: {} })
@@ -30045,6 +30055,8 @@ function fcKeepInputs (bot, h, dir = townDir()) {
   const I = tidyInputs(bot, c, h, dir, { report })
   return { c, I, report }
 }
+/** t11reach2-01show: the build draw itself, for its behaviour test (test/drawzero.test.mjs). */
+export const _draw = Object.freeze({ matsWithdraw })
 export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport, plainInputs: (bot, h, dir = townDir()) => { const c = shopCtx(bot); return { c, I: tidyInputs(bot, c, h, dir) } } })
 /** GRADETIDY-01show: the pool's published ground plan (gradetidy.mjs gradeTarget over <pool>/grade-target.json) -> { t, why } | null,
  *  re-read when the file changes; one `_grade_mode` row a change (v, gate, why). GRADE=off or no file: null (the survey as before). */
@@ -30380,6 +30392,7 @@ async function buildUpkeep (ctx, args, signal) {
 async function buildTidyVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
+  bot.drawLog = null   // t11reach2-01show: this visit's draw only (as buildShopVisitRun; the tidy's bag row summed every visit's)
   // grounds-03: a fall-through's grounds visit starts late in the skill -- its budget is what the skill's clock has left (`used`)
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Number(bot.groundsPick?.used) || 0)
   // country-01: the visit's LANE picks the record chain (the inside's tidy, or the country's); every row names it

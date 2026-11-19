@@ -50,6 +50,7 @@ const REQUIRED = [
   'bots/src/gradetidy.mjs',
   'bots/test/gradetidy.test.mjs',
   'bots/test/hollowfloor.test.mjs',
+  'bots/test/drawzero.test.mjs',
   'bots/test/fixtures/hollow-t11-33_68_-12.json',
   // vegclear-01show (11-19): wild vegetation in an open record cell is dug, never a design's own plant cell
   'bots/test/vegclear.test.mjs',

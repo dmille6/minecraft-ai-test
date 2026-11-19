@@ -88,6 +88,27 @@ export function needLacks (need, names = {}, { exact = false } = {}) {
 }
 /** drawshort-01show: what a plain item name looks like (namespaced ids are written without `minecraft:` here). */
 const ITEM_NAME_RE = /^[a-z0-9_]+$/
+/**
+ * T11REACH2-01show (rig run 25: two of three bots placed nothing -- every visit's draw opened the town's containers for dirt, ~14
+ * a visit, while the index showed 0 dirt in all 35, and the visit ran out its clock walking to them). DOES THE INDEX SHOW NONE OF
+ * `name` IN EVERY CONTAINER IT KNOWS? -> bool. Pure. True only when the index is readable and non-empty, `name` is a plain item
+ * name, and EVERY entry has an observation that is not under a mutation (`known`, or `stale`: an entry nobody has opened or put
+ * into for 6 h -- every bot open and deposit writes it -- still says what is in it) holding none of it. An unknown or dirty entry,
+ * an observation from the future, or no index at all: false (today's search).
+ */
+export function stockZero (entries, name, { now = Date.now() } = {}) {
+  if (!entries || typeof entries !== 'object' || typeof name !== 'string' || !ITEM_NAME_RE.test(name)) return false
+  const es = Object.values(entries)
+  if (!es.length) return false
+  for (const e of es) {
+    const st = indexStateOf(e, now)
+    if (st !== 'known' && st !== 'stale') return false
+    const at = Number(e.obs?.at)
+    if (!Number.isFinite(at) || at > now + INDEX_FUTURE_SLACK_MS) return false
+    if (heldOf(e.obs.names ?? {}, n => n === name) > 0) return false
+  }
+  return true
+}
 /** Can the index judge every one of these needs? Pure. */
 export const indexJudges = (needs = [], { exact = false } = {}) => Array.isArray(needs) && needs.length > 0 && needs.every(n => needLacks(n, {}, { exact }) != null)
 
