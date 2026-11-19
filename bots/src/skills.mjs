@@ -310,7 +310,7 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, set
 setBagDraw(() => activeMem?.bot?.drawLog ?? null)
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setFetchAsk } from './shop.mjs'   // indexfetch-01show: the short draw's fetch trip
-import { FETCH as INDEXFETCH, fetchStillWanted, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexFetchDistDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
+import { FETCH as INDEXFETCH, fetchStillWanted, fetchAllowed, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexFetchDistDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
@@ -14979,6 +14979,12 @@ function fetchAllows (bot, allow, reserve, stock) {
     return allow(n, here[n] ?? 0, { others, here, reserve, taking: matsTaking(bot, n) })
   }
 }
+/** The want's per-item allowance on the index's counts (fetchAllows with each item's own draw policy). */
+function fetchPolAllows (bot, w) {
+  let stock = {}
+  try { stock = matsTownStock(bot)?.stock ?? {} } catch { stock = {} }
+  return (n, t) => { const p = w?.pol?.[n]; return p ? fetchAllows(bot, p.allow, p.reserve, stock)(n, t) : 0 }
+}
 /** A SHORT BUILD DRAW -> the fetch want it notes on the bot ({ item: n }) or null. Never throws. */
 function indexFetchNote (bot, left, allow, reserve, now = Date.now()) {
   try {
@@ -15102,14 +15108,15 @@ async function indexFetchVisit (ctx, args, signal) {
   // the trip's first plan and where it began: the `op=dist` row's (a refused, unreached or capped trip)
   const from = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null
   let plan0 = []
-  try { plan0 = fetchPlanNow(bot, w.items) } catch { plan0 = [] }
+  try { plan0 = fetchAllowed(fetchPlanNow(bot, w.items), fetchPolAllows(bot, w)) } catch { plan0 = [] }
   // every verified take is counted as it lands (Codex r1 BLOCKER 4): a throw or an abort later in the trip keeps what was fetched
   const sofar = {}, tried = []
   let r = null, why = null
   try {
     r = await runFetchTrip({
       items: w.items,
-      plan: (short, exclude) => fetchPlanNow(bot, short, exclude),
+      // only the containers where each item's own allowance lets something go (rig run 7: the hall's chests under the torch reserve)
+      plan: (short, exclude) => fetchAllowed(fetchPlanNow(bot, short, exclude), fetchPolAllows(bot, w)),
       ops: {
         now: () => Date.now(),
         visit: async (tg, o) => {
