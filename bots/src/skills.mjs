@@ -303,7 +303,7 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, set
 setBagDraw(() => activeMem?.bot?.drawLog ?? null)
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setFetchAsk } from './shop.mjs'   // indexfetch-01show: the short draw's fetch trip
-import { FETCH as INDEXFETCH, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
+import { FETCH as INDEXFETCH, fetchStillWanted, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
@@ -14839,8 +14839,12 @@ function indexFetchNote (bot, left, allow, reserve, now = Date.now()) {
     // EACH ITEM KEEPS THE ALLOWANCE OF THE DRAW THAT WANTED IT (Codex r2 BLOCKER 2: a decorator visit's shears iron and its nursery's
     // bone meal are judged by different rules)
     const pol = same ? { ...(prev.pol ?? {}) } : {}
-    for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve } }
-    bot.indexFetchWant = { state: 'fetch', plot, items: merged, pol, at: now }
+    // the bag's count of each item as the want is noted: the trip asks only for what the bag has not gained since (Codex r3 BLOCKER: the
+    // same visit may still craft or draw it -- the planks from logs, the wood parts)
+    const held = heldMap(bot)
+    const bag0 = same ? { ...(prev.bag0 ?? {}) } : {}
+    for (const [n, c] of Object.entries(items)) { merged[n] = Math.max(merged[n] ?? 0, c); pol[n] = { allow, reserve }; if (!(n in bag0)) bag0[n] = Number(held[n]) || 0 }
+    bot.indexFetchWant = { state: 'fetch', plot, items: merged, pol, bag0, at: now }
     try { logEvent({ kind: 'index_fetch', status: 'success', snapshot: snapshot(bot), detail: indexWantDetail({ plot, items, targets: targets.length, near: targets[0]?.k ?? '-' }) }) } catch { /* telemetry */ }
     return items
   } catch { return null }
@@ -14907,6 +14911,8 @@ async function indexFetchVisit (ctx, args, signal) {
   bot.indexFetchWant = null
   const plot = w?.plot ?? args?.plot ?? null
   const row = (r, then, why = null, items = w?.items ?? {}) => { try { logEvent({ kind: 'index_fetch', status: Object.values(r?.found ?? {}).some(c => c > 0) ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: indexFetchDetail({ plot, items, r, then, why }) }) } catch { /* telemetry */ } }
+  // THE WANT RECONCILED WITH THE BAG NOW (Codex r3 BLOCKER): what the bag gained of an item since the want was noted comes off it
+  if (w?.state === 'fetch') w.items = fetchStillWanted(w.items, w.bag0, heldMap(bot))
   if (!w || w.state !== 'fetch' || !Object.keys(w.items ?? {}).length) { row(null, 'stop', 'no_want'); return { status: 'no_effect', stop: 'index_fetch_none', detail: 'no fetch was wanted' } }
   // AN UNREADABLE INDEX: nothing is fetched; the next visit draws as it always has
   if (!townIndexEntries(bot)) { row(null, 'stop', 'unreadable'); return { status: 'no_effect', stop: 'index_unreadable', detail: "the town's index could not be read: no trip" } }
