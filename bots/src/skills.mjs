@@ -30791,6 +30791,8 @@ async function buildTidyVisit (ctx, args, signal) {
     // t11reach2-01show (run 28, 9,69,-22): a grey re-top with air under it is never dug -- held, `air_below` on the rows
     const airBelow = tidyTopOn() ? retopAirBelow(visitRec.cells, read, { waived: rec.waived }) : new Set()
     for (const k of airBelow) retopPass.add(k)
+    // t11reach3 (Codex r2): a cave cap OUTSIDE this visit's view (floor, prep, helper views) is held too -- never a left-work strike
+    try { for (const k of retopAirBelow(rec.cells, read, { waived: rec.waived })) retopPass.add(k) } catch { /* the view's own */ }
     // t11reach3-01show (the cave-cap unit parked): every gate cave cap is DEFERRED -- named on each visit, never dug, never a strike
     if (gradeOn() && airBelow.size) { try { const gNow2 = gradeNow(bot)?.t?.gate; for (const k of airBelow) { const [x, , z] = k.split(','); if (gNow2?.has?.(`${x},${z}`)) logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'cave_deferred', cell: k.split(',').map(Number), why: 'parked:air_below' }) }) } } catch { /* telemetry */ } }
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
@@ -30932,7 +30934,8 @@ async function buildTidyVisit (ctx, args, signal) {
             if (!cur || cur.structure_complete || cur.sitedAt !== rw.sitedAt) return null
             const w = { ...(cur.waived ?? {}) }
             let n = 0
-            for (const d of cutGiveUps(cur, read2, { given: k => tidyGivenUp(mem, k) })) if (!w[d.k]) { w[d.k] = { why: d.why, at: Date.now(), by: me }; n++ }
+            let cave = new Set(); try { cave = retopAirBelow(cur.cells, read2, { waived: cur.waived }) } catch { cave = new Set() }   // t11reach3 (Codex r2): never a deferred cave cap
+            for (const d of cutGiveUps(cur, read2, { given: k => tidyGivenUp(mem, k) })) if (!w[d.k] && !cave.has(String(d.k))) { w[d.k] = { why: d.why, at: Date.now(), by: me }; n++ }
             return n ? { ...cur, waived: w } : null
           }, { by: me })
           if (pub.result === 'accepted') {
