@@ -32,7 +32,10 @@ const W = (f, o) => fs.appendFileSync(path.join(OUT, f), JSON.stringify(o) + '\n
 const P = (...a) => console.log(`[${NAME} ${((Date.now() - T0) / 1000).toFixed(0)}]`, ...a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))))
 const bot = mineflayer.createBot({ host: '10.0.0.30', port: 25600, username: NAME, auth: 'offline', version: '1.21.8' })
 bot.loadPlugin(pathfinder)
-bot._client.on('login', p => { bot.worldId = p?.worldName ?? 'sbx' })
+// the world id as the bots' own (index.mjs: the hashed seed). The dimension name here read as another world to the zones file, so every
+// refresh's repair was closed (`st=closed:excl_unread:zones`, runs 19 and 21)
+const { worldIdFromLogin } = await imp('composter.mjs')
+bot._client.on('login', p => { bot.worldId = worldIdFromLogin(p) })
 await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); setTimeout(() => rej(new Error('no spawn')), 240000) })
 let deaths = 0
 bot.on('death', () => { deaths++; W('events.jsonl', { bot: NAME, t: new Date().toISOString(), death: true }) })

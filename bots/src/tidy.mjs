@@ -1859,7 +1859,7 @@ export const gkWaiveOpts = (rec, max0 = 12) => ({ after: GK_WAIVE_AFTER, max: Ma
 /** The deferred cells the keeper's waiver may name -> the deferred list less every cave SEAL (a record cell with an `opener`,
  *  townterrace-01: a pocket under a cut must be filled, never waived -- Codex fold r1 BLOCKER) and every carried `prev` cell. Pure. */
 export function gkWaivable (rec, deferred = []) {
-  const keep = new Set((rec?.cells ?? []).filter(c => c && !c.opener && !c.prev).map(c => c.at.join(',')))
+  const keep = new Set((rec?.cells ?? []).filter(c => c && (!c.opener || c.hollowDeep) && !c.prev).map(c => c.at.join(',')))   // t11reach2-01show: a deep hollow's fill may go (fillcolumn.mjs hollowFloor (b))
   return (deferred ?? []).filter(d => keep.has(String(d?.k ?? '')))
 }
 /** The visit's stop once its waiver has run -> stop. A visit that waived a cell freed the stage: not stuck, asked again at once. Pure. */

@@ -68,7 +68,7 @@ import { repairWaivedN } from './waiveroom.mjs'
  *              hold lapses when the last survey is this old (two refresh periods: no keeper is refreshing).
  */
 export const FILLCOLUMN = Object.freeze({ addMax: Math.max(INWALL.holeMax, ROUGH.fillMax), depthMax: TIDY.pitDepthMax, floorDy: TIDY.dy,
-  recShare: 0.1, recMin: 48, outShare: GK_WAIVE_SHARE, outMin: 12, refreshMax: 200, rounds: 12, holdMs: 2 * 60 * 60_000 })
+  recShare: 0.1, recMin: 48, outShare: GK_WAIVE_SHARE, outMin: 12, refreshMax: 200, rounds: 12, holdMs: 2 * 60 * 60_000, hollowMax: 4 })
 /** THE SWITCH: FILLCOLUMN=off|0|false|no -> off; on by default. Pure. */
 export const fillColumnOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.FILLCOLUMN ?? '').trim())
 
@@ -348,6 +348,69 @@ export function columnRepair (rec, read, { done = () => false, guard = new Set()
 }
 
 /**
+ * T11REACH2-01show (rig runs 19 and 21, 11-19: the T11 plateau). A HOLLOW'S FILL OVER A CAVE -> { rec, n: { add, deep }, added, hollow }.
+ * Pure over `read`. A fill that names the cut opening it (`opener`: a hollow under a crust) is the record's own bookkeeping, so
+ * columnRepair never judges its column (`special`) and no waiver may take it (gkWaivable / stallWaive) -- and when the ground under
+ * it was a cave the survey never planned (-33,68,-12: grass at 69, air 66-68, stone at 65; the cell is `no_support` every visit and
+ * 28 open cells wait on it), the two correct rules compose into a dead end. Here, for each such column whose lowest open fill no
+ * order reaches (planOrder), the column is read down from that cell to its floor:
+ *   (a) a floor at most `hollowMax` cells down: the cells between are ADDED as `core` (buried: cobblestone allowed), in the cell's
+ *       own segment and naming its opener, so they are laid bottom-up first (runVisit `below`) and the cell then stands on them;
+ *   (b) more than `hollowMax` cells of air: a DEEP hollow -- the column's open opener cells get `hollowDeep` (deferred as before,
+ *       the crust left alone; the waivers may now take them) and a row names it (`hollow`).
+ * Anything else on the way down (water, a record cell, a guarded or excluded cell, a block that is not air, an unread cell) leaves
+ * the column as it is. Never when the repair is `closed`; the record's lifetime add cap (repairAddMax) is shared with columnRepair
+ * (the added cells carry `ext`).
+ */
+export function hollowFloor (rec, read, { done = () => false, guard = new Set(), mayAdd = () => true, keepOff = () => null, closed = null, now = Date.now(), T = FILLCOLUMN } = {}) {
+  const n = { add: 0, deep: 0 }, added = [], hollow = []
+  if (!rec || rec.structure_complete || closed) return { rec: null, n, added, hollow }
+  const support = supportOf(read)
+  const f = floatCells(rec, read, { done, guard, support })
+  const lows = new Map()
+  for (const c of f.stuck) {
+    if (!c.opener || c.hollowDeep || c.plot != null || c.prep || c.floorFix || c.dam) continue
+    const k = colOf(c.at), o = lows.get(k)
+    if (!o || c.at[1] < o.at[1]) lows.set(k, c)
+  }
+  if (!lows.size) return { rec: null, n, added, hollow }
+  const known = new Set([...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].filter(q => Array.isArray(q?.at)).map(q => kOf(q.at)))
+  const w = rec.waived ?? null
+  let room = repairAddMax(rec, T) - repairLedger(rec).add
+  const add = [], deepCols = new Set()
+  for (const [k, L] of [...lows].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
+    const [x, y, z] = L.at
+    if (keepOff(x, z)) continue
+    const gap = []
+    let floor = false, stop = false
+    for (let i = 1; i <= T.hollowMax + 1; i++) {
+      const q = [x, y - i, z], qk = kOf(q), b = read(...q)
+      if (!b) { stop = true; break }
+      if (refUsable(b)) { floor = true; break }
+      if (known.has(qk) || hasOwn(w, qk) || guard.has(qk) || !mayAdd(q)) { stop = true; break }
+      if (isLiquid(b) || String(b.name ?? '').includes('waterlogged')) { stop = true; break }
+      if (!(AIRN(nm(b)) || replaceableCell(b) || b.boundingBox === 'empty')) { stop = true; break }
+      gap.push(q)
+    }
+    if (stop) continue
+    if (floor && gap.length && gap.length <= T.hollowMax) {
+      if (gap.length > room) continue
+      room -= gap.length
+      for (const q of gap.reverse()) add.push({ at: q, role: 'core', seg: L.seg, opener: L.opener, added: now, ext: true })
+      hollow.push({ kind: 'under', cell: L.at, n: gap.length })
+    } else if (!floor && gap.length > T.hollowMax) {
+      deepCols.add(k)
+      hollow.push({ kind: 'deep', cell: L.at, n: gap.length })
+    }
+  }
+  if (!add.length && !deepCols.size) return { rec: null, n, added, hollow }
+  added.push(...add)
+  n.add = add.length; n.deep = deepCols.size
+  const cells = (rec.cells ?? []).map(c => (c?.opener && Array.isArray(c.at) && deepCols.has(colOf(c.at)) && !c.hollowDeep ? { ...c, hollowDeep: now } : c))
+  return { rec: { ...rec, cells: [...cells, ...add], ...(add.length ? { bom: { ...(rec.bom ?? {}), earth: (Number(rec.bom?.earth) || 0) + add.length } } : {}) }, n, added, hollow }
+}
+
+/**
  * THE REFRESH'S OWN STEP (skills.mjs tidyRefresh, inside the publish) -> { res, fx }: tidyrefresh.mjs refreshMerge's result with the
  * repaired record in it (`res.rec`), and the repair (`fx`: columnRepair's, or null with the switch off -- `res` is then the very
  * object it was given). `cur` is the head now; the repair runs on what the merge made of it. Pure.
@@ -356,7 +419,12 @@ export function refreshRepair (res, cur, read, opts = {}, env = process.env) {
   if (!fillColumnOn(env)) return { res, fx: null }
   const base = res?.rec ?? cur
   let fx
-  try { fx = columnRepair(base, read, opts) } catch (e) {
+  try {
+    fx = columnRepair(base, read, opts)
+    // t11reach2-01show: then the hollows over a cave (hollowFloor), on what the repair made of the record
+    const hf = hollowFloor(fx.rec ?? base, read, opts)
+    fx = { ...fx, hollow: hf.hollow, ...(hf.rec ? { rec: hf.rec, added: [...fx.added, ...hf.added], n: { ...fx.n, total: fx.n.total + hf.added.length } } : {}) }
+  } catch (e) {
     // a repair that FAILED repaired nothing: the ledger says a cell is unresolved, so the visit's hold is off (repairServes) and
     // every floating cell is deferred and counted again -- never a hold kept up by a repair that cannot run
     const led = repairLedger(base)
