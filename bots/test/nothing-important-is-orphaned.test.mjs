@@ -37,6 +37,7 @@ const REQUIRED = [
   // buildfirst-01show (item 10, 11-18): idle bots go to a building first; a room refusal's well trip; the room hold
   'bots/src/buildfirst.mjs',
   'bots/test/drawshort.test.mjs',   // drawshort-01show
+  'bots/src/indexfetch.mjs', 'bots/test/indexfetch.test.mjs',   // indexfetch-01show
   'bots/test/buildfirst.test.mjs',
   'bots/src/minecrewio.mjs',
   'bots/test/minecrew.test.mjs',

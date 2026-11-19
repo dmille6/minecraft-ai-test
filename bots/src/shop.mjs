@@ -702,6 +702,10 @@ export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn 
 /** BAGROOM-01: the build order's room refusal asks this (skills.mjs shareBankAsk) for a remedy order; null when unset. */
 let roomAskOf = null
 export function setRoomAsk (fn) { roomAskOf = typeof fn === 'function' ? fn : null }
+// indexfetch-01show (indexfetch.mjs): a short draw's fetch trip -- { order } (the trip), { cooldownFree: true } (the build that follows a
+// trip that fetched, a new visit with the material: no cooldown), or null. Unset (INDEXFETCH=off): nothing asked
+let fetchAskOf = null
+export function setFetchAsk (fn) { fetchAskOf = typeof fn === 'function' ? fn : null }
 // GKROOM-01 (bagfull-01's piece 2; control session 11-07): THE KEEPER WITH 2-7 FREE SLOTS WORKS THE TIDY WHEN THE FOREST IS REFUSED FOR
 // ROOM. MEASURED showcase 06:40-15:01Z: 16 `_shop_skip why=room` rows from the keeper lease holder (rate-limited: 30 min a bot), every one
 // with 2-7 free slots; the keeper's order leads with the forest (groundskeeper.mjs keeperOrderPure: forest first while it wants work),
@@ -1132,8 +1136,18 @@ function buildOrderOwn ({ cooldown = true, look = false, on = SHOP.on, shared = 
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
+  // INDEXFETCH-01SHOW (indexfetch.mjs): the material a short draw left in a far chest the index names -- the trip first, ahead of the
+  // cooldown (its own run: never the visit's clock), at the surface and in health only; after a trip that fetched, the build itself
+  // without the cooldown (every other back-off below still holds)
+  let fetchFree = false
+  if (fetchAskOf && health > SHOP_HEALTH_MIN && !startsBelow(plot0, feet, groundY, { over: overOf(feet, groundY) })) {
+    let fa = null
+    try { fa = fetchAskOf({ now, plot: plot0, freeSlots, look }) } catch { fa = null }
+    if (fa?.order) return { order: fa.order, skip: null }
+    fetchFree = fa?.cooldownFree === true
+  }
   // buildfirst-01show: the idle steer's look asks without the clock (`cooldown: false`); every back-off below still holds
-  if (cooldown && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
+  if (cooldown && !fetchFree && now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
   { let idle = false; try { idle = plot0 === TIDY_PLOT && !!idleOf(plot0) } catch { idle = false } if (idle) return { order: null, skip: 'idle' } }
   let failedSite = null
   try { failedSite = noSitePlotOf() } catch { failedSite = null }
