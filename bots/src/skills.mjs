@@ -15041,8 +15041,8 @@ async function fetchVisitOne (ctx, tg, { walkMs, want }, w, signal, deadline) {
     }
     return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
   }
+  // no searchFailSkip here (Codex r1 BLOCKER 2): the trip's own retry decides; one never reached after it is skipped at the close
   const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000)
-  if (v.result && v.result.status !== 'success') searchFailSkip(bot, block, v.result.failClass)
   const fail = v.result?.failClass ?? v.skip ?? null
   if (!Array.isArray(v.saw)) return { opened: false, fail: fail ?? 'unreached', stop: false }
   const saw = {}
@@ -15066,24 +15066,41 @@ async function indexFetchVisit (ctx, args, signal) {
   const deadline = Math.min(t0 + INDEXFETCH.tripMs, runEnd - INDEXFETCH.tailMs)
   const held0 = heldMap(bot)
   bot.useWhy = 'build'
-  let r = null
+  // every verified take is counted as it lands (Codex r1 BLOCKER 4): a throw or an abort later in the trip keeps what was fetched
+  const sofar = {}, tried = []
+  let r = null, why = null
   try {
     r = await runFetchTrip({
       items: w.items,
       plan: (short, exclude) => fetchPlanNow(bot, short, exclude),
       ops: {
         now: () => Date.now(),
-        visit: (tg, o) => { check(signal); return fetchVisitOne(ctx, tg, o, w, signal, deadline) },
+        visit: async (tg, o) => {
+          check(signal)
+          const v = await fetchVisitOne(ctx, tg, o, w, signal, deadline)
+          for (const [k, c] of Object.entries(v?.took ?? {})) if (Number(c) > 0) sofar[k] = (sofar[k] ?? 0) + Number(c)
+          tried.push(`${tg.k}:${v?.opened ? 'open' : (v?.fail ?? 'unreached')}`)
+          return v
+        },
         correct: k => townIndexDirty(bot, keyVec(k), 'index_fetch', 'post'),
       },
       deadline,
     })
   } catch (e) {
-    if (e?.aborted || signal?.aborted) { row({ found: {}, tried: [], ms: Date.now() - t0 }, 'stop', 'aborted'); throw e }
-    r = { found: {}, left: w.items, tried: [], misses: [], fixed: 0, outcome: 'error', ms: Date.now() - t0 }
+    why = e?.aborted || signal?.aborted ? 'aborted' : 'error'
+    r = { found: { ...sofar }, left: {}, tried, misses: [], fixed: 0, unreachable: [], outcome: why, ms: Date.now() - t0 }
+    if (why === 'aborted') { fetchSettle(bot, w, plot, r, held0, 'stop', row); throw e }
   }
+  const got = fetchSettle(bot, w, plot, r, held0, null, row)
+  // THEN: a NEW visit with the material (Codex r1 BLOCKER 1: a visit resumed in this run would start its own clocks past the
+  // runner's) -- the order's next build is issued without its cooldown
+  if (got) { bot.indexFetchWant = { state: 'build', plot, items: {}, at: Date.now() }; return { status: 'success', stop: 'index_fetched', detail: `fetched ${Object.entries(r.found).map(([k, c]) => `${c} ${k}`).join(', ')}; the next visit builds with it` } }
+  return { status: 'no_effect', stop: `index_fetch_${r.outcome}`, detail: `the trip found nothing it could take (${r.outcome}); ${Object.keys(w.items).join(', ')} back off ${Math.round(INDEXFETCH.backoffMs / 60_000)} min for this bot` }
+}
+/** THE TRIP'S CLOSE, on every exit (an abort included): the back-off, the project's share, the containers never reached, the row. -> got */
+function fetchSettle (bot, w, plot, r, held0, then, row) {
   // NO LOOPS: every item the trip left short sits out this bot's back-off
-  bot.indexFetchBackoff = fetchBackoff(bot.indexFetchBackoff ?? new Map(), w.items, r.found)
+  try { bot.indexFetchBackoff = fetchBackoff(bot.indexFetchBackoff ?? new Map(), w.items, r.found) } catch { /* memory */ }
   const got = Object.values(r.found ?? {}).some(c => c > 0)
   // THE PROJECT'S SHARE: what the build visit's draw fetched is booked to its drawn record (the next visit spends it as drawn)
   if (got && w.book && plot) {
@@ -15095,11 +15112,10 @@ async function indexFetchVisit (ctx, args, signal) {
       drawnWrite(dir, key, me, cur, { bag: heldMap(bot) })
     } catch { /* the bag still holds it */ }
   }
-  const resume = got && !signal?.aborted && runEnd - Date.now() >= INDEXFETCH.buildMinMs
-  row(r, got ? (resume ? 'build' : 'next_visit') : 'stop')
-  if (resume) return buildShop(ctx, {}, signal, t0)   // the visit resumes with the material, in this run
-  if (got) { bot.indexFetchWant = { state: 'build', plot, items: {}, at: Date.now() }; return { status: 'success', stop: 'index_fetched', detail: `fetched ${Object.entries(r.found).map(([k, c]) => `${c} ${k}`).join(', ')}; the next visit builds with it` } }
-  return { status: 'no_effect', stop: `index_fetch_${r.outcome}`, detail: `the trip found nothing it could take (${r.outcome}); ${Object.keys(w.items).join(', ')} back off ${Math.round(INDEXFETCH.backoffMs / 60_000)} min for this bot` }
+  // a container the walk or the open could not reach after its retry leaves this bot's searches a while (searchFailSkip's own map)
+  for (const k of r.unreachable ?? []) { try { bot.withdrawSearchSkip ??= new Map(); bot.withdrawSearchSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS) } catch { /* memory */ } }
+  row(r, then ?? (got ? 'next_visit' : 'stop'), r.outcome === 'aborted' || r.outcome === 'error' ? r.outcome : null)
+  return got
 }
 export const _indexfetch = Object.freeze({ indexFetchNote, fetchAsk, indexFetchVisit, fetchPlanNow })
 

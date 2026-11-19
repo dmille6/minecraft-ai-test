@@ -24,8 +24,8 @@
 //            container is never visited again in this trip (the stale entry is not retried).
 //   NO LOOP  any item the trip leaves short (a miss, an unreachable chest, the cap, a refused take) backs off for this bot
 //            FETCH.backoffMs (fetchBackoff): no want of it until then.
-//   THEN     fetched: the build visit resumes in the same run when the runner's clock still holds a visit (FETCH.buildMinMs),
-//            else the order's next build is issued without its cooldown (a new visit, with the material).
+//   THEN     fetched: the order's next build is issued without its cooldown (a new visit, with the material; never resumed in the
+//            trip's run -- a visit starts its own clocks, which would run past the runner's: Codex r1).
 //   ROW      one `_index_fetch` row a trip: item(s), need, containers tried, found, the miss corrections, trip ms, outcome.
 // INDEXFETCH=off is the one-setting rollback (no want, no order, no trip: the draw exactly as before).
 
@@ -34,7 +34,7 @@ import { INDEX_FUTURE_SLACK_MS } from './smeltjob.mjs'
 
 const isOff = v => ['off', '0', 'false', 'no'].includes(String(v ?? '').trim().toLowerCase())
 const num = (v, d, lo, hi) => { const s = String(v ?? '').trim(); const n = Number(s); return s !== '' && Number.isFinite(n) && n >= lo && n <= hi ? Math.floor(n) : d }
-/** THE SWITCHES -> { on, tripMs, walkMs, retries, backoffMs, wantTtlMs, buildMinMs, tailMs }. Pure. */
+/** THE SWITCHES -> { on, tripMs, walkMs, retries, backoffMs, wantTtlMs, tailMs }. Pure. */
 export function fetchSettings (env = {}) {
   return Object.freeze({
     on: !isOff(env?.INDEXFETCH),
@@ -43,7 +43,6 @@ export function fetchSettings (env = {}) {
     retries: 1,                                                          // a container the walk/open could not reach: once more
     backoffMs: num(env?.INDEXFETCH_BACKOFF_MIN, 30, 1, 24 * 60) * 60_000,   // per item, per bot, after a trip left it short
     wantTtlMs: 20 * 60_000,                                              // an unanswered want lapses
-    buildMinMs: 100_000,                                                 // the runner's clock a resumed visit needs
     tailMs: 8_000,                                                       // kept free of the runner's clock at the trip's end
   })
 }
