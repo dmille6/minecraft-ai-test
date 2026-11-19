@@ -280,6 +280,19 @@ await t('THE DISTANCE ROW (control 11-19): a capped / refused trip names every p
   const big = F.indexFetchDistDetail({ outcome: 'refused', targets: many })
   assert.ok(big.length <= 300, String(big.length)); assert.match(big, /;\+$/)
 })
+await t('THE TRIP GOES ONLY WHERE THE ALLOWANCE LETS SOMETHING GO (rig run 7): the hall\'s chests under the torch reserve are not walked to', () => {
+  const ents = { '16,71,-51': obs('16,71,-51', { torch: [15, 1], lantern: [73, 2] }), '22,71,-51': obs('22,71,-51', { torch: [11, 1] }), '-13,71,-6': obs('-13,71,-6', { torch: [50, 1] }) }
+  const ts = F.fetchTargets(ents, { torch: 8, lantern: 4 }, { now: NOW, dist: dist([-61, 65, -73]) })
+  assert.deepEqual(ts.map(t => t.k), ['16,71,-51', '-13,71,-6', '22,71,-51'], 'by distance alone: a hall chest first')
+  const reserve32 = (n, t) => (n === 'torch' ? Math.max(0, t.names[n] - 32) : t.names[n])
+  const ok = F.fetchAllowed(ts, reserve32)
+  assert.deepEqual(ok.map(t => [t.k, t.names]), [['16,71,-51', { lantern: 73 }], ['-13,71,-6', { torch: 50 }]])
+})
+await t('MUTANT KILLED: the allowance filter passes every target', async () => {
+  await withMutant(F_PATH, '    if (Object.keys(names).length) out.push({ ...t, names })\n', '    out.push(t)\n', async m => {
+    assert.deepEqual(m.fetchAllowed([{ k: 'a', names: { torch: 11 } }], () => 0), [], 'killed')
+  }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
+})
 await t('MUTANT KILLED: a visited chest not excluded (the stale chest is reopened while its entry could not be corrected)', async () => {
   await withMutant(F_PATH, '    for (const h of halves) visited.add(h)   // never again', '    void halves   // never again', async m => {
     const w = town({ [MID]: { index: { torch: 116 }, real: {} } }, { ix: false })
@@ -355,6 +368,7 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
     'const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))',
     "bot.inventory?.on?.('updateSlot', () => { if (!queued) { queued = true; setImmediate(sample) } })",
     "if (dr.at == null) throw new Error('no drawn record')",
+    'plan: (short, exclude) => fetchAllowed(fetchPlanNow(bot, short, exclude), fetchPolAllows(bot, w)),',
     "if (r.cap || ['trip_cap', 'refused', 'unreachable', 'no_target'].includes(r.outcome)) { try { logEvent({ kind: 'index_fetch', status: 'no_effect', snapshot: snapshot(bot), detail: indexFetchDistDetail({ plot, outcome: r.outcome, ms: r.ms, from, targets: plan0, tried: r.tried }) })",
     'w.items = fetchStillWanted(w.items, w.bag0, top)',
   ]) assert.ok(src.includes(line), `missing: ${line}`)
