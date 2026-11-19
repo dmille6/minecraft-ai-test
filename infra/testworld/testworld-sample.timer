@@ -1,0 +1,9 @@
+[Unit]
+Description=TEST WORLD memory sample, every 5 minutes (writes only under /srv/testworld; no alarm, no pager)
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

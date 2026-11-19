@@ -1,0 +1,8 @@
+[Unit]
+Description=TEST WORLD envelope: the showcase VM's 10 CPUs for one Paper server and 14 bots -- docs/runbooks/testworld.md
+
+[Slice]
+# The showcase VM has 10 cores; its two memory defects of 11-17/18 needed the bots and the server short of CPU together.
+# CPUs 14-23 of block2-bots' 24, so the crons and the sandbox rig's bots keep 0-13 to themselves.
+# The load step squeezes this slice with `systemctl set-property --runtime testworld.slice CPUQuota=<n>%` and undoes it.
+AllowedCPUs=14-23
