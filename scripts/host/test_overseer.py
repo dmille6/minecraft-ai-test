@@ -356,7 +356,7 @@ def _load_mutant(old, new):
     import importlib.util
     src = open(OV.__file__).read()
     assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
-    path = os.path.join(tempfile.mkdtemp(), 'ovm.py')
+    path = os.path.join(tempfile.mkdtemp(dir=tempfile.mkdtemp()), 'ovm.py')   # HERE/.. goes on sys.path: a small dir, never the system temp
     open(path, 'w').write(src.replace(old, new))
     spec = importlib.util.spec_from_file_location('ovm', path)
     m = importlib.util.module_from_spec(spec)
@@ -376,7 +376,7 @@ def test_mutants():
             ("    if p.returncode != 0:\n", "    if False:\n", test_mem_cap),
             ("    if over_cap(peak, cap_mb, linux):\n", "    if False:\n", test_mem_cap),
             ("    if man.get('run') != run_id or os.path.basename(os.path.normpath(stage)) != run_id:", "    if False:", test_apply_stage),
-            ("        if op['op'] == 'write' and os.path.dirname(os.path.abspath(op['src'])) != os.path.abspath(stage):", "        if False:", test_apply_stage),
+            ("        if op['op'] in ('write', 'append') and os.path.dirname(os.path.abspath(op['src'])) != os.path.abspath(stage):", "        if False:", test_apply_stage),
             ("            os.killpg(pg, sig)\n", "            os.kill(p.pid, sig)\n", test_child_group_killed),
             ("                    chunk = fh.read(min(chunk_bytes, todo))", "                    chunk = fh.read(todo)", test_tail_streams),
             ("        if now_ms - last < grace_ms:", '        if False:', test_retire_grace),
@@ -393,6 +393,215 @@ def test_mutants():
             killed = True
         assert killed, 'mutant survived: ' + old
 
+
+
+
+def test_classify_and_clocks():
+    """overseer-02show: the replay's classes -- a work skill's success is work, a successful walk is an action, a failure or a log
+    row is neither; tail_read keeps each bot's newest work and action time and its code version; release_of = the most-run version."""
+    def ln(name, status='success', detail='x', mins=0, ver='v1'):
+        t = (NOW + dt.timedelta(minutes=mins)).isoformat().replace('+00:00', 'Z')
+        return json.dumps({'@timestamp': t, 'code': {'version': ver}, 'bot': {'name': 'Ann', 'pos': {'x': 1, 'y': 70, 'z': 2}},
+                           'skill': {'name': name, 'status': status, 'detail': detail}}, separators=(',', ':')).encode()
+    assert OV.classify(ln('gather')) == 'work' and OV.classify(ln('_build_visit')) == 'work'
+    assert OV.classify(ln('goto')) == 'act' and OV.classify(ln('explore')) == 'act'
+    assert OV.classify(ln('gather', status='failure')) is None and OV.classify(ln('_affordance_scan')) is None
+    assert OV.classify(ln('_place_town', detail='reason=skill outcome=placed')) == 'work' and OV.classify(ln('_place_town', detail='reason=path outcome=placed')) is None
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, 'Ann'))
+    f = os.path.join(root, 'Ann', 'skill-Ann.jsonl')
+    open(f, 'wb').write(b'\n'.join([ln('gather', mins=-50), ln('goto', mins=-20), ln('goto', status='failure', mins=-5), ln('_affordance_scan', mins=-1, ver='v2')]) + b'\n')
+    st, _ = OV.tail_read([f], {}, int(NOW.timestamp() * 1000))
+    b = st['bots']['Ann']
+    ms = lambda m: int((NOW + dt.timedelta(minutes=m)).timestamp() * 1000)  # noqa: E731
+    assert (b['work'], b['act'], b['ver']) == (ms(-50), ms(-20), 'v2'), b
+    bots, _ = OV.roster_from_tail(st, int(NOW.timestamp() * 1000))
+    assert bots[0]['workAt'] == ms(-50) and bots[0]['actAt'] == ms(-20)
+    assert OV.release_of([{'online': True, 'ver': 'a'}, {'online': True, 'ver': 'b'}, {'online': True, 'ver': 'b'}, {'online': False, 'ver': 'c'}]) == 'b'
+    assert OV.release_of([]) is None
+
+# ---------------------------------------------------------------- overseer-02show: THE DRY SWITCH (the test world's practice run)
+DRY_NOW = '2026-11-19T02:10:00Z'
+
+
+def _dry_fixture():
+    """A town as the showcase stack writes it (overseer-02show): the clean-up record (one generation, a plain cut column, a hollow
+    crust, a waived cell), a building record, a lease and its marker, a bot env file, an old order file (a list with an unstick order)
+    in the town's directory; a LIVE switch that says live; a live book that says lists were published (stopLive's bait); two bots'
+    skill logs at the cycle's minute, standing by the cuts."""
+    root = tempfile.mkdtemp()
+    pool, logs, state, envd = (os.path.join(root, d) for d in ('pool', 'logs', 'state', 'env'))
+    for d in (pool, logs, state, envd):
+        os.makedirs(d)
+    tidy = {'v': 1, 'plot': 'tidy', 'gen': 1, 'prev': None, 'cells': [], 'structure_complete': False,
+            'cut': [{'at': [-20, 72, 0], 'kind': 'tidy', 'name': 'dirt'}, {'at': [-20, 73, 0], 'kind': 'tidy', 'name': 'dirt', 'added': 1},
+                    {'at': [20, 72, 1], 'kind': 'tidy', 'name': 'cobblestone'}, {'at': [21, 72, 1], 'kind': 'tidy', 'name': 'dirt', 'hollow': True},
+                    {'at': [22, 72, 1], 'kind': 'tidy', 'name': 'dirt'}],
+            'waived': {'22,72,1': {'why': 'no_stand', 'at': 1, 'by': 'showcase-Bo'}}}
+    json.dump(tidy, open(os.path.join(pool, 'project-0_70_0.tidy.g1.json'), 'w'))
+    json.dump({'v': 1, 'plot': 'cottage2', 'gen': 1, 'prev': None, 'cells': [{'at': [5, 72, 5], 'role': 'wall'}]},
+              open(os.path.join(pool, 'project-0_70_0.cottage2.g1.json'), 'w'))
+    json.dump({'holder': 'showcase-Ann', 'gen': 3}, open(os.path.join(pool, 'project-0_70_0.tidy.seg-T-1-0.lease.g3.json'), 'w'))
+    open(os.path.join(pool, 'project-0_70_0.tidy.seg-T-1-0.lease.g3.json.released'), 'w').write('')
+    json.dump({'version': 1, 'zones': []}, open(os.path.join(pool, 'protected-zones.json'), 'w'))
+    json.dump({'v': 1, 'kind': 'worklist', 'bot': 'showcase-Ann', 'jobs': [], 'order': {'kind': 'unstick', 'id': 'unstick:showcase-Ann:1'}},
+              open(os.path.join(pool, 'worklist-showcase-Ann.json'), 'w'))
+    open(os.path.join(envd, 'showcase-Ann.env'), 'w').write('MC_HOST=127.0.0.1\n')
+    open(os.path.join(root, 'LIVE'), 'w').write('on\n')
+    json.dump({'v': 1, 'published': True, 'book': []}, open(os.path.join(state, 'book.live.json'), 'w'))
+    t0 = dt.datetime(2026, 11, 19, 2, 9, tzinfo=dt.timezone.utc)
+    for bot, x in (('showcase-Ann', -20), ('showcase-Bo', 20)):
+        d = os.path.join(logs, bot)
+        os.makedirs(d)
+        with open(os.path.join(d, 'skill-%s.jsonl' % bot), 'w') as fh:
+            for i in range(3):
+                t = (t0 + dt.timedelta(seconds=10 * i)).isoformat().replace('+00:00', 'Z')
+                fh.write(json.dumps({'@timestamp': t, 'bot': {'name': bot, 'pos': {'x': x, 'y': 71, 'z': 0}}, 'skill': {'name': '_shop', 'detail': 'x'}}) + '\n')
+            # the newest row carries no position (8% of the test world's rows): the position is the newest that has one
+            fh.write(json.dumps({'@timestamp': (t0 + dt.timedelta(seconds=40)).isoformat().replace('+00:00', 'Z'), 'bot': {'name': bot, 'pos': None},
+                                 'skill': {'name': '_affordance_scan', 'detail': 'x'}}) + '\n')
+    return root, pool, logs, state
+
+
+def _snap(root, skip):
+    """Every file under root (but `skip`) -> {path: (size, mtime_ns, sha1)}: what a cycle wrote, changed or removed."""
+    import hashlib
+    out = {}
+    for dp, dn, fn in os.walk(root):
+        if os.path.abspath(dp).startswith(os.path.abspath(skip)):
+            continue
+        for f in fn:
+            p = os.path.join(dp, f)
+            st = os.stat(p)
+            out[p] = (st.st_size, st.st_mtime_ns, hashlib.sha1(open(p, 'rb').read()).hexdigest())
+    return out
+
+
+def _cycle(script, root, pool, logs, state, extra, now=DRY_NOW):
+    """One whole cycle, as cron runs it: the script in its own process (its rlimits, signals and RSS are its own)."""
+    import subprocess as sp
+    p = sp.run([sys.executable, script, '--pool', pool, '--home', '0,70,0', '--state', state, '--zones', os.path.join(pool, 'protected-zones.json'),
+                '--logs', logs, '--now', now] + extra, capture_output=True, text=True, timeout=120)
+    try:
+        return p.returncode, json.loads(p.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        raise AssertionError('no row: rc %s %s' % (p.returncode, p.stderr[-400:]))
+
+
+DRY_STATE_FILES = {'cycles.jsonl', 'decisions.jsonl', 'book.dry.json', 'book.live.json', 'setaside.json', 'tail.json', 'logdirs.json', 'gzcheck.json', 'overseer.lock'}
+
+
+def test_dry_writes_nothing(script=None):
+    """overseer-02show: a --dry cycle writes NO record, lease, env or order (list) file -- nothing outside its own --state (its log
+    decisions.jsonl and cycles.jsonl, its book) -- even with a LIVE switch saying live, a live book saying lists were published, and an
+    old order file in the town. POSITIVE CONTROL first: the same town with the switch and no --dry DOES write lists into the town,
+    so the snapshot sees a write when there is one, and the fixture has work to decide."""
+    import shutil
+    script = script or OV.__file__
+    if not shutil.which('node'):
+        raise AssertionError('node is required for the dry-switch test')
+    # the control: live writes
+    root, pool, logs, state = _dry_fixture()
+    before = _snap(root, state)
+    rc, row = _cycle(script, root, pool, logs, state, ['--switch', os.path.join(root, 'LIVE')])
+    assert rc == 0 and 'error' not in row, row
+    changed = {p for p, v in _snap(root, state).items() if before.get(p) != v} | (set(before) - set(_snap(root, state)))
+    assert any(os.path.basename(p).startswith('worklist-') for p in changed), 'control: live must write lists (%s)' % sorted(changed)
+    # the dry cycles: the same town, the switch still saying live
+    root, pool, logs, state = _dry_fixture()
+    live_book = open(os.path.join(state, 'book.live.json')).read()
+    before = _snap(root, state)
+    for now in (DRY_NOW, '2026-11-19T02:55:00Z'):   # the second: both bots offline -> their jobs released (a second kind of decision)
+        rc, row = _cycle(script, root, pool, logs, state, ['--switch', os.path.join(root, 'LIVE'), '--dry'], now)
+        after = _snap(root, state)
+        assert after == before, 'DRY WROTE OUTSIDE ITS STATE: %s' % sorted({p for p in set(after) | set(before) if after.get(p) != before.get(p)})
+        assert rc == 0 and 'error' not in row, row
+        assert row['mode'] == 'dry' and row['hard_dry'] is True and row.get('stopped') is None, row
+    assert open(os.path.join(state, 'book.live.json')).read() == live_book, 'the live book is not touched'
+    names = set()
+    for dp, dn, fn in os.walk(state):
+        if os.path.basename(dp) == 'stage' or os.path.basename(os.path.dirname(dp)) == 'stage':
+            continue
+        names |= set(fn)
+    assert names <= DRY_STATE_FILES, 'unexpected files in state: %s' % sorted(names - DRY_STATE_FILES)
+    for dp, dn, fn in os.walk(state):
+        for f in fn:
+            assert not f.startswith('worklist-') and '.lease' not in f and not f.endswith('.env'), 'an order/lease/env file in state: %s' % f
+    # the log says what dry decided, joinable by bot, time and cell (and the positive control for "nothing written": it decided)
+    rows = [json.loads(ln) for ln in open(os.path.join(state, 'decisions.jsonl'))]
+    adds = [r for r in rows if r['kind'] == 'add']
+    assert {r['cell'] for r in adds} == {'-20,72,0', '-20,73,0', '20,72,1'}, adds   # not the hollow crust, the waived cell or the record cell
+    for r in rows:
+        for k in ('t', 'at', 'bot', 'kind', 'rule', 'id', 'cell', 'mode', 'run'):
+            assert k in r, (k, r)
+    a = [r for r in adds if r['cell'] == '-20,73,0'][0]
+    assert a['bot'] == 'showcase-Ann' and a['id'] == 'r:-20,73,0' and a['at'] == '2026-11-19T02:10:00.000Z' and a['mode'] == 'dry'
+    assert a['bot_pos'] == [-20, 71, 0], 'the position is the newest row that has one: %s' % a
+    assert a['listed'] is True and a['list'] == 1795054200000 and a['rule'] == 'split:nearest_under_share', a
+    rel = [r for r in rows if r['kind'] == 'release']
+    assert {r['from'] for r in rel} == {'showcase-Ann', 'showcase-Bo'} and all(r['why'] == 'offline' and r['rule'] == 'release:offline' for r in rel), rel
+    assert row['excluded']['hollow'] == 1 and row['excluded']['waived'] == 1, row
+
+
+def _beside(name, src):
+    """A mutated file written BESIDE the real one (its imports and HERE resolve) -> its path."""
+    path = os.path.join(os.path.dirname(OV.__file__), name)
+    open(path, 'w').write(src)
+    return path
+
+
+def _mut(src, old, new):
+    assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
+    return src.replace(old, new)
+
+
+DRY_MUTANTS = [
+    ('dry reads the switch',
+     [("    live = False if a.dry else switch_live(a.switch)", "    live = switch_live(a.switch)")], None),
+    ('the cycle writes lists in dry (the publish guard refuses it: an error row)',
+     [], ("  } else if (inp.dry) {\n", "  } else if (inp.dry) { for (const [b, d] of Object.entries(c.lists)) io.write(path.join(inp.pool, listFile(b)), d)\n")),
+    ('the cycle writes lists in dry and the publish guard is off: the town changes',
+     [("            out['published'] = apply_stage(inp['stage'], run_id, confine=a.state if a.dry else None)",
+       "            out['published'] = apply_stage(inp['stage'], run_id, confine=None)")],
+     ("  } else if (inp.dry) {\n", "  } else if (inp.dry) { for (const [b, d] of Object.entries(c.lists)) io.write(path.join(inp.pool, listFile(b)), d)\n")),
+    ('dry runs stopLive and the publish guard is off: the old order file is removed',
+     [("            out['published'] = apply_stage(inp['stage'], run_id, confine=a.state if a.dry else None)",
+       "            out['published'] = apply_stage(inp['stage'], run_id, confine=None)")],
+     ("  } else if (inp.dry) {\n", "  } else if (inp.dry) { summary.stopped = stopLive(inp, now, io)\n")),
+]
+
+
+def dry_mutant_results():
+    """-> [(what, None | the AssertionError's message)]: each mutant run through test_dry_writes_nothing (None = it survived)."""
+    out = []
+    for what, pys, js in DRY_MUTANTS:
+        made = []
+        try:
+            py = open(OV.__file__).read()
+            for old, new in pys:
+                py = _mut(py, old, new)
+            if js:
+                jpath = _beside('_mutant-ovc-%d.mjs' % os.getpid(), _mut(open(OV.CYCLE).read(), *js))
+                made.append(jpath)
+                py = _mut(py, "CYCLE = os.path.join(HERE, 'overseer-cycle.mjs')", 'CYCLE = %r' % jpath)
+            made.append(_beside('_mutant-ov-%d.py' % os.getpid(), py))
+            try:
+                test_dry_writes_nothing(made[-1])
+                out.append((what, None))
+            except AssertionError as e:
+                out.append((what, str(e)))
+        finally:
+            for f in made:
+                os.unlink(f)
+    return out
+
+
+def test_dry_mutants():
+    """overseer-02show: anchored mutants of the dry switch -- each must fail test_dry_writes_nothing, for its own reason (a mutant
+    killed by a crash or a resource limit proves nothing)."""
+    for what, msg in dry_mutant_results():
+        assert msg is not None, 'dry mutant survived: ' + what
+        assert 'DRY WROTE OUTSIDE ITS STATE' in msg or "'error': 'publish: dry: a write outside the state dir refused" in msg or 'error' in msg and 'dry and live both set' in msg, (what, msg[:300])
 
 if __name__ == '__main__':
     for n, f in list(globals().items()):

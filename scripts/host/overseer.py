@@ -193,6 +193,33 @@ def fingerprint_ok(path, was):
         return False
 
 
+# overseer-02show: the replay's classes (docs/reports/overseer-replay-2026-11-19.md section 1; ~/ovreplay/pull_min.py on .31).
+# WORK PROGRESS: a work skill's success, or a town placement by a skill. ANY ACTION: work progress or a successful move/errand.
+WORK_SKILLS = frozenset(['gather', 'mine', 'deep_mine', 'craft', 'smelt', 'smelt_town', 'place', 'deposit', 'town_deposit', 'make_material',
+                         'build_shop', 'dispose_well', 'compost', 'build_plinth', 'build_well', 'build_composter', 'prune_town',
+                         '_build_visit', '_structure_complete', '_sort_deposit', '_junk_pickup', 'collect', 'dig', 'build', 'farm', 'plant',
+                         'harvest', 'craft_tools', 'store', 'smelt_ore', 'chop', 'build_house', 'build_shelter', 'till', 'breed'])
+ACTION_SKILLS = frozenset(['explore', 'goto', 'home', 'surface', 'withdraw_pick', 'toolkit', 'crew_up', 'sky_descend', 'market_trip', 'market_run',
+                           'village_feed', 'withdraw', 'eat', 'wear_out', 'board', 'found_store'])
+import re as _re  # noqa: E402
+_NAME = _re.compile(rb'"skill":\{"name":"([^"]+)"')
+_TS = _re.compile(rb'"@timestamp":"([^"]+)"')
+_VER = _re.compile(rb'"code":\{"version":"([^"]+)"')
+
+
+def classify(line):
+    """overseer-02show -- PURE. One raw log line -> 'work' | 'act' | None (bytes regex: no json parse for the ~18k rows/h)."""
+    m = _NAME.search(line)
+    if not m:
+        return None
+    name = m.group(1).decode('utf-8', 'replace')
+    if name == '_place_town':
+        return 'work' if b'reason=skill' in line and b'outcome=placed' in line else None
+    if b'"status":"success"' not in line:
+        return None
+    return 'work' if name in WORK_SKILLS else 'act' if name in ACTION_SKILLS else None
+
+
 def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_bytes=8 << 20):
     """r5 (cost): THE INCREMENTAL READ -> (state, bytes_read). Only the bytes appended to each live (plain) log since the last
     cycle are read; a .gz is rotated history and is never read here (read_problems validates it once). Per file the state keeps
@@ -218,7 +245,8 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_by
         if off < s_.st_size:
             # r7: STREAMED in CHUNK-byte reads, a partial last line carried over -- memory is bounded whatever the backlog (the first
             # cycle of the day, a re-read from 0, an outage)
-            last, carry, pos, todo = None, b'', off, s_.st_size - off
+            last, last_pos, carry, pos, todo = None, None, b'', off, s_.st_size - off
+            work_t = act_t = None
             with open(f, 'rb') as fh:
                 fh.seek(off)
                 while todo > 0:
@@ -242,8 +270,18 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_by
                                 if (name, t, r['detail']) not in have:
                                     have.add((name, t, r['detail']))
                                     st['wl'].append(r)
+                        k = classify(line)
+                        if k:
+                            mt = _TS.search(line)
+                            tt = _ts_ms(mt.group(1).decode()) if mt else None
+                            if tt is not None:
+                                act_t = max(act_t or 0, tt)            # work is an action too
+                                if k == 'work':
+                                    work_t = max(work_t or 0, tt)
                         if line.strip():
                             last = line
+                            if b'"pos":{' in line or b'"pos": {' in line:
+                                last_pos = line   # overseer-02show: ~8% of rows carry no bot.pos (scans, probes); the position is the newest that has one
                     pos += cut
                     del data
             end = pos - off
@@ -252,9 +290,19 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_by
                 try:
                     d = json.loads(last)
                     b, t = d.get('bot') or {}, _ts_ms(d.get('@timestamp'))
-                    p = b.get('pos') if isinstance(b.get('pos'), dict) else None
+                    p = None
+                    if last_pos is not None:
+                        dp = json.loads(last_pos)
+                        pp = (dp.get('bot') or {}).get('pos')
+                        if isinstance(pp, dict) and (dp.get('bot') or {}).get('name') == b.get('name'):
+                            p = pp
                     if b.get('name') and t is not None and t >= st['bots'].get(b['name'], {}).get('t', 0):
-                        st['bots'][b['name']] = {'t': t, 'pos': [p.get('x'), p.get('y'), p.get('z')] if p else st['bots'].get(b['name'], {}).get('pos')}
+                        was_b = st['bots'].get(b['name'], {})
+                        mv = _VER.search(last)
+                        st['bots'][b['name']] = {'t': t, 'pos': [p.get('x'), p.get('y'), p.get('z')] if p else was_b.get('pos'),
+                                                 'work': max(was_b.get('work') or 0, work_t or 0) or None,
+                                                 'act': max(was_b.get('act') or 0, act_t or 0) or None,
+                                                 'ver': mv.group(1).decode() if mv else was_b.get('ver')}
                 except ValueError:
                     pass
             off = pos
@@ -267,8 +315,16 @@ def tail_read(files, prev, now_ms, window_ms=180 * 60000, stat=os.stat, chunk_by
 
 def roster_from_tail(st, now_ms, online_min=10):
     """PURE. The tail state -> (bots, worklist rows) in the cycle's input shape."""
-    bots = [{'name': n, 'online': now_ms - v['t'] <= online_min * 60000, 'pos': v.get('pos')} for n, v in sorted(st['bots'].items())]
+    bots = [{'name': n, 'online': now_ms - v['t'] <= online_min * 60000, 'pos': v.get('pos'), 'seen': v['t'],
+             'workAt': v.get('work'), 'actAt': v.get('act'), 'ver': v.get('ver')} for n, v in sorted(st['bots'].items())]
     return bots, sorted(st['wl'], key=lambda r: r['t'])
+
+
+def release_of(bots):
+    """overseer-02show -- PURE. The bots' release: the code version most online bots run (ties: the smallest), or None."""
+    from collections import Counter
+    c = Counter(b['ver'] for b in bots if b.get('online') and b.get('ver'))
+    return sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] if c else None
 
 
 def inputs_from_rows(rows, now, online_min=10):
@@ -398,7 +454,12 @@ def run_child(cmd, payload, cap_mb, timeout=110, linux=sys.platform.startswith('
         return {'error': 'node: no peak measured (exit %s) %s' % (p.returncode, p.stderr.strip()[-200:])}
     peak_mb = round(peak / 1024 if linux else peak / (1024 * 1024))
     if p.returncode != 0:
-        return {'error': 'node: exit %s (cap %s MB, peak %s MB) %s' % (p.returncode, cap_mb, peak_mb, p.stderr.strip()[-200:]), 'peak_mb': peak_mb}
+        said = ''   # overseer-02show: the cycle's own error (overseer-cycle.mjs prints {error} on stdout before it exits 2)
+        try:
+            said = json.loads(p.stdout.strip().splitlines()[-1]).get('error') or ''
+        except Exception:
+            pass
+        return {'error': 'node: exit %s (cap %s MB, peak %s MB) %s %s' % (p.returncode, cap_mb, peak_mb, said[:200], p.stderr.strip()[-200:]), 'peak_mb': peak_mb}
     if over_cap(peak, cap_mb, linux):
         return {'error': 'node: peak RSS %s MB over the cap %s MB' % (peak_mb, cap_mb), 'peak_mb': peak_mb}
     try:
@@ -409,9 +470,17 @@ def run_child(cmd, payload, cap_mb, timeout=110, linux=sys.platform.startswith('
     return out
 
 
-def apply_stage(stage, run_id):
+def under(path, root):
+    """overseer-02show -- PURE but for realpath: is `path` inside directory `root`?"""
+    r = os.path.realpath(root)
+    return os.path.commonpath([os.path.realpath(path), r]) == r
+
+
+def apply_stage(stage, run_id, confine=None):
     """r7: publish what the node step staged, in its order (the book first) -> the number of operations. A write is copied beside
-    its destination and renamed over it (atomic; the stage may be on another filesystem than the town)."""
+    its destination and renamed over it (atomic; the stage may be on another filesystem than the town); an append adds the staged
+    lines to its log. overseer-02show: with `confine` (the --dry run's --state), a plan with ANY destination outside it is refused
+    whole before anything is applied -- a dry cycle writes nothing but the overseer's own state, whatever the node step planned."""
     import shutil
     with open(os.path.join(stage, 'manifest.json')) as fh:
         man = json.load(fh)
@@ -420,14 +489,22 @@ def apply_stage(stage, run_id):
         raise ValueError('stage run mismatch: %s != %s' % (man.get('run'), run_id))
     plan = man['plan']
     for op in plan:
-        if op['op'] == 'write' and os.path.dirname(os.path.abspath(op['src'])) != os.path.abspath(stage):
+        if op['op'] in ('write', 'append') and os.path.dirname(os.path.abspath(op['src'])) != os.path.abspath(stage):
             raise ValueError('stage source outside its run: %s' % op['src'])
+        if op['op'] not in ('write', 'append', 'unlink'):
+            raise ValueError('unknown stage op: %s' % op['op'])
+        if confine is not None and not under(op['dest'], confine):
+            raise ValueError('dry: a %s outside the state dir refused: %s' % (op['op'], op['dest']))
     for op in plan:
         if op['op'] == 'write':
             os.makedirs(os.path.dirname(op['dest']) or '.', exist_ok=True)
             tmp = op['dest'] + '.tmp-%d' % os.getpid()
             shutil.copyfile(op['src'], tmp)
             os.replace(tmp, op['dest'])
+        elif op['op'] == 'append':
+            os.makedirs(os.path.dirname(op['dest']) or '.', exist_ok=True)
+            with open(op['src'], 'rb') as src, open(op['dest'], 'ab') as dst:
+                shutil.copyfileobj(src, dst)
         elif op['op'] == 'unlink':
             try:
                 os.unlink(op['dest'])
@@ -461,18 +538,28 @@ def main(argv=None):
     ap.add_argument('--pool', required=True)
     ap.add_argument('--home', required=True, help='x,y,z')
     ap.add_argument('--state', required=True)
-    ap.add_argument('--switch', required=True)
-    ap.add_argument('--scratch', required=True)
+    ap.add_argument('--switch', default=None, help='the LIVE switch file (required unless --dry)')
+    ap.add_argument('--scratch', default=None, help='dry lists (not --dry); default <state>/dry')
+    ap.add_argument('--dry', action='store_true', help='overseer-02show: HARD dry -- never live, no list or order file anywhere, '
+                    'nothing written outside --state (its log decisions.jsonl, cycles.jsonl, its book)')
     ap.add_argument('--zones', required=True)   # r1 C4: protection never fails open
     ap.add_argument('--logs', default='/var/log/mcai')
     ap.add_argument('--radius', type=int, default=128)
     ap.add_argument('--window-min', type=int, default=180)
     ap.add_argument('--online-min', type=int, default=10)
     ap.add_argument('--ship', default=None)
-    ap.add_argument('--lock', default='/tmp/overseer.lock')
+    ap.add_argument('--lock', default=None, help='default /tmp/overseer.lock; with --dry <state>/overseer.lock')
     ap.add_argument('--node', default='node')
+    ap.add_argument('--rules', default=None, help='overseer-02show: JSON over the rules, e.g. {"base": "v1"} or {"unstickAfterMs": 1800000}')
+    ap.add_argument('--now', default=None, help='overseer-02show: the cycle\'s clock (ISO, e.g. 2026-11-19T02:10:00Z) -- replays and tests only')
     ap.add_argument('--mem-cap-mb', type=int, default=300, help='r6: the python step and the node step each abort above this')
     a = ap.parse_args(argv)
+    if not a.dry and not a.switch:
+        ap.error('--switch is required unless --dry')
+    if a.dry and a.ship:
+        ap.error('--dry writes nothing outside --state: no --ship')
+    a.lock = a.lock or (os.path.join(a.state, 'overseer.lock') if a.dry else '/tmp/overseer.lock')
+    a.scratch = a.scratch or os.path.join(a.state, 'dry')
     os.makedirs(a.state, exist_ok=True)
     lk = open(a.lock, 'w')
     try:
@@ -489,7 +576,7 @@ def main(argv=None):
         sys.exit(128 + signum)
     signal.signal(signal.SIGTERM, _die)
     signal.signal(signal.SIGINT, _die)
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.fromisoformat(a.now.replace('Z', '+00:00')) if a.now else dt.datetime.now(dt.timezone.utc)
     # r6: NEVER BESIDE THE TRIPWIRE'S READ -- a skipped cycle, not a failure; the row is the only thing written
     if trip_reading_now():
         row = {'kind': 'showcase_overseer', 'op': 'skipped', 'why': 'tripwire_read', 'at': now.isoformat(), 'wrote': 'nothing'}
@@ -514,7 +601,7 @@ def main(argv=None):
                 ship_row(a.ship, row)
             except Exception:
                 pass
-    now_ms = int(time.time() * 1000)
+    now_ms = int(now.timestamp() * 1000)
     problems, retired = observe(a.state, glob.glob(os.path.join(a.logs, '*', 'skill-*.jsonl*')), now_ms)
     if problems:
         # r1 C3: a log that cannot be read (or one gone less than the grace) is no cycle: nothing is written, the row says why
@@ -553,13 +640,14 @@ def main(argv=None):
     with open(tail_file + '.tmp', 'w') as fh:
         json.dump(tail, fh)
     os.replace(tail_file + '.tmp', tail_file)
-    live = switch_live(a.switch)
+    live = False if a.dry else switch_live(a.switch)   # overseer-02show: --dry never reads the switch
     # r8: this run's own stage directory; older runs' stages (an orphan's included) are removed first
     run_id = new_run_id(now_ms)
     prune_stages(os.path.join(a.state, 'stage'), run_id)
-    inp = {'now': int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
+    inp = {'now': now_ms if a.now else int(time.time() * 1000), 'home': [int(v) for v in a.home.split(',')], 'radius': a.radius, 'pool': a.pool,
            'state': a.state, 'zones': a.zones, 'live': live, 'scratch': a.scratch, 'bots': bots, 'rows': wl,
-           'stage': os.path.join(a.state, 'stage', run_id), 'run': run_id}
+           'stage': os.path.join(a.state, 'stage', run_id), 'run': run_id, 'dry': bool(a.dry), 'release': release_of(bots),
+           'rules': json.loads(a.rules) if a.rules else None}
     # the child must not inherit the python step's address-space cap (V8 reserves far more than it uses): the soft limit goes back
     # to the HARD one (RLIM_INFINITY is refused when the hard limit is finite); node's own heap cap bounds it
     try:
@@ -572,11 +660,11 @@ def main(argv=None):
     out = run_child([a.node, '--max-old-space-size=%d' % max(16, a.mem_cap_mb - 44), CYCLE], json.dumps(inp), a.mem_cap_mb)
     if 'error' not in out:   # r7: published only now, after the child's peak memory was checked
         try:
-            out['published'] = apply_stage(inp['stage'], run_id)
+            out['published'] = apply_stage(inp['stage'], run_id, confine=a.state if a.dry else None)
         except (OSError, ValueError, KeyError) as e:
             out = {**out, 'error': 'publish: %s' % e}
     # the denominator beside the result: the rows and bots the cycle was given
-    row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'mode': 'live' if live else 'dry', 'bytes_read': nbytes,
+    row = {'kind': 'showcase_overseer', 'at': now.isoformat(), 'mode': 'live' if live else 'dry', 'hard_dry': bool(a.dry), 'bytes_read': nbytes,
            'bots': len(bots), 'online': sum(1 for b in bots if b['online']), 'worklist_rows': len(wl), **out}
     with open(os.path.join(a.state, 'cycles.jsonl'), 'a') as fh:
         fh.write(json.dumps(row, sort_keys=True, default=str) + '\n')

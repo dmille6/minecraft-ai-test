@@ -36,7 +36,35 @@ export const OVERSEER = Object.freeze({
   unstickMs: 10 * 60_000,        // a bot sent `unstick` is given no new work this long (the host passes `unstuckAt` back)          // a bot holding jobs with no progress this long -> its list is reassigned, it gets `unstick`
   intakeMax: 300,                // scar entries taken a cycle
   keepClosedMs: 24 * 60 * 60_000, // done / gone jobs kept this long so a scan does not re-add a cell just closed
+  // overseer-02show (the 11-19 replay, docs/reports/overseer-replay-2026-11-19.md). Each rule is a value; OVERSEER_V1 below is the
+  // 01show behaviour, kept for comparison.
+  progressClock: 'work',         // 'work': a bot's progress is ANY finished work (host: workAt) or a list job; 'list': list jobs only (v1)
+  releaseMs: 30 * 60_000,        // a bot holding jobs with no progress this long has its list released (recall 177/177 in the replay)
+  unstickClock: 'action',        // 'action': unstick only after unstickAfterMs with NO successful action of any kind (host: actAt),
+  unstickAfterMs: 45 * 60_000,   //   walking included (0.36/bot-day, 7% false at 45); 'stall': unstick with every release (v1)
+  waitWhys: ['blocked', 'unread', 'waiting'],   // a refusal that waits on another cell is not a failure
+  materialWhys: ['no_material', 'material', 'roof_for_roof', 'needs_material'],   // a shortage: "needs material", per project, never a cell failure
+  quarantineTtlMs: 24 * 60 * 60_000,   // a set-aside job re-opens (fresh attempts) after this long...
+  quarantineOnRelease: true,     // ...or when the bots' release changes
+  requeueMax: 20,                // a bot with nothing else to do is offered at most this many set-aside jobs a cycle (behind other work)
 })
+/** overseer-02show: the 01show rules (list-only clock, unstick with every stall, blocked counted, quarantine for good, never re-offered). */
+export const OVERSEER_V1 = Object.freeze({ ...OVERSEER, progressClock: 'list', releaseMs: OVERSEER.stallMs, unstickClock: 'stall', waitWhys: [], materialWhys: [],
+  quarantineTtlMs: Infinity, quarantineOnRelease: false, requeueMax: 0 })
+/** The rule a decision fired under, with its threshold -- written on every decision row. Pure. */
+export const ruleOf = (kind, T = OVERSEER) => ({
+  release: `release:no_${T.progressClock === 'list' ? 'list' : 'work'}_progress>=${Math.round(T.releaseMs / 60_000)}m`,
+  unstick: T.unstickClock === 'stall' ? `unstick:with_release>=${Math.round(T.releaseMs / 60_000)}m` : `unstick:no_action>=${Math.round(T.unstickAfterMs / 60_000)}m`,
+  quarantine: `quarantine:${T.quarantineFails}x${T.quarantineBots}bots`,
+  avoid: `avoid:${T.avoidAfter}x_one_bot`,
+  rebalance: `rebalance:slack>${T.slack}`,
+  split: 'split:nearest_under_share',
+  requeue: 'requeue:set_aside_behind_other_work',
+  expire_ttl: `unquarantine:ttl>=${Math.round(T.quarantineTtlMs / 3_600_000)}h`,
+  expire_release: 'unquarantine:new_release',
+  offline: 'release:offline', gone: 'release:gone_from_roster',
+  needs_material: 'needs_material:per_project',
+}[kind] ?? kind)
 
 const FAIL_NOT = new Set(['done', 'gone'])
 export const cellKey = at => `${at[0]},${at[1]},${at[2]}`
@@ -83,7 +111,9 @@ export function intakeScar (entries = [], book = [], { zones = [], guard = () =>
  * T.avoidAfter times is added to `avoid` and the job is unowned (another bot gets it). T.quarantineFails failures by
  * T.quarantineBots different bots -> quarantined, `why` the commonest reason (ties: the latest).
  */
-export function recordAttempt (job, { bot, why, now = Date.now() }, T = OVERSEER) {
+export function recordAttempt (job, { bot, why, now = Date.now(), release = null }, T = OVERSEER) {
+  // overseer-02show: waiting on another cell, or a shortage of material, says nothing about the cell -- no attempt
+  if ((T.waitWhys ?? []).includes(why) || (T.materialWhys ?? []).includes(why)) return job
   const j = { ...job, attempts: [...job.attempts, { bot, at: now, why }], avoid: [...job.avoid] }
   if (why === 'done' || why === 'gone') return { ...j, state: why, owner: null, closedAt: now }
   const fails = j.attempts.filter(a => !FAIL_NOT.has(a.why))
@@ -93,7 +123,7 @@ export function recordAttempt (job, { bot, why, now = Date.now() }, T = OVERSEER
   if (fails.length >= T.quarantineFails && bots.size >= T.quarantineBots) {
     const n = new Map(); fails.forEach((a, i) => n.set(a.why, [(n.get(a.why)?.[0] ?? 0) + 1, i]))
     const top = [...n.entries()].sort((a, b) => b[1][0] - a[1][0] || b[1][1] - a[1][1])[0][0]
-    return { ...j, state: 'quarantined', owner: null, why: `${top} x${fails.length} by ${bots.size} bots` }
+    return { ...j, state: 'quarantined', owner: null, why: `${top} x${fails.length} by ${bots.size} bots`, quarantinedAt: now, release }
   }
   return j
 }
@@ -102,13 +132,13 @@ export function recordAttempt (job, { bot, why, now = Date.now() }, T = OVERSEER
  * A VISIT'S REPORT into the book -> the book. Pure. `rep.ids` is worklist-01show's visitReport shape: { done, gone, refused,
  * unreachable } (refused ids carry no per-id reason there; `whyOf(id)` may supply one, else 'refused'). Ids not in the book are ignored.
  */
-export function ingestReport (book, bot, rep, { now = Date.now(), whyOf = () => null, T = OVERSEER } = {}) {
+export function ingestReport (book, bot, rep, { now = Date.now(), whyOf = () => null, release = null, T = OVERSEER } = {}) {
   const say = new Map()
   for (const id of rep?.ids?.done ?? []) say.set(id, 'done')
   for (const id of rep?.ids?.gone ?? []) say.set(id, 'gone')
   for (const id of rep?.ids?.refused ?? []) say.set(id, whyOf(id) ?? rep?.why?.[id] ?? 'refused')
   for (const id of rep?.ids?.unreachable ?? []) say.set(id, 'unreachable')
-  return book.map(j => (say.has(j.id) && j.state === 'open' ? recordAttempt(j, { bot, why: say.get(j.id), now }, T) : j))
+  return book.map(j => (say.has(j.id) && j.state === 'open' ? recordAttempt(j, { bot, why: say.get(j.id), now, release }, T) : j))
 }
 
 const open = (j, now) => j.state === 'open'
@@ -190,27 +220,87 @@ export function rebalance (book, bots = [], { now = Date.now(), leased = () => 0
 }
 
 /**
- * STALLS -> { book, orders }. Pure. A bot that holds open jobs and has made no progress (`lastProgressAt`: its last done/gone job,
- * or the time it was first given work) for T.stallMs: its jobs are released (owner null, notBefore past its lease) and it gets
- * one order { bot, order: 'unstick', why } -- the existing escape/crew_up path, deterministic, not advice. An offline bot's
- * jobs are released with no order.
+ * STALLS -> { book, orders, released }. Pure. Two rules (overseer-02show; T.progressClock / T.unstickClock, OVERSEER_V1 = 01show):
+ *   RELEASE  a bot that holds open jobs and has made no progress for T.releaseMs loses them (owner null, notBefore past its lease).
+ *            Progress = the later of its last list job (`lastProgressAt`), ANY finished work (`workAt`, clock 'work') and the time it
+ *            was (re)given work (`givenAt`) -- r1 B1: an old done row never re-stalls a bot given work a moment ago.
+ *   UNSTICK  clock 'action': an online bot (holding work or not) with no successful action of ANY kind (`actAt`, walking included)
+ *            for T.unstickAfterMs -- counted from the later of actAt, its progress, its last unstick and when the host first saw it
+ *            (`seenSince`; absent = now, so a bot the host knows nothing about is never ordered). Clock 'stall': with every release.
+ *            One order { bot, order: 'unstick', why, rule }: the existing escape/crew_up path, deterministic, not advice.
+ * An offline bot's jobs, and those of a bot no longer in the roster, are released with no order. `released` {bot: {why, rule}}.
  */
 export function stalls (book, bots = [], { now = Date.now(), leased = () => 0, T = OVERSEER } = {}) {
   const orders = [], drop = new Map()
   const holds = new Map()
   for (const j of book) if (j.state === 'open' && j.owner) holds.set(j.owner, (holds.get(j.owner) ?? 0) + 1)
+  const m = ms => Math.round(ms / 60_000)
   for (const b of bots) {
-    if (!holds.get(b.name)) continue
-    if (b.online === false) { drop.set(b.name, 'offline'); continue }
-    // r1 B1: the later of its last progress and the time it was (re)given work -- an old done row still in the window never
-    // re-stalls a bot given work a moment ago
-    const since = Math.max(Number(b.lastProgressAt ?? 0), Number(b.givenAt ?? now))
-    if (now - since >= T.stallMs) { drop.set(b.name, 'no_progress'); orders.push({ bot: b.name, order: 'unstick', why: `no_progress ${Math.round((now - since) / 60_000)}m holding ${holds.get(b.name)}` }) }
+    if (b.online === false) { if (holds.get(b.name)) drop.set(b.name, { why: 'offline', rule: ruleOf('offline', T) }); continue }
+    const prog = Math.max(Number(b.lastProgressAt ?? 0), T.progressClock === 'list' ? 0 : Number(b.workAt ?? 0))
+    if (holds.get(b.name)) {
+      const since = Math.max(prog, Number(b.givenAt ?? now))
+      if (now - since >= T.releaseMs) {
+        drop.set(b.name, { why: `no_progress ${m(now - since)}m holding ${holds.get(b.name)}`, rule: ruleOf('release', T) })
+        if (T.unstickClock === 'stall') orders.push({ bot: b.name, order: 'unstick', why: `no_progress ${m(now - since)}m holding ${holds.get(b.name)}`, rule: ruleOf('unstick', T) })
+      }
+    }
+    if (T.unstickClock === 'action') {
+      const since = Math.max(Number(b.actAt ?? 0), prog, Number(b.unstuckAt ?? 0), Number(b.seenSince ?? now))
+      if (now - since >= T.unstickAfterMs) orders.push({ bot: b.name, order: 'unstick', why: `no_action ${m(now - since)}m`, rule: ruleOf('unstick', T) })
+    }
   }
   // a bot no longer in the roster at all: its jobs are released too
-  for (const [owner] of holds) if (!bots.some(b => b.name === owner)) drop.set(owner, 'gone')
+  for (const [owner] of holds) if (!bots.some(b => b.name === owner)) drop.set(owner, { why: 'gone', rule: ruleOf('gone', T) })
+  // an unstick also takes the bot's list (it is sent to climb out, not to work)
+  for (const o of orders) if (holds.get(o.bot) && !drop.has(o.bot)) drop.set(o.bot, { why: o.why, rule: o.rule })
   const out = book.map(j => (j.state === 'open' && drop.has(j.owner) ? { ...j, owner: null, notBefore: Math.max(now, leased(j.owner) ?? 0) + T.leaseMs } : j))
-  return { book: out, orders }
+  return { book: out, orders, released: Object.fromEntries(drop) }
+}
+
+/**
+ * overseer-02show: A SET-ASIDE JOB EXPIRES -> { book, expired: [{ id, rule }] }. Pure. After T.quarantineTtlMs, or when the bots'
+ * release is no longer the one it was set aside under, a quarantined job re-opens with fresh attempts (set aside again on new failures).
+ */
+export function expireQuarantine (book, { now = Date.now(), release = null, T = OVERSEER } = {}) {
+  const expired = []
+  const out = book.map(j => {
+    if (j.state !== 'quarantined') return j
+    const at = Number(j.quarantinedAt ?? j.closedAt ?? now)
+    const k = now - at >= T.quarantineTtlMs ? 'expire_ttl' : T.quarantineOnRelease && release && j.release && j.release !== release ? 'expire_release' : null
+    if (!k) return j
+    expired.push({ id: j.id, rule: ruleOf(k, T) })
+    return { ...j, state: 'open', owner: null, why: null, attempts: [], avoid: [], quarantinedAt: null, release: null, requeued: false, expiredAt: now }
+  })
+  return { book: out, expired }
+}
+
+/**
+ * overseer-02show (control session 11-19): A SET-ASIDE JOB MOVES BEHIND OTHER WORK, it is never removed. A bot that is online, may
+ * work, holds no open job and has no unowned open job left that it could take is offered set-aside jobs (nearest whole columns, at
+ * most T.requeueMax): they re-open owned by it, `requeued`, their attempts kept -- one more failure sets them aside again.
+ * -> { book, requeued: [id] }. Pure.
+ */
+export function requeueQuarantined (book, workers = [], { now = Date.now(), T = OVERSEER } = {}) {
+  if (!(T.requeueMax > 0)) return { book, requeued: [] }
+  const out = book.map(j => ({ ...j })), requeued = []
+  const posOf = b => b.pos ?? b.home ?? [0, 0, 0]
+  for (const b of workers) {
+    if (b.online === false) continue
+    if (out.some(j => j.state === 'open' && j.owner === b.name)) continue
+    if (out.some(j => j.state === 'open' && !j.owner && !j.avoid.includes(b.name))) continue   // other work is still there (waiting out a lease too)
+    const cols = new Map()
+    for (const j of out) if (j.state === 'quarantined' && !j.avoid.includes(b.name)) { const k = colKey(j.at); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(j) }
+    const order = [...cols.entries()].filter(([k]) => !out.some(u => u.state === 'open' && u.owner && colKey(u.at) === k))   // never into another bot's column
+      .sort((a, c) => dist(posOf(b), a[1][0].at) - dist(posOf(b), c[1][0].at) || (a[0] < c[0] ? -1 : 1))
+    let n = 0
+    for (const [, js] of order) {
+      if (n + js.length > T.requeueMax && n > 0) break
+      for (const j of js) { j.state = 'open'; j.owner = b.name; j.requeued = true; requeued.push(j.id) }
+      n += js.length
+    }
+  }
+  return { book: out, requeued }
 }
 
 /** Closed jobs older than T.keepClosedMs leave the book. Pure. */
@@ -228,11 +318,15 @@ export function heldBelow (book, j, mine) {
  * r1 C5: EVERY OPEN JOB against the CURRENT zones, guard and radius, each cycle -> { book, dropped }. Pure. A job that fails is
  * closed `dropped` with its reason (zone | record | far): a zone or a building added after its intake takes it off every list.
  */
-export function recheck (book, { zones = [], guard = () => false, home = null, radius = Infinity, now = Date.now() } = {}) {
+export function recheck (book, { zones = [], guard = () => false, home = null, radius = Infinity, now = Date.now(), onRecord = null } = {}) {
   let dropped = 0
   const out = book.map(j => {
     if (j.state !== 'open') return j
-    const why = inZone(j.at, zones) ? 'zone' : guard(cellKey(j.at)) ? 'record' : home && dist(home, j.at) > radius ? 'far' : null
+    // overseer-02show: a job taken from the clean-up record that the record no longer offers as a plain removal (dug by the shared
+    // visit, waived, claimed, now a hollow's crust or a grade column) is closed `off_record` -- in a dry run this is the only way
+    // the book learns the town moved on
+    const why = inZone(j.at, zones) ? 'zone' : guard(cellKey(j.at)) ? 'record' : home && dist(home, j.at) > radius ? 'far'
+      : onRecord && j.src?.from === 'tidy' && !onRecord(cellKey(j.at)) ? 'off_record' : null
     if (!why) return j
     dropped++
     return { ...j, state: 'dropped', owner: null, why, closedAt: now }
@@ -266,20 +360,25 @@ export function listDoc (book, bot, { home, now = Date.now(), saved = now, ttlMs
  * A stalled bot's list carries its `unstick` order and no jobs (overseer-01show: the bot reads the order from its own file).
  * The host stores each order's time as that bot's `unstuckAt`.
  */
-export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, onDisk = {}, T = OVERSEER } = {}) {
+export function overseerCycle ({ book = [], reports = [], cells = [], scar = [], bots = [], zones = [], guard = () => false, leased = () => 0, home, radius = Infinity, now = Date.now(), whyOf, onDisk = {}, onRecord = null, release = null, T = OVERSEER } = {}) {
   let b = book
-  for (const r of reports) b = ingestReport(b, r.bot, r.rep, { now, whyOf, T })
+  // overseer-02show: a shortage of material is a project's label ("needs material"), never a cell's failure
+  const needs = []
+  for (const r of reports) for (const [id, w] of Object.entries(r.rep?.why ?? {})) if ((T.materialWhys ?? []).includes(w)) needs.push({ project: r.rep?.project ?? 'tidy', bot: r.bot, id, why: w, rule: ruleOf('needs_material', T) })
+  for (const r of reports) b = ingestReport(b, r.bot, r.rep, { now, whyOf, release, T })
+  const ex = expireQuarantine(b, { now, release, T }); b = ex.book
   const h3 = home ? [Math.floor(home.x), Math.floor(home.y), Math.floor(home.z)] : null
   const fromRec = intakeScar(cells, b, { zones, guard, now, from: 'tidy', home: h3, radius, T })
   b = [...b, ...fromRec.added]
   const intake = intakeScar(scar, b, { zones, guard, now, from: 'scar', home: h3, radius, T: { ...T, intakeMax: Math.max(0, T.intakeMax - fromRec.added.length) } })
   b = [...b, ...intake.added]
-  const rc = recheck(b, { zones, guard, home: h3, radius, now }); b = rc.book
+  const rc = recheck(b, { zones, guard, home: h3, radius, now, onRecord }); b = rc.book
   const st = stalls(b, bots, { now, leased, T }); b = st.book
-  const stalled = new Set(st.orders.map(o => o.bot))
+  const stalled = new Set([...st.orders.map(o => o.bot), ...Object.keys(st.released)])   // released or ordered: no new work this cycle
   const workers = bots.filter(x => !stalled.has(x.name) && !(now - Number(x.unstuckAt ?? -Infinity) < T.unstickMs))
   b = splitOpen(b, workers, { now, T })
   const rb = rebalance(b, workers, { now, leased, T }); b = splitOpen(rb.book, workers, { now, T })
+  const rq = requeueQuarantined(b, workers, { now, T }); b = rq.book
   b = prune(b, now, T)
   const lists = {}
   if (home) {
@@ -288,9 +387,9 @@ export function overseerCycle ({ book = [], reports = [], cells = [], scar = [],
   }
   const count = s => b.filter(j => j.state === s).length
   const added = fromRec.added.length + intake.added.length, sk = k => fromRec.skipped[k] + intake.skipped[k]
-  const row = `op=cycle open=${count('open')} unowned=${b.filter(j => j.state === 'open' && !j.owner).length} quarantined=${count('quarantined')} added=${added} dup=${sk('dup')} zone=${sk('zone')} record=${sk('record')} far=${sk('far')} dropped=${rc.dropped} moved=${rb.moved} unstick=${st.orders.length} lists=${Object.keys(lists).length}`
+  const row = `op=cycle open=${count('open')} unowned=${b.filter(j => j.state === 'open' && !j.owner).length} quarantined=${count('quarantined')} added=${added} dup=${sk('dup')} zone=${sk('zone')} record=${sk('record')} far=${sk('far')} dropped=${rc.dropped} moved=${rb.moved} released=${Object.keys(st.released).length} unstick=${st.orders.length} expired=${ex.expired.length} requeued=${rq.requeued.length} needs_material=${needs.length} lists=${Object.keys(lists).length}`
   const setAside = b.filter(j => j.state === 'quarantined').map(j => ({ id: j.id, at: j.at, block: j.block, why: j.why, from: j.src?.from ?? null, tries: j.attempts.length }))
-  return { book: b, lists, orders: st.orders, row, setAside }
+  return { book: b, lists, orders: st.orders, row, setAside, released: st.released, expired: ex.expired, requeued: rq.requeued, needs, rules: { rebalance: ruleOf('rebalance', T), split: ruleOf('split', T), quarantine: ruleOf('quarantine', T), avoid: ruleOf('avoid', T) } }
 }
 
 // ---------------------------------------------------------------- THE REPORT'S WIRE FORMAT (overseer-01show)
@@ -365,4 +464,56 @@ export function publishedIds (docs = [], now = Date.now()) {
   const out = {}
   for (const d of docs) if (d && d.kind === 'worklist' && Number.isFinite(d.expires) && now <= d.expires && Array.isArray(d.jobs)) for (const j of d.jobs) if (j?.id) out[j.id] = String(d.bot)
   return out
+}
+
+// ---------------------------------------------------------------- THE DECISION LOG (overseer-02show)
+/**
+ * WHAT THIS CYCLE DECIDED, one row per decision -> [row]. Pure. Diffs the book before the cycle against the book after it, plus the
+ * cycle's orders, releases, expiries, requeues and material labels, so a reader can join each decision to what the bots then did, by
+ * bot, time and cell:
+ *   add            an open job given to `bot` (it had no owner, or it is new)
+ *   move           an open job taken from `from` and given to `bot` (rebalance, avoid, a release handed on)
+ *   release        an open job taken from `from` and given to no one yet
+ *   quarantine     a job set aside (`bot` = the last bot that failed it, `why` its commonest reason)
+ *   requeue        a set-aside job offered again to `bot`, behind other work
+ *   unquarantine   a set-aside job re-opened (ttl, or a new release)
+ *   close          a job closed: done | gone (a bot's report) | dropped:<zone|record|far|off_record>
+ *   unstick        an order to `bot` (`id` the order's id, the one the bot's list carries)
+ *   needs_material a refusal for want of material (per project; never a cell failure)
+ * Every row: { t (ms), bot, kind, rule (the rule and threshold that fired: ruleOf), id (job id `r:x,y,z`, or the order's id), cell
+ * ('x,y,z', the form skill rows carry as `cell=`), block, from, why, listed (on the bot's list this cycle), list (that list's `issued`:
+ * the bots' `_worklist ... list=<issued>` rows name it) }. Sorted by bot, cell, kind.
+ */
+export function decisions (before = [], after = [], { orders = [], lists = {}, bots = [], now = Date.now(), released = {}, expired = [], requeued = [], needs = [], rules = {}, T = OVERSEER } = {}) {
+  const was = new Map(before.map(j => [j.id, j]))
+  const onList = new Map()
+  for (const [b, d] of Object.entries(lists ?? {})) for (const x of d?.jobs ?? []) onList.set(x.id, b)
+  const issued = b => lists?.[b]?.issued ?? null
+  const exp = new Map(expired.map(e => [e.id, e.rule])), rq = new Set(requeued)
+  const roster = new Map(bots.map(b => [b.name, b]))
+  const moveRule = (j, from) => (released[from] ? released[from].rule : j.avoid?.includes(from) ? (rules.avoid ?? ruleOf('avoid', T)) : !roster.has(from) ? ruleOf('gone', T) : roster.get(from).online === false ? ruleOf('offline', T) : (rules.rebalance ?? ruleOf('rebalance', T)))
+  const moveWhy = (j, from) => (released[from] ? released[from].why : j.avoid?.includes(from) ? 'avoid' : 'rebalance')
+  const out = []
+  const row = (kind, j, bot, extra = {}) => out.push({ t: now, bot: bot ?? null, kind, rule: null, id: j.id, cell: cellKey(j.at), block: j.block ?? null,
+    from: null, why: null, listed: !!bot && onList.get(j.id) === bot, list: bot ? issued(bot) : null, ...extra })
+  for (const j of after) {
+    const p = was.get(j.id)
+    if (exp.has(j.id)) row('unquarantine', j, null, { rule: exp.get(j.id), why: p?.why ?? null })
+    const pOwner = p && p.state === 'open' ? p.owner : null
+    if (j.state === 'open') {
+      if (rq.has(j.id)) row('requeue', j, j.owner, { rule: ruleOf('requeue', T), why: p?.why ?? null })
+      else if (j.owner && !pOwner) row('add', j, j.owner, { rule: rules.split ?? ruleOf('split', T) })
+      else if (j.owner && pOwner && j.owner !== pOwner) row('move', j, j.owner, { from: pOwner, rule: moveRule(j, pOwner), why: moveWhy(j, pOwner) })
+      else if (!j.owner && pOwner) row('release', j, null, { from: pOwner, rule: moveRule(j, pOwner), why: moveWhy(j, pOwner) })
+      continue
+    }
+    if (p && p.state === j.state && !exp.has(j.id)) continue
+    if (j.state === 'quarantined') { const last = j.attempts?.[j.attempts.length - 1]; row('quarantine', j, last?.bot ?? pOwner, { from: pOwner, rule: rules.quarantine ?? ruleOf('quarantine', T), why: j.why, bots: [...new Set((j.attempts ?? []).map(a => a.bot))], listed: false, list: null }) } else if (p) row('close', j, j.attempts?.[j.attempts.length - 1]?.bot ?? pOwner, { from: pOwner, rule: j.state === 'dropped' ? `recheck:${j.why}` : `report:${j.state}`, why: j.state === 'dropped' ? `dropped:${j.why}` : j.state, listed: false, list: null })
+  }
+  for (const o of orders) {
+    const id = lists?.[o.bot]?.order?.id ?? `unstick:${o.bot}:${now}`
+    out.push({ t: now, bot: o.bot, kind: 'unstick', rule: o.rule ?? ruleOf('unstick', T), id, cell: null, block: null, from: null, why: o.why ?? null, listed: !!lists?.[o.bot]?.order, list: issued(o.bot) })
+  }
+  for (const n of needs) out.push({ t: now, bot: n.bot, kind: 'needs_material', rule: n.rule, id: n.id, cell: /^[a-z]:/.test(n.id) ? n.id.slice(2) : null, block: null, from: null, why: n.why, project: n.project, listed: false, list: null })
+  return out.sort((a, b) => (a.bot ?? '').localeCompare(b.bot ?? '') || (a.cell ?? '').localeCompare(b.cell ?? '') || a.kind.localeCompare(b.kind))
 }
