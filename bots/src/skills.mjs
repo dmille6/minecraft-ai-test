@@ -200,7 +200,7 @@ import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, c
 import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { WHSITE, WHS_PLOT, WHS_BLUEPRINT, WHS_BUILDERS, WHS_PREP, WHS_PALETTE, whSiteBase, whSiteAdd, whSiteCanopy, whPhase, whFellView, whLevelView, whStandDone, whQuadFor, whClearPart, whSiteDetail, whSiteModeDetail, whSurveyPublish, WHS_FILLS } from './whsite.mjs'   // whsite-01: the new storehouse's ground
 import { fellCanopy as whFellCanopy } from './fellcanopy.mjs'   // whsite-01: the leaves round a log no stand sees
-import { PITSITE, PIT, PIT_PLOT, PIT_BLUEPRINT, PIT_BUILDERS, PIT_HALVES, pitPlan, pitRecord, pitDigNow, pitView, pitClearPart, pitClearOk, pitMissed, pitMissKeys, pitDemand, pitDigCap, pitBankOrder, pitBankDue, pitDetail, pitModeDetail, pitFillSplit } from './pit.mjs'   // pit-01show: the town's dirt borrow pit
+import { PITSITE, PIT, PIT_PLOT, PIT_BLUEPRINT, PIT_BUILDERS, PIT_HALVES, pitPlan, pitRecord, pitDigNow, pitView, pitClearPart, pitClearOk, pitMissed, pitMissKeys, pitDemand, pitDigCap, pitBankOrder, pitBankDue, pitBankSteps, pitDetail, pitModeDetail, pitFillSplit } from './pit.mjs'   // pit-01show: the town's dirt borrow pit
 import { WAREHOUSE, whHallLayout, whRows, whChestKinds, whHomes, whSectionOf, whTakes, whDepositOrder, whRoom, whPlace, whKindOf, whRecord, warehouseModeDetail, whFullFor, whFailUpdate, whEligible, whLabel, whAllFailed, whTryResult, whCargoRoutes } from './warehouse.mjs'   // warehouse-01: the columns per kind
 import { hubChestsOf, HALL_LAYOUT, hubSectionOf } from './storehub.mjs'   // warehouse-01: the old hall as a layout
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
@@ -32746,6 +32746,7 @@ async function buildWarehouseSite (ctx, args, signal) {
 const PIT_WALK_MS = 60_000
 const PIT_NEAR = 24
 const PIT_BANK_TAIL_MS = 45_000
+const PIT_UNREAD_MAX = 0.1
 function pitRow (bot, op, d = {}, status = 'success') { try { logEvent({ kind: 'pit', status, snapshot: snapshot(bot), detail: pitDetail(op, d) }) } catch { /* telemetry */ } }
 /**
  * THE NAMED CONSUMERS' OPEN DIRT CELLS -> { tidy, warehouse, grade } (null: not read). The tidy record's earth and topsoil fills not done
@@ -32753,20 +32754,31 @@ function pitRow (bot, op, d = {}, status = 'success') { try { logEvent({ kind: '
  * (no grade plan on this release: null). An unread cell counts as open: it is a real named cell. Never throws.
  */
 function pitNeedsNow (bot) {
-  const out = { tidy: null, warehouse: null, grade: null }
+  const out = { tidy: null, warehouse: null, grade: null }, unread = {}
   try {
     const read = stairRead(bot), dir = townDir()
     const th = recordHead(dir, projKeyOf(TIDY_PLOT))
     if (th.ok) {
       const rec = th.head?.rec
       const waived = q => !!rec?.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))
-      out.tidy = (rec?.cells ?? []).filter(q => (q.role === 'earth' || q.role === 'topsoil') && !waived(q) && !q.prev && !(read(...q.at) && buildCellDone(read(...q.at), TIDY_PALETTE, q.role))).length
+      const cells = (rec?.cells ?? []).filter(q => (q.role === 'earth' || q.role === 'topsoil') && !waived(q) && !q.prev)
+      out.tidy = cells.filter(q => !(read(...q.at) && buildCellDone(read(...q.at), TIDY_PALETTE, q.role))).length
+      unread.tidy = cells.length ? cells.filter(q => !read(...q.at)).length / cells.length : 0
     }
     if (WHSITE.on) {
       const wh = recordHead(dir, projKeyOf(WHS_PLOT))
-      if (wh.ok) out.warehouse = wh.head?.rec?.blueprint === WHS_BLUEPRINT && !wh.head.rec.structure_complete ? (wh.head.rec.cells ?? []).filter(q => q.role === 'fill' && !(read(...q.at)?.boundingBox === 'block')).length : 0
+      const cells = wh.ok && wh.head?.rec?.blueprint === WHS_BLUEPRINT && !wh.head.rec.structure_complete ? (wh.head.rec.cells ?? []).filter(q => q.role === 'fill') : []
+      if (wh.ok) { out.warehouse = cells.filter(q => !(read(...q.at)?.boundingBox === 'block')).length; unread.warehouse = cells.length ? cells.filter(q => !read(...q.at)).length / cells.length : 0 }
     }
   } catch { /* what was read */ }
+  // A READING FROM AFAR (the bot at the pit, 100 blocks out: the town's cells not loaded) is not a new count -- a consumer with more than
+  // PIT_UNREAD_MAX of its cells unread keeps this bot's last count read from nearer (30 min); never one: the unread cells count open
+  const last = (bot.pitNeedsLast ??= {})
+  for (const k of ['tidy', 'warehouse']) {
+    if (out[k] == null) continue
+    if ((unread[k] ?? 0) > PIT_UNREAD_MAX && last[k] && Date.now() - last[k].at < 30 * 60_000) out[k] = last[k].v
+    else if ((unread[k] ?? 0) <= PIT_UNREAD_MAX) last[k] = { v: out[k], at: Date.now() }
+  }
   return out
 }
 /** IS THE TOWN SHORT OF DIRT NOW (pit.mjs pitDemand over pitNeedsNow and the index's dirt) -> pitDemand's answer. Memoised PIT.demandMs
@@ -32794,7 +32806,8 @@ function pitBankCands (bot) {
     const whL = whLayoutNow()
     const col = new Set(whL ? whRows(whL).filter(r => r.kind === 'dirt').map(r => r.k) : [])
     for (const [k, e] of Object.entries(entries)) {
-      if (indexStateOf(e) !== 'known') continue
+      // a STALE observation is still a container where the index says (sortPut opens it, observes it and writes the index fresh)
+      if (!['known', 'stale'].includes(indexStateOf(e))) continue
       const p = keyVec(k)
       if (!(p.x === p.x) || !inTown(homeVec(), p)) continue
       const used = Number(e.obs?.used) || 0, size = Number(e.obs?.size) || 27
@@ -32825,7 +32838,8 @@ async function pitBank (ctx, signal, deadline, { final = false } = {}) {
     try { await chestWalk(bot, new goals.GoalNear(tb.position.x, tb.position.y, tb.position.z, 2), Math.max(1000, Math.min(PIT_WALK_MS, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
     if (!(eyeToBlock(bot.entity.position, tb.position) <= OPEN_REACH)) { to.push(`${k}:unreachable`); skip.set(k, Date.now() + 10 * 60_000); continue }
-    const p = await sortPut(bot, tb, { dirt: n - banked }, deadline, signal, { dirt: PIT.keep }, null, 'pit_bank')
+    const want = n - banked
+    const p = await sortPut(bot, tb, { dirt: want }, deadline, signal, { dirt: PIT.keep }, bag => pitBankSteps(bag, want, PIT.keep), 'pit_bank')   // whole stacks, then halves (Codex r1)
     const got = Number(p.put?.dirt) || 0
     banked += got
     to.push(`${k}:${got || p.why}`)

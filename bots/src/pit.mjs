@@ -418,6 +418,24 @@ export function pitBankDue (bagDirt = 0, { final = false, T = PIT } = {}) {
   return above >= T.bankMin || (final && above > 0) ? above : 0
 }
 
+/**
+ * THE BANK'S CLICKS for one container -> [{ slot, name, count, from?, half? }] (skills.mjs bankInto's steps). Pure. Up to `n` dirt above
+ * the bag's `keep`: whole stacks first (largest that fits), then HALVES of what is left (a right click takes ceil(count / 2); a stack
+ * can be halved again) -- so a single 48-stack with a 16 keep still banks (Codex r1 BLOCKER: whole stacks alone banked nothing, the
+ * carried surplus then read as supply and the pit stopped). Never below the keep.
+ */
+export function pitBankSteps (bag = [], n = 0, keep = PIT.keep) {
+  const dirt = (bag ?? []).filter(it => it?.name === 'dirt' && (it.count ?? 0) > 0).map(it => ({ slot: it.slot, cur: it.count })).sort((a, b) => b.cur - a.cur || a.slot - b.slot)
+  const total = dirt.reduce((t, it) => t + it.cur, 0)
+  let left = Math.max(0, Math.min(Math.floor(Number(n) || 0), total - Math.max(0, Number(keep) || 0)))
+  const out = []
+  for (const it of dirt) if (it.cur <= left) { out.push({ slot: it.slot, name: 'dirt', count: it.cur }); left -= it.cur; it.cur = 0 }
+  for (const it of dirt) {
+    while (it.cur > 1 && Math.ceil(it.cur / 2) <= left) { const take = Math.ceil(it.cur / 2); out.push({ slot: it.slot, name: 'dirt', count: take, from: it.cur, half: true }); left -= take; it.cur -= take }
+  }
+  return out
+}
+
 // ---- ROWS -------------------------------------------------------------------------------------------------------------------
 /** `_pit` rows' detail: op = dig | bank | guard | demand | sited | walk | done | mode. Pure. */
 export const pitDetail = (op, d = {}) => `op=${op} ` + ['y', 'half', 'n', 'dirt', 'short', 'consumer', 'to', 'at', 'why', 'gen'].map(k => `${k}=${d[k] == null ? '-' : Array.isArray(d[k]) ? d[k].join(',') : String(d[k]).replace(/\s+/g, '_').slice(0, 120)}`).join(' ')
