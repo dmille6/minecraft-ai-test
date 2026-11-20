@@ -248,6 +248,16 @@ await t('RIG 11-20: never the block another body stands on (Kite dug the block u
   }
   await killedBy(FC_PATH, FC, [['  if (others.includes(k3(c.at))) return false\n', '\n']], scenario)
 })
+await t('CODEX r5 BLOCKER: a wide body (a spider, 1.4) stands over every column under it, the middle one too', async () => {
+  await killedBy(FC_PATH, FC, [['  for (let x = Math.floor(pos.x - w); x <= Math.floor(pos.x + w); x++) for (let z = Math.floor(pos.z - w); z <= Math.floor(pos.z + w); z++) out.push(`${x},${y},${z}`)\n',
+    '  for (const x of new Set([Math.floor(pos.x - w), Math.floor(pos.x + w)])) for (const z of new Set([Math.floor(pos.z - w), Math.floor(pos.z + w)])) out.push(`${x},${y},${z}`)\n']], F => {
+    const k = F.floorKeys({ x: 10.5, y: 69, z: 0.5 }, 1.4)
+    assert.ok(k.includes('10,68,0'), 'the middle column')
+    assert.strictEqual(k.length, 9)
+    assert.deepStrictEqual(F.floorKeys({ x: 10.5, y: 69, z: 0.5 }, 0.6), ['10,68,0'], 'a player in the middle of a block: one column')
+    assert.strictEqual(F.floatClearOk({ at: [10, 68, 0], kind: 'float', name: 'dirt' }, W({ '10,68,0': 'dirt' }), { others: k }), false)
+  })
+})
 await t('MUTANT (floatAsideAfter): a lap that ran out of time before a cell says nothing about it; a cell it got to and left standing gets its try', async () => {
   await killedBy(FC_PATH, FC, [['    if (!considered(k)) continue\n', '\n']], F => {
     const r = F.floatAsideAfter({ tries: { a: 1, b: 1 } }, { offered: ['a', 'b'], standing: () => true, considered: k => k === 'b', now: 1 })
@@ -306,6 +316,7 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.ok(body.includes('clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) }) } },'), 'the guard read again at the dig, the body, other bodies, the try')
   assert.ok(body.includes('considered: k => considered.has(k) && !visitGone(bot, signal) })'), 'a try only for a cell the visit got to')
   const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function floorKeysOf'))
+  assert.ok(src.includes('  try { return floorKeys(e.position, e.width) } catch { return [] }'), 'the bodies read through the pure floorKeys')
   assert.ok(g.includes('return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })'), 'the guard over the records, the bridges and the plan head (head.plan)')
   assert.ok(g.includes('if (!ph.ok || !ph.head?.plan) return null'), 'no plan: no lap')
 })
