@@ -514,7 +514,8 @@ const structural = raw => {
   // every use of the process memory is one of the six (nothing else was moved), and each of the six is there
   // (r1: `forestFails`, and the write of `forestSkip`, are booked by forest.mjs fellFailNote on the memory object it is handed)
   const used = new Set([...code.matchAll(/\bprocMem\(bot\)\.(\w+)/g)].map(m => m[1]))
-  assert.deepStrictEqual([...used].sort(), MOVED.filter(n => n !== 'forestFails').sort())
+  // floatclean-01show: the floating-block lap's own clock and set-asides are process memory from the start (never on the bot)
+  assert.deepStrictEqual([...used].sort(), [...MOVED.filter(n => n !== 'forestFails'), 'fcNextAt', 'floatclean'].sort())
   const fcode = strip(readFileSync(FOREST_URL, 'utf8'))
   assert.strictEqual(fcode.split('keepDue((mem.forestFails ??= new Map()), t.key, r.why, F)').length, 2); assert.strictEqual(fcode.split('(mem.forestSkip ??= new Map()).set(t.key, now + skipMs)').length, 2)
   for (const n of [...STAYS, 'pending']) assert.ok(!new RegExp(`procMem\\([^)]*\\)\\??\\.${n}\\b`).test(code), `${n} is never carried across connections`)
