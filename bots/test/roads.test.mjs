@@ -686,10 +686,19 @@ await t('roadsite r3: roadLanternDraw -- the town\'s spare lanterns first, never
   assert.strictEqual(RD.roadLanternDraw(4, 0), 0); assert.strictEqual(RD.roadLanternDraw(4, undefined), 0); assert.strictEqual(RD.roadLanternDraw(4, -3), 0)
 })
 
+await t('roadsite r3: indexHolders -- the containers the index says hold a name, most first, fresh only, at most max', () => {
+  const e = (n, fresh = true) => ({ obs: { names: { lantern: [n, 1] } }, fresh })
+  const entries = { '-14,71,-7': e(11), '16,71,-51': e(73), '22,71,-51': e(61), '1,70,1': e(0), '5,70,5': e(90, false), bad: e(5), '26,71,-53': e(10), '24,71,-51': e(8) }
+  assert.deepStrictEqual(RD.indexHolders(entries, 'lantern', { fresh: q => q.fresh }), ['16,71,-51', '22,71,-51', '-14,71,-7', '26,71,-53'])
+  assert.deepStrictEqual(RD.indexHolders(entries, 'torch'), [])
+  assert.deepStrictEqual(RD.indexHolders(null, 'lantern'), [])
+})
+
 await t('roadsite r3: STRUCTURE -- the road kit draws the town\'s lanterns BEFORE it crafts (its iron and torches only for what the chests cannot give); the siting opens a zone only for a road, record zones only', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const kit = src.slice(src.indexOf('async function roadKit'), src.indexOf('\nfunction ', src.indexOf('async function roadKit')))
-  const draw = kit.indexOf("await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown }))")
+  const draw = kit.indexOf("await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown }), null, null, { first })")
+  assert.ok(/first = indexHolders\(townIndexEntries\(bot\), 'lantern', \{ fresh: e => indexStateOf\(e\) === 'known' \}\)/.test(kit), 'the index\'s lantern chests are tried first')
   const lack = kit.indexOf("const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - drawn)")
   const craftAt = kit.indexOf("await craft(ctx, { item: 'lantern', count: k }, signal)")
   assert.ok(draw > 0 && lack > draw && craftAt > lack, `draw ${draw} lacking ${lack} craft ${craftAt}`)
