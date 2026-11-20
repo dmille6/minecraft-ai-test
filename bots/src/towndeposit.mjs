@@ -113,6 +113,9 @@ export const NOSTOCK_KEEP = Object.freeze({ on: !!LANES.on && refillOn(typeof pr
 export const heldTargetsFor = (noStock = NOSTOCK_KEEP.on) => (noStock ? {} : HELD_TARGETS)
 /** The escape's blocks: bankable.mjs scaffoldKeep's own budget (8: a pillar out of most holes), made up with dirt (nostock-01show). */
 export const ESCAPE_BLOCKS = 8
+/** The keeps the partial-slot rule never lowers (bagfix-01 C: the goal's want, the scaffold reserve; nostock-01show: the escape's dirt).
+ *  Every partialKeep `hard:` reads this one set (the deposit's room and column layers, skills.mjs yardKeepsNow). */
+export const HARD_KEEP_RULES = Object.freeze(new Set(['wanted', 'scaffold_reserve', 'escape_reserve']))
 /** Planks kept whatever the logs: the pickaxe rungs' `stick >= 2 || planks >= 2` and the table's `planks >= 4`. */
 export const PLANKS_MEANS = 4
 /** A wanted item (active rung + ingredients) is kept up to one stack. */
@@ -392,7 +395,7 @@ export function townDepositPlan (items = [], { columns = columnsHook, wanted = [
       (!IRON_LADDER.includes(n) || trimBankable(n)) && !STANDING_TARGETS.has(n) && !DEPOSIT_ALWAYS.includes(n) && !(roomExclude?.has?.(n)) &&
       !(groupOf(n) && !(targetOf(groupOf(n)) > 0))
     // bagfix-01 C: the goal's want and the scaffold reserve are HARD keeps (the partial-slot rule never lowers them)
-    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: n => ['wanted', 'scaffold_reserve', 'escape_reserve'].includes(why[n]),   // nostock-01show (Codex r2): the escape's dirt too
+    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: n => HARD_KEEP_RULES.has(why[n]),   // nostock-01show (Codex r2): the escape's dirt too
       stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
       steps.push({ slot: st.slot, name: st.name, count: st.count, room: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count
@@ -405,7 +408,7 @@ export function townDepositPlan (items = [], { columns = columnsHook, wanted = [
     const taken = new Set(steps.map(st => st.slot))
     const shared = roomExclude instanceof Set ? roomExclude : new Set()
     const eligible = n => { try { return columnBankable(n) && !CAP_COBBLE.includes(n) && !((holds[n] ?? 0) > 0) && !shared.has(n) && !!columns(n) } catch { return false } }
-    const hardKeep = n => ['wanted', 'scaffold_reserve', 'escape_reserve'].includes(why[n])   // the goal's want and the scaffold reserve, as the room layer's
+    const hardKeep = n => HARD_KEEP_RULES.has(why[n])   // the goal's want and the scaffold reserve, as the room layer's
     for (const st of roomBankSteps(list, { eligible, keep, taken, hard: hardKeep, stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
       steps.push({ slot: st.slot, name: st.name, count: st.count, column: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count

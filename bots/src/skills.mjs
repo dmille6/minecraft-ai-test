@@ -71,7 +71,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
-import { setDepositColumns, columnBankable, logHalfSteps, IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
+import { setDepositColumns, columnBankable, logHalfSteps, IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, HARD_KEEP_RULES, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -22044,7 +22044,7 @@ function yardKeepsNow (bot) {
       if (!clearActive(BAGFIX) && whRoomNow(bot, name)?.room > 0) { out[name] = Infinity; continue }   // warehouse-01: its column has room -- it banks THERE, not on a pile (the lanes are second; the one-time clear piles as before)
       if (shares.has(name)) { out[name] = Infinity; continue }
       if (clearActive(BAGFIX)) { out[name] = 0; continue }   // bagclear: regardless of keeps (a build's drawn share aside)
-      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: keep[name] ?? 0, stack: copies[0].stackSize ?? 64, hard: why[name] === 'wanted' || why[name] === 'scaffold_reserve' })
+      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: keep[name] ?? 0, stack: copies[0].stackSize ?? 64, hard: HARD_KEEP_RULES.has(why[name]) })   // nostock-01show: the escape's dirt is hard here too (dirt is a lane kind)
     }
     // drawshort-01show (Codex r1): a ROOM TRIP's yard leg keeps the pick's own bill of the family (bot.roomYardKeep: roomPickKeepNow) --
     // cobblestone first, cobbled_deepslate for what the cobblestone cannot cover -- so the yard never takes the stone the build lays

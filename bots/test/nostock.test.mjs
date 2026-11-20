@@ -137,9 +137,16 @@ await ta('(b) the escape\'s dirt is a HARD keep for the deposit: a full bag neve
   assert.ok(dirtBanked(TD, { columns: () => true }) === 0 && TD.townDepositPlan([{ name: 'dirt', count: 64, slot: 8, stackSize: 64 }, ...FULLBAG], { columns: () => true }).steps.filter(st => st.name === 'dirt').reduce((t, st) => t + st.count, 0) === 8, 'positive control: with 72 held, a whole slot (the 8) is banked and 64 stay')
 })
 await ta('MUTANT KILLED (b): the column layer without the escape keep banks all 8', async () => {
-  await withMutant(TD_URL, "const hardKeep = n => ['wanted', 'scaffold_reserve', 'escape_reserve'].includes(why[n])", "const hardKeep = n => ['wanted', 'scaffold_reserve'].includes(why[n])", async T => {
+  await withMutant(TD_URL, "export const HARD_KEEP_RULES = Object.freeze(new Set(['wanted', 'scaffold_reserve', 'escape_reserve']))", "export const HARD_KEEP_RULES = Object.freeze(new Set(['wanted', 'scaffold_reserve']))", async T => {
     assert.equal(dirtBanked(T, { columns: () => true }), 8)
   })
+})
+await ta('(b) WIRED: every partialKeep hard rule in the source reads HARD_KEEP_RULES (the room and column layers, the yard\'s keeps)', async () => {
+  const strip = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const sk = strip(readFileSync(SK_URL, 'utf8')), td = strip(readFileSync(TD_URL, 'utf8'))
+  assert.equal((sk.match(/hard: HARD_KEEP_RULES\.has\(why\[name\]\)/g) ?? []).length, 1, 'yardKeepsNow')
+  assert.equal((sk.match(/'scaffold_reserve'/g) ?? []).length, 0, 'no other hard list in skills.mjs')
+  assert.equal((td.match(/HARD_KEEP_RULES\.has\(why\[n\]\)/g) ?? []).length, 2, 'the room and column layers')
 })
 await ta('MUTANT KILLED (b): the stock keep left on keeps 16', async () => {
   await withMutant(TD_URL, "for (const [n, t] of Object.entries(heldTargetsFor(noStock))) floor(n, t, 'gather_rung')", "for (const [n, t] of Object.entries(HELD_TARGETS)) floor(n, t, 'gather_rung')", async T => {
