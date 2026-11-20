@@ -2484,16 +2484,18 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         if (roofHit) return false
       }
       if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
+      // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
+      // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
+      if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
       // nostock-01show (c): a cell the gather profile prices at 100+ (the plan's cells, the zones, the wells, the workshop: the
       // exclusionAreasBreak safeToBreak refuses) is skipped HERE, so the 32 nearest are cells the bot may take (gather-diag 11-20:
-      // the houses were the 32 nearest logs). In range only, as above: the matcher runs before mineflayer's distance test
+      // the houses were the 32 nearest logs). In range only, as above: the matcher runs before mineflayer's distance test.
+      // AFTER keep-out (Claude r1 blocker): the gather profile prices a fire column 101 too (keepoutBreakPenalty), and keep-out must
+      // count its own cells (its cooldown and remedy), never this rule
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && isBuiltCell(bot.collectBlock?.movements ?? bot.pathfinder?.movements, b)) {
         builtSkipped++; if (builtCells.length < 64) builtCells.push(b.position)
         return false
       }
-      // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
-      // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
-      if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
       // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
       // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
@@ -2520,6 +2522,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       } finally { if (count) { roofSkipped += roofSearch; roofMade += roofMadeSearch } }
     }
     roofGaveUp = false
+    builtSkipped = 0; builtCells = []   // nostock-01show: this round's (a round that `continue`d earlier left its count: Claude r1)
     ko?.refresh?.()
     let positions = findGround(type.id)
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)

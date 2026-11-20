@@ -139,7 +139,7 @@ await ta('MUTANT KILLED (b): no escape reserve keeps no dirt for a dirt-only bag
 // the matcher (cavefall.test.mjs gatherShelf), a stone floor at y=29, logs at y=30; HOUSE cells priced 100 by the profile's
 // exclusionBreak (the exclusionAreasBreak index.mjs installs), and safeToBreak refusing them as mineflayer-pathfinder does.
 const key = (x, y, z) => `${x},${y},${z}`
-function logWorld ({ house = [], trees = [], at = [2.5, 30, 0.5], walkTo = 'arrive' }) {
+function logWorld ({ house = [], trees = [], at = [2.5, 30, 0.5], walkTo = 'arrive', sites = [], columnAt = null }) {
   const L = MC.blocksByName.spruce_log
   const logs = new Set([...house, ...trees].map(p => key(...p)))
   const houseSet = new Set(house.map(p => key(...p)))
@@ -150,7 +150,8 @@ function logWorld ({ house = [], trees = [], at = [2.5, 30, 0.5], walkTo = 'arri
     return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: (isLog || isFloor) ? 'block' : 'empty', diggable: isLog,
              canHarvest: () => true, digTime: () => 50, material: 'mineable/axe', hardness: isLog ? 2 : 0 }
   }
-  const moves = { exclusionBreak: b => (houseSet.has(key(b.position.x, b.position.y, b.position.z)) ? 100 : 0) }
+  // a fire column priced 101 as index.mjs's keepoutBreakPenalty prices it while a keep-out scope holds
+  const moves = { exclusionBreak: b => (houseSet.has(key(b.position.x, b.position.y, b.position.z)) ? 100 : columnAt && columnAt(sites, b.position) ? 101 : 0) }
   moves.safeToBreak = b => moves.exclusionBreak(b) < 100
   const bot = Object.assign(new EventEmitter(), {
     entity: { position: new Vec3(...at), velocity: new Vec3(0, 0, 0), onGround: true, yaw: 0 },
@@ -178,7 +179,7 @@ function logWorld ({ house = [], trees = [], at = [2.5, 30, 0.5], walkTo = 'arri
     async dig (b) { digs.push(b.position); logs.delete(key(b.position.x, b.position.y, b.position.z)) },
     async equip () {}, async lookAt () {}, assertNav () {}, chat () {}, setControlState () {}, clearControlStates () {},
     withGatherMovements: async fn => fn(),
-    fireSitesNow: () => [], protectZones: () => [],
+    fireSitesNow: () => sites, protectZones: () => [],
   })
   return { bot, digs }
 }
@@ -228,6 +229,27 @@ await ta('(c) CHAIN: the walk out fails -> the refusal names "protected / built"
   const w2 = logWorld({ house: HOUSE, trees: [tree], at: [pt.x + 0.5, 30, pt.z + 0.5] })
   await runGather(SK, w2.bot)
   assert.deepEqual(w2.digs.map(p => [p.x, p.y, p.z]), [tree])
+})
+const KO = await import('../src/keepout.mjs')
+const FIRE = [{ kind: 'death:fire', x: 4, y: 20, z: 0, count: 4, deaths: 1, last: Date.now(), by: ['showcase-Echo'] }]
+const TREE_IN_COLUMN = [[3, 30, 0], [4, 30, 0], [5, 30, 1]]
+await ta('(c) COMPOSED with keep-out: logs only in a fire column (the gather profile prices them 101 too) are KEEP-OUT\'s -- its cooldown and remedy, no built walk', async () => {
+  assert.ok(TREE_IN_COLUMN.every(p => KO.columnAt(FIRE, new Vec3(...p))), 'fixture: every log is in the column')
+  const { bot, digs } = logWorld({ trees: TREE_IN_COLUMN, sites: FIRE, columnAt: KO.columnAt })
+  const r = await runGather(SK, bot)
+  assert.equal(digs.length, 0); assert.deepEqual(bot.walks, [], 'no built walk')
+  assert.equal(r.failClass, 'keepout', JSON.stringify(r).slice(0, 300))
+})
+await ta('MUTANT KILLED (c): the built skip ahead of keep-out takes keep-out\'s cells (no cooldown; a walk on a bearing past the death site)', async () => {
+  const src = readFileSync(SK_URL, 'utf8')
+  const built = src.slice(src.indexOf('      // nostock-01show (c): a cell the gather profile prices at 100+'), src.indexOf('        return false\n      }\n', src.indexOf('builtSkipped++; if (builtCells')) + '        return false\n      }\n'.length)
+  const koLine = src.slice(src.indexOf('      // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION'), src.indexOf('      // nostock-01show (c): a cell the gather profile prices at 100+'))
+  assert.equal(src.split(koLine + built).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  await withMutant(SK_URL, koLine + built, built + koLine, async S => {
+    const { bot } = logWorld({ trees: TREE_IN_COLUMN, sites: FIRE, columnAt: KO.columnAt })
+    const r = await runGather(S, bot)
+    assert.notEqual(r.failClass, 'keepout')
+  })
 })
 await ta('(c) builtRemedyPoint: out from home along the bearing to the bot, past the farthest built cell; no home -> from the cells\' centre', async () => {
   assert.deepEqual(GB.builtRemedyPoint({ from: { x: 0, z: -10 }, home: { x: 0, z: 0 }, cells: [{ x: 0, z: -20 }] }), { x: 0, z: -45 })
