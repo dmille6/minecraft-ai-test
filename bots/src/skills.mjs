@@ -288,7 +288,7 @@ import { tempStandOn, standVeto, otherCellsStrict } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { floatcleanOn, floatGuardOf, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
+import { floatcleanOn, floatGuardOf, floorKeys, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
@@ -30199,11 +30199,7 @@ function floatGuardStrict (bot) {
 }
 /** The cells under a body (its feet's floor, every column its box stands over) -> ['x,y,z']. Never throws. */
 function floorKeysOf (e) {
-  try {
-    const p = e.position, w = (Number(e.width) || 0.6) / 2, y = Math.floor(p.y + 1e-6) - 1, out = []
-    for (const x of new Set([Math.floor(p.x - w), Math.floor(p.x + w)])) for (const z of new Set([Math.floor(p.z - w), Math.floor(p.z + w)])) out.push(`${x},${y},${z}`)
-    return out
-  } catch { return [] }
+  try { return floorKeys(e.position, e.width) } catch { return [] }
 }
 const bodyFloorKeys = bot => floorKeysOf(bot.entity)
 /** rig 11-20: the cells under every OTHER body within 12 blocks (players, mobs; never items, orbs, arrows) -> ['x,y,z']. Never throws. */
