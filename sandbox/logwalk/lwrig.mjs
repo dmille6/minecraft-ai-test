@@ -127,13 +127,18 @@ for (let n = 1; n <= N && !has('stop'); n++) {
   const l0 = logs(), t = Date.now()
   const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 180_000)
   let r = null
-  try { r = await SK.SKILLS.gather.run({ bot }, { block: 'spruce_log', count: 4 }, ac.signal) } catch (e) { r = { status: 'threw', detail: String(e?.stack ?? e).slice(0, 300) } } finally { clearTimeout(timer); untap(); try { bot.pathfinder.setGoal(null) } catch {} }
+  // THE RUNNER'S HARD STOP, as the rig has it (the runner ends a skill at its contract, 180 s, plus grace): a run still going at
+  // 200 s is written `hung` and this bot stops (its promise may still hold the pathfinder, so no later try would be clean)
+  let hung = false
+  const hard = sleep(200_000).then(() => { hung = true; return { status: 'hung', detail: 'still running 20 s after the 180 s abort (the rig has no runner hard stop)' } })
+  try { r = await Promise.race([SK.SKILLS.gather.run({ bot }, { block: 'spruce_log', count: 4 }, ac.signal), hard]) } catch (e) { r = { status: 'threw', detail: String(e?.stack ?? e).slice(0, 300) } } finally { clearTimeout(timer); untap(); try { bot.pathfinder.setGoal(null) } catch {} }
   const row = { bot: NAME, n, t: new Date(t).toISOString(), ms: Date.now() - t, start, end: pos(), status: r?.status ?? null, failClass: r?.failClass ?? null,
     detail: String(r?.detail ?? '').slice(0, 300), logs: logs() - l0, code: CF.config.code.version, deaths, rows }
   W('tries.jsonl', row)
   P(n, r?.status, r?.failClass ?? '', `+${row.logs} logs`, `${row.ms} ms`, String(r?.detail ?? '').slice(0, 140), JSON.stringify(rows.filter(x => /gather_walk/.test(x))))
   // the bag: logs tossed (a sandbox world) so the next try starts the same
   for (const it of (bot.inventory?.items?.() ?? []).filter(i => /_log$/.test(i.name))) { try { await bot.tossStack(it) } catch {} }
+  if (hung) break
   await sleep(2000)
 }
 fs.writeFileSync(path.join(OUT, `done-${NAME}`), JSON.stringify({ deaths }))
