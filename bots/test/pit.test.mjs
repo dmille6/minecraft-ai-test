@@ -363,10 +363,13 @@ await t('pitWanted: the pit stays offered for the BANK while the chests are shor
   assert.equal(P.pitWanted(covered, 48), true, 'so the next visit banks it')
   assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 32 }, stock: 40 }), 80), false, 'the chests hold the need: no bank, no dig')
   assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 32 }, stock: 0 }), 16), true, 'short: dig')
+  assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 24 }, stock: 0, bag: 24 }), 40), true, 'a surplus under bankMin is banked too (Codex r4)')
+  assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 24 }, stock: 0, bag: 0 }), 16), true)
+  assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 24 }, stock: 24 }), 40), false)
   assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: null } }), 80), false, 'nothing read: never')
 })
 await t('MUTANT: the bank leg off the wanted state -- the carried dirt hides the pit and is never banked (killed)', async () => {
-  await killed('(dem.dig || ((dem.chest ?? 0) > 0 && pitBankDue(bagDirt, { T }) > 0))', '(dem.dig)', M => { assert.equal(M.pitWanted(M.pitDemand({ needs: { tidy: 32 }, stock: 0, bag: 32 }), 48), true) })
+  await killed('(dem.dig || ((dem.chest ?? 0) > 0 && pitBankDue(bagDirt, { final: true, T }) > 0))', '(dem.dig)', M => { assert.equal(M.pitWanted(M.pitDemand({ needs: { tidy: 32 }, stock: 0, bag: 32 }), 48), true) })
 })
 await t('MUTANT: the demand digs while stocked (need, not short) -- killed', async () => {
   await killed("return { dig: short > 0,", 'return { dig: need > 0,', M => { assert.equal(M.pitDemand({ needs: { tidy: 30 }, stock: 40 }).dig, false) })
