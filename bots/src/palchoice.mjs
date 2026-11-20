@@ -61,8 +61,16 @@ export function sourceOf (name, n, { held = () => 0, finds = [], home = null, jo
     // what the recipe takes in planks for the shortfall, and the planks the bag and the town can give (4 a log)
     const p = part ? WOOD_PART[part[2]] : null
     const want = p ? Math.ceil(short / p.makes) * p.planks : short
-    const have = (pl === name ? 0 : Math.max(0, Number(held(pl)) || 0)) + 4 * Math.max(0, Number(held(logOf(name))) || 0)
-    if (have >= want) return { ok: true, why: `craft:${pl}:${have}/${want}` }
+    const hp = pl === name ? 0 : Math.max(0, Number(held(pl)) || 0), hl = Math.max(0, Number(held(logOf(name))) || 0)
+    const have = hp + 4 * hl
+    // what the craft eats (planks first, then whole logs), booked against the visit's later courses: two courses never count the
+    // same logs (the rig, 11-20: 4 logs + 6 planks = 22 planks read as enough for each of two courses wanting 12)
+    // a log makes 4 planks: what a whole log leaves over is booked back (negative use) for the next course
+    const logs = Math.ceil(Math.max(0, want - hp) / 4)
+    const uses = {}
+    const book = (k, v) => { if (v) uses[k] = (uses[k] ?? 0) + v }
+    book(name, h); book(pl, want - 4 * logs); book(logOf(name), logs)
+    if (have >= want) return { ok: true, why: `craft:${pl}:${have}/${want}`, uses }
   }
   const log = logOf(name)
   if (log) {
@@ -94,7 +102,8 @@ export function paletteChoice (record, { names, read, done, source, townCoverage
     groups.get(g).push(c)
   }
   const used = {}
-  const take = (name, n) => { used[name] = (used[name] ?? 0) + n }
+  // what a taken name books against later courses: its source's own `uses` (a craft's planks and logs), else the name itself
+  const take = (name, n, s = null) => { for (const [k, v] of Object.entries(s?.uses ?? { [name]: n })) used[k] = (used[k] ?? 0) + v }
   for (const cells of groups.values()) {
     const { seg, role } = cells[0], y = cells[0].at[1]
     const list = names(role) ?? []
@@ -110,15 +119,15 @@ export function paletteChoice (record, { names, read, done, source, townCoverage
     const cands = cont ? [cont, ...list.filter(n => n !== cont)] : list
     const src = n => source(n, open.length, used)
     const first = src(list[0])
-    if (!cont && first.ok) { take(list[0], open.length); continue }   // the role's first name has a source: the base's behaviour
-    let took = null, why = null
-    for (const n of cands) { const s = n === list[0] ? first : src(n); if (s.ok) { took = n; why = s.why; break } }
+    if (!cont && first.ok) { take(list[0], open.length, first); continue }   // the role's first name has a source: the base's behaviour
+    let took = null, why = null, tookSrc = null
+    for (const n of cands) { const s = n === list[0] ? first : src(n); if (s.ok) { took = n; why = s.why; tookSrc = s; break } }
     const row = { seg, role, y, open: open.length, placed, first: list[0], firstWhy: first.why, took: took ?? '-', why: took ? (cont === took ? `course:${why}` : why) : 'none' }
     // an index that knows too few of the town's containers proves no zero: nothing is chosen (the base), and the row says so
     if (!trusted) { rows.push({ ...row, took: '-', why: `town_unread(cov=${(Number(townCoverage) || 0).toFixed(2)})` }); continue }
     rows.push(row)
-    if (!took || took === list[0]) { if (took) take(took, open.length); continue }
-    take(took, open.length)
+    if (!took || took === list[0]) { if (took) take(took, open.length, tookSrc); continue }
+    take(took, open.length, tookSrc)
     for (const c of open) choice.set(k3(c.at), took)
   }
   return { choice, rows }
