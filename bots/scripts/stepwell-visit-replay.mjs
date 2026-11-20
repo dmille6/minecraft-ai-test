@@ -26,10 +26,10 @@ export function cellOf (name) {
 const ROLE_BLOCK = { floor: 'stone_bricks', trim: 'stone_bricks', wall: 'cobblestone', body: 'cobblestone', under: 'cobblestone', seal: 'cobblestone', post: 'cobblestone_wall', light: 'torch', dlight: 'torch', tread: 'stone_bricks' }
 
 /** One visit on a mutable world `over` (Map "x,y,z" -> cell) -> { r, rows, feet, secs }. `walkTicks` bounds each walk (20 a second). */
-export async function replayVisit ({ rec, read0, over, from, budgetS = 120, walkTicks = 400, lights = false, log = () => {} }) {
+export async function replayVisit ({ rec, read0, over, from, budgetS = 120, walkTicks = 400, lights = false, asideMem = null, clock0 = 0, log = () => {} }) {
   const read = (x, y, z) => over.get(`${x},${y},${z}`) ?? read0(x, y, z)
   const plan = S.planOfRecord(rec)
-  let clock = 0, feet = from.slice()
+  let clock = clock0, feet = from.slice()   // clock0: the simulated time this visit starts at (the set-aside memory ages on it)
   const rows = []
   const walk = async c => {
     const world = worldOf(read, {})
@@ -64,8 +64,8 @@ export async function replayVisit ({ rec, read0, over, from, budgetS = 120, walk
     now: () => clock * 1000,
     aborted: () => false,
   }
-  const r = await runStepwellVisit({ plan, exit: rec.exit, share: null, onStop: async () => {}, onTiers: async () => {} }, e, { deadline: budgetS * 1000, lights: () => lights })
-  return { r, rows, feet, secs: Math.round(clock) }
+  const r = await runStepwellVisit({ plan, exit: rec.exit, share: null, aside: asideMem, onStop: async () => {}, onTiers: async () => {} }, e, { deadline: clock0 * 1000 + budgetS * 1000, lights: () => lights })
+  return { r, rows, feet, secs: Math.round(clock - clock0) }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -80,13 +80,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const quiet = args.includes('--quiet')
   const visits = Number(opt('--visits') ?? 1), budgetS = Number(opt('--budget') ?? 120)
   const plan = S.planOfRecord(rec)
+  const asideMem = args.includes('--no-memory') ? null : new Map()
+  let clockAt = 0
   for (let v = 1; v <= visits; v++) {
     const t0 = Date.now()
-    const { r, rows, secs } = await replayVisit({ rec, read0, over, from, budgetS, log: (op, d) => { if (!quiet && (op === 'refused' || op === 'walk' && !d.ok)) console.log(`   ${op} ${JSON.stringify(d)}`) } })
+    const { r, rows, secs } = await replayVisit({ rec, read0, over, from, budgetS, asideMem, clock0: clockAt, log: (op, d) => { if (op === 'set_aside' || (!quiet && (op === 'refused' || op === 'walk' && !d.ok))) console.log(`   ${op} ${JSON.stringify(d)}`) } })
+    clockAt += 20 * 60   // the next visit 20 min later (the turn's base back-off)
     const read = (x, y, z) => over.get(`${x},${y},${z}`) ?? read0(x, y, z)
     const w = S.firstUndoneUnit(read, plan)
     const walks = rows.filter(q => q.op === 'refused').length
-    console.log(`visit ${v}: stop=${r.stop} why=${r.why ?? '-'} y=${r.y ?? '-'} dug=${r.dug} placed=${r.placed} ops=${r.ops} skipped=${r.skipped} refused=${walks} tiers=${r.tiers.join('+') || '-'} sim_s=${secs} wall_ms=${Date.now() - t0} | next unit ${w ? `i=${w.i} y=${w.unit.y}` : 'none'}`)
+    console.log(`visit ${v}: stop=${r.stop} why=${r.why ?? '-'} y=${r.y ?? '-'} dug=${r.dug} placed=${r.placed} ops=${r.ops} skipped=${r.skipped} refused=${walks} aside=${r.aside} tiers=${r.tiers.join('+') || '-'} sim_s=${secs} wall_ms=${Date.now() - t0} | next unit ${w ? `i=${w.i} y=${w.unit.y}` : 'none'}`)
     if (r.stop === 'complete') break
     if (w && r.stop === 'passed' && !r.skipped) {
       // a unit the loop calls done but is not: name each cell not done (its role, its block, what is under it)

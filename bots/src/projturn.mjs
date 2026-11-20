@@ -108,20 +108,23 @@ const sameGen = (a, b) => (a ?? null) === (b ?? null)
  * generation counts); noAt / stop: the newest of them; rn / rnoAt: the same for the visits that began as REPAIRS (their own count).
  * A stamp more than T.skewMs in the future is dropped before anything is taken.
  */
-export function turnView (files = [], { now = Date.now(), genOf = null, T = TURN } = {}) {
+// stepwell-03show `codeOf(plot)` -> the code version a no-progress entry must carry to count for that plot, or null (every entry
+// counts, as before): a project's back-off written by another release (or before entries carried one) holds nothing under this one
+export function turnView (files = [], { now = Date.now(), genOf = null, codeOf = null, T = TURN } = {}) {
   const ok = t => Number.isFinite(t) && t > 0 && t <= now + T.skewMs
   const by = new Map()
   for (const f of files ?? []) for (const [plot, e] of Object.entries(f?.plots ?? {})) { if (e && typeof e === 'object') { if (!by.has(plot)) by.set(plot, []); by.get(plot).push(e) } }
   const out = new Map()
   for (const [plot, es] of by) {
     const at = Math.max(-Infinity, ...es.map(e => e.at).filter(ok)), okAt = Math.max(-Infinity, ...es.map(e => e.okAt).filter(ok))
-    let gen
+    let gen, code
     const v = { at: Number.isFinite(at) ? at : null, okAt: Number.isFinite(okAt) ? okAt : null, n: 0, noAt: null, rn: 0, rnoAt: null, stop: null }
     for (const e of es) {
       for (const [nk, tk] of [['n', 'noAt'], ['rn', 'rnoAt']]) {
         const k = Math.floor(Number(e[nk]) || 0)
         if (k <= 0 || !ok(e[tk]) || e[tk] <= okAt) continue
         if (typeof genOf === 'function') { if (gen === undefined) { try { gen = genOf(plot) ?? null } catch { gen = null } } if (!sameGen(e.gen, gen)) continue }
+        if (typeof codeOf === 'function') { if (code === undefined) { try { code = codeOf(plot) ?? null } catch { code = null } } if (code != null && String(e.code ?? '') !== String(code)) continue }
         v[nk] += k
         if (v[tk] == null || e[tk] > v[tk]) { v[tk] = e[tk]; if (nk === 'n') v.stop = e.stop ?? null }
       }
@@ -138,8 +141,11 @@ export const turnStart = (own, now = Date.now()) => ({ n: 0, noAt: null, rn: 0, 
  * more -- on the REPAIRS' count when the visit began as one (`repair`), else on the project's -- on top of its own count only while
  * that count is still live (no progress by anyone since, the same generation). `none`: as it was.
  */
-export function turnAfter (own, pool, outcome, { now = Date.now(), stop = null, gen = null, repair = false } = {}) {
-  const base = { at: null, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: null, gen: null, stop: null, ...(own ?? {}) }
+export function turnAfter (own, pool, outcome, { now = Date.now(), stop = null, gen = null, repair = false, code = null } = {}) {
+  // stepwell-03show `code`: the code version stamped on the entry (turnView codeOf); counts another version wrote are dead (they do
+  // not carry into this version's count). null: the entry as it was
+  const other = code != null && String(own?.code ?? '') !== String(code)
+  const base = { at: null, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: null, gen: null, stop: null, ...(own ?? {}), ...(other ? { n: 0, noAt: null, rn: 0, rnoAt: null } : {}), ...(code != null ? { code: String(code) } : {}) }
   if (outcome === 'progress') return { ...base, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: now, gen: gen ?? null, stop: null }
   if (outcome !== 'no_progress') return own ?? null
   const live = (n, t) => (n > 0 && Number.isFinite(t) && t > (pool?.okAt ?? -Infinity) && sameGen(base.gen, gen) ? Math.floor(n) : 0)
