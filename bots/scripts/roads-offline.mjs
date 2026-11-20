@@ -51,8 +51,9 @@ const avail = opt('avail') ? JSON.parse(opt('avail')) : { stone_bricks: 518, cob
 let rec = recOf('road')
 const zig = others.find(r => r.plot === 'monument' && Array.isArray(r.box)) ?? null
 const g0 = () => guard()
-const guard = () => {
-  const zones = [...R.zones, ...recordZones([...others, ...(land && LP ? [LP.landReservation(land)] : [])]).filter(z => !/^(land:road|project:paths)/.test(String(z?.why ?? '')))]
+// roadsite-01show: `open` -- the one record zone a route's destination opens (roads.mjs roadOpenZone), as skills.mjs sinkGuardFor's `open`
+const guard = (open = null) => {
+  const zones = [...R.zones, ...recordZones([...others, ...(land && LP ? [LP.landReservation(land)] : [])]).filter(z => !/^(land:road|project:paths)/.test(String(z?.why ?? ''))).filter(z => !(open != null && String(z?.why ?? '') === open))]
   const res = reservations(plan, { zones, wells: R.wells, farm: R.farm, z0: zig ? { box: zig.box } : null })
   // roadsite-01show: zoneReason (the bots' own, skills.mjs sinkGuardFor): a protected zone has no `why` -- the old find(...)?.why read a
   // village's box as free ground (zonesite-01show's bug, still here: the replay laid work-92_68 into village-taiga-6_1)
@@ -68,7 +69,7 @@ for (let i = 0; i < count; i++) {
   const n = S.instancesOf(rec).length + 1
   const id = `R${n}`
   const t0 = Date.now()
-  const r = S.siteSink(read, { kind: 'road', n, id, home, pool, avail, guard: g, rec, stood, roads2: { routes: T.routes, ringFor, townBoxes: boxes, own, landOk: (x, z) => !wallCols.has(`${x},${z}`), lamp: true } })
+  const r = S.siteSink(read, { kind: 'road', n, id, home, pool, avail, guard: g, rec, stood, roads2: { routes: T.routes, ringFor, townBoxes: boxes, own, landOk: (x, z) => !wallCols.has(`${x},${z}`), lamp: true, guardFor: why => guard(why) } })
   const ms = Date.now() - t0
   if (!r.ok) { out.failed.push({ n, why: r.why, tried: r.tried, ms }); break }
   rec = S.completeInstance(S.appendInstance(rec, { kind: 'road', home, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } }))
