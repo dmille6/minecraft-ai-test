@@ -251,7 +251,7 @@ await t('another record\'s cells (`own`: the paths, the yard): no road cell on o
 })
 
 await t('MUTANT KILLED: without the own-column refusal the road is laid over the other record', async () => {
-  await withMutant(ROADS_PATH, "    if (own(cx, cz)) return { ok: false, why: 'path' }", '', async M => {
+  await withMutant(ROADS_PATH, "    if (paved) { const sw = shareOk(own(cx, cz), L); if (sw) return { ok: false, why: sw } }", '', async M => {
     const block = new Set(); for (let z = -6; z <= 6; z++) block.add(`30,${z}`)
     const r = M.routeRoad(world(), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64, own: (x, z) => block.has(`${x},${z}`) })
     assert.ok(r.nodes.some(n => n.x === 30 && Math.abs(n.z) <= 6), 'the mutant should cross the record')
@@ -290,7 +290,7 @@ await t('MUTANT KILLED: without the pillar rule a bots\' cobble pillar on the li
   const extra = new Map(); for (let z = -12; z <= 12; z++) for (let y = 65; y <= 68; y++) extra.set(`30,${y},${z}`, { name: 'cobblestone', boundingBox: 'block' })   // a cobble wall-pillar row
   const real = RD.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
   assert.ok(real.nodes.some(n => n.x === 30 && n.L === 64), 'the real router cuts the bots\' cobble down to the road')
-  await withMutant(ROADS_PATH, "if (LITTER.test(n) && n !== 'dirt' && n !== 'gravel' && n !== 'sand') stack++; else if", "if (false) stack++; else if", async M => {
+  await withMutant(ROADS_PATH, "if ((LITTER.test(n) && n !== 'dirt' && n !== 'gravel' && n !== 'sand') || (n !== 'air' && n !== 'cave_air' && pillar(y))) stack++; else if", "if (false) stack++; else if", async M => {
     const r = M.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
     assert.ok(!r.nodes.some(n => n.x === 30 && n.L === 64), 'the mutant should refuse the 4-deep cut')
   })
@@ -377,6 +377,214 @@ await t('STRUCTURE: skills.mjs hands the road siting its routes, kits a road vis
   assert.ok(/\.\.\.\(kind === 'road' \? \{ floors: roadFloors\(rec\) \} : \{\}\), \.\.\.sinkVisitOpts\(rec, home\)/.test(src), 'runVisit gets the road\'s slab floors')
   assert.ok(/roadOwn && \/\^\(land:road\|project:paths\)\//.test(src), 'the road guard opens the land plan\'s road corridors')
   assert.ok(/max: kind === 'road' && roads2On\(\) \? ROADS\.instancesMax : null/.test(src), 'the gate gets the road2 instance cap')
+})
+
+// ---- roadsite-01show: the columns a road SHARES (the paths', the grading records'), the verges beside built work, pillars, pits,
+// the paved start row, a road that never touches itself -------------------------------------------------------------------------------
+const { cellDone } = await import('../src/buildrun.mjs')
+const { PATH_PALETTE } = await import('../src/paths.mjs')
+const { TIDY_PALETTE, cutStanding } = await import('../src/tidy.mjs')
+/** A paths record's leg across the line at x (cells at the ground, y), z0..z1. */
+const pathsAcross = (x, y, z0 = -8, z1 = 8) => ({ plot: 'paths', rec: { cells: Array.from({ length: z1 - z0 + 1 }, (_, i) => ({ at: [x, y, z0 + i], role: 'path' })) } })
+/** Site one route over `read0` with records `recs` (own = roads.mjs roadShares, as skills.mjs roads2Ctx builds it), laid into the world. */
+function siteShared (read0, recs, { avail = { stone_bricks: 2000, deepslate_bricks: 2000 }, max = 6, routes = [route()], guard = () => null, M = RD } = {}) {
+  const SS = S
+  const shares = M.roadShares(recs)
+  const own = (x, z) => shares.get(`${x},${z}`) ?? null
+  const extra = new Map()
+  const read = (x, y, z) => extra.get(`${x},${y},${z}`) ?? read0(x, y, z)
+  let rec = null
+  const out = []
+  for (let i = 0; i < max; i++) {
+    const n = SS.instancesOf(rec).length + 1
+    // (the module's own siteRoad2, as sinks.mjs siteSink hands it the ctx: a mutant's code is the code under test)
+    const r = M.siteRoad2(read, { kind: 'road', n, id: `R${n}`, home: HOME, pool: 'test', avail, guard, rec, stood: [], routes, ring: RING, townBoxes: [RING], landOk: () => true, own, lamp: true })
+    if (!r.ok) { out.push({ fail: r }); break }
+    rec = SS.completeInstance(SS.appendInstance(rec, { kind: 'road', home: HOME, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } }))
+    for (const c of r.inst.clear) extra.set(c.at.join(','), AIR)
+    for (const c of r.inst.cells) { const name = r.inst.palette[c.role].find(q => q !== '*solid'); extra.set(c.at.join(','), { name, boundingBox: /lantern|torch|fence/.test(name) ? 'empty' : /_slab$/.test(name) ? 'block' : 'block', ...(c.ws ? { props: c.ws } : {}) }) }
+    out.push(r)
+  }
+  return { rec, out, read, own }
+}
+const surface = rec => (rec?.cells ?? []).filter(c => /-(tr|acc|ed|sl)$/.test(c.role))
+
+await t('roadsite: roadShares -- a path cell is the road\'s level (eq), a grading fill a floor (lo), a cut or clear a ceiling (hi; at its own y unless listed for a block a road lays), any other role or record refuses', () => {
+  const sh = RD.roadShares([
+    pathsAcross(30, 64, 0, 0),
+    { plot: 'paths', rec: { cells: [{ at: [30, 63, 0], role: 'fill' }] } },
+    { plot: 'country', rec: { cells: [{ at: [40, 65, 0], role: 'earth' }, { at: [40, 64, 0], role: 'core' }, { at: [41, 66, 0], role: 'topsoil' }], cut: [{ at: [42, 66, 0], name: 'grass_block' }, { at: [43, 66, 0], name: 'cobblestone' }], clear: [{ at: [44, 67, 0], name: 'oak_leaves' }] } },
+    { plot: 'tidy', rec: { cells: [{ at: [45, 64, 0], role: 'core' }] } },
+    { plot: 'yard', rec: { cells: [{ at: [50, 65, 0], role: 'pile' }] } },
+  ])
+  const at = (x, z) => sh.get(`${x},${z}`)
+  assert.deepStrictEqual([at(30, 0).eq, at(30, 0).path, at(30, 0).other], [64, true, false])
+  assert.strictEqual(at(40, 0).lo, 65); assert.strictEqual(at(41, 0).other, true, 'topsoil is the grading record\'s own (dirt only)')
+  assert.strictEqual(at(42, 0).hi, 66); assert.strictEqual(at(43, 0).hi, 65, 'a cut listed for cobblestone: the road lays cobblestone, so never at its y')
+  assert.strictEqual(at(44, 0).hi, 67); assert.strictEqual(at(45, 0).lo, 64); assert.strictEqual(at(50, 0).other, true)
+  assert.strictEqual(RD.shareOk(at(30, 0), 64), null); assert.strictEqual(RD.shareOk(at(30, 0), 65), 'path_level')
+  assert.strictEqual(RD.shareOk(at(40, 0), 64), 'grade_fill'); assert.strictEqual(RD.shareOk(at(40, 0), 65), null)
+  assert.strictEqual(RD.shareOk(at(42, 0), 66), null); assert.strictEqual(RD.shareOk(at(42, 0), 67), 'grade_cut'); assert.strictEqual(RD.shareOk(at(43, 0), 66), 'grade_cut')
+  assert.strictEqual(RD.shareOk(at(50, 0), 64), 'path'); assert.strictEqual(RD.shareOk(true, 64), 'path'); assert.strictEqual(RD.shareOk(null, 64), null)
+  assert.strictEqual(RD.slabOk(at(30, 0), 64), false, 'never a slab on a path cell'); assert.strictEqual(RD.slabOk(at(40, 0), 65), false, 'never a slab on a fill')
+  assert.strictEqual(RD.slabOk(at(40, 0), 66), true); assert.strictEqual(RD.slabOk(at(42, 0), 66), true); assert.strictEqual(RD.slabOk(null, 64), true)
+})
+
+await t('roadsite: STRUCTURE -- GRADE_SOLID_ROLES are exactly the grading palette\'s roles any full solid finishes (tidy.mjs TIDY_PALETTE)', () => {
+  const solid = Object.entries(TIDY_PALETTE).filter(([, v]) => Array.isArray(v) && v.includes('*solid')).map(([k]) => k).sort()
+  assert.deepStrictEqual([...RD.GRADE_SOLID_ROLES].sort(), solid)
+})
+
+await t('roadsite: a PATHS leg across the line -- the road crosses it at the path\'s level; on its columns the road\'s block is the tread (path palette), never a kerb, an accent or a slab; the path reads done after', () => {
+  const recs = [pathsAcross(30, 64)]
+  const { rec, out, read, own } = siteShared(world(), recs)
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  assert.ok(Math.max(...rec.cells.map(c => c.at[0])) > 40, 'the road crossed the path and went on')
+  const on = surface(rec).filter(c => own(c.at[0], c.at[2]))
+  assert.ok(on.length >= 5, `the road paves the path's columns (${on.length})`)
+  for (const c of on) {
+    assert.strictEqual(c.at[1], 64, 'at the path cell itself')
+    assert.ok(!c.ws, 'no slab on a path cell')
+    for (const n of rec.palette[c.role].filter(q => q !== '*solid')) assert.ok(PATH_PALETTE.path.includes(n), `${c.role} may lay ${n}: the path would dig it out`)
+  }
+  // COMPOSED: every path cell under the road reads done by the paths' own test (buildrun.mjs cellDone with PATH_PALETTE)
+  for (const c of recs[0].rec.cells) if (on.some(q => q.at[0] === c.at[0] && q.at[2] === c.at[2])) assert.ok(cellDone(read(...c.at), PATH_PALETTE, 'path'), `path cell ${c.at} reads open under the road`)
+})
+
+await t('roadsite: MUTANT KILLED -- without the tread on a path column the road lays its kerb stone (deepslate bricks) into the path, which the path would dig out', async () => {
+  await withMutant(ROADS_PATH, "const tag = own(c.x, c.z)?.path ? rTread : c.w === 2", "const tag = c.w === 2", async M => {
+    const recs = [pathsAcross(30, 64)]
+    const { rec, own } = siteShared(world(), recs, { M })
+    assert.ok(rec, 'the mutant sites')
+    const bad = surface(rec).filter(c => own(c.at[0], c.at[2])).filter(c => rec.palette[c.role].some(n => n !== '*solid' && !PATH_PALETTE.path.includes(n)))
+    assert.ok(bad.length > 0, 'the mutant should lay a non-path block on a path cell')
+  })
+})
+
+await t('roadsite: a path cell NOT at the ground (a raised path) is met at ITS level or not at all -- never a road surface over or under it', () => {
+  const { rec, out, own } = siteShared(world(), [pathsAcross(30, 65, -30, 30)])
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  const on = surface(rec).filter(c => own(c.at[0], c.at[2]))
+  assert.ok(on.every(c => c.at[1] === 65), `a road surface on the path's column off its level: ${JSON.stringify(on.filter(c => c.at[1] !== 65).map(c => c.at))}`)
+  assert.ok(on.length > 0, 'positive control: the road met the raised path at its level (it rose by a half step)')
+})
+
+await t('roadsite: a GRADING record across the line -- fills planned above the ground: the road never runs under them (it rises to the grade or goes round); after it is laid every fill and cut on its columns reads done', () => {
+  // the country plans to raise x 28..33 to 65 (fills at 65 on ground 64) and to cut a grass hump at 66 (x 36..38: the ground there 66)
+  const extra = new Map()
+  for (let x = 36; x <= 38; x++) for (let z = -12; z <= 12; z++) { extra.set(`${x},65,${z}`, { name: 'dirt', boundingBox: 'block' }); extra.set(`${x},66,${z}`, { name: 'grass_block', boundingBox: 'block' }) }
+  const cells = [], cut = []
+  for (let x = 28; x <= 33; x++) for (let z = -12; z <= 12; z++) cells.push({ at: [x, 65, z], role: 'earth' })
+  for (let x = 36; x <= 38; x++) for (let z = -12; z <= 12; z++) cut.push({ at: [x, 66, z], name: 'grass_block' })
+  const recs = [{ plot: 'country', rec: { cells, cut } }]
+  const { rec, out, read, own } = siteShared(world({ extra }), recs)
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  const on = surface(rec).filter(c => own(c.at[0], c.at[2]))
+  assert.ok(on.length > 0, 'the road crosses the grading')
+  for (const c of on) assert.strictEqual(RD.shareOk(own(c.at[0], c.at[2]), c.at[1]), null, `road cell ${c.at} breaks the grade's terms`)
+  for (const c of cells) if (on.some(q => q.at[0] === c.at[0] && q.at[2] === c.at[2])) assert.ok(cellDone(read(...c.at), TIDY_PALETTE, 'earth'), `fill ${c.at} reads open under the road`)
+  for (const c of cut) if (on.some(q => q.at[0] === c.at[0] && q.at[2] === c.at[2])) assert.ok(!cutStanding(read, c), `cut ${c.at} still stands on the road's column`)
+})
+
+await t('roadsite: MUTANT KILLED -- without the fill term the road is laid UNDER the grading\'s planned fill (the country would bury it)', async () => {
+  await withMutant(ROADS_PATH, "  if (L < o.lo) return 'grade_fill'\n", '', async M => {
+    const cells = []; for (let x = 26; x <= 36; x++) for (let z = -14; z <= 14; z++) cells.push({ at: [x, 65, z], role: 'earth' })
+    const { rec, own } = siteShared(world(), [{ plot: 'country', rec: { cells } }], { M })
+    assert.ok(rec && surface(rec).some(c => own(c.at[0], c.at[2]) && c.at[1] < 65), 'the mutant should pave under the fill')
+  })
+  // positive control: the real code never does
+  const cells = []; for (let x = 26; x <= 36; x++) for (let z = -14; z <= 14; z++) cells.push({ at: [x, 65, z], role: 'earth' })
+  const { rec, own } = siteShared(world(), [{ plot: 'country', rec: { cells } }])
+  assert.ok(!rec || !surface(rec).some(c => own(c.at[0], c.at[2]) && c.at[1] < 65), 'the real road paves under a planned fill')
+})
+
+await t('roadsite: a slab never lands on a shared column -- roadInstance refuses it (shared_slab, the column named for the router to go round)', async () => {
+  // three nodes stepping down a level onto a path column: the last row at 64 below the first two at 65 -> the second row a slab
+  const read = world({ ground: x => (x <= 31 ? 65 : 64) })
+  const col = (x, z) => RD.roadColumn(read, x, z, 90, 50)
+  const nodes = [{ x: 30, z: 0, L: 65, d: 0 }, { x: 31, z: 0, L: 65, d: 0 }, { x: 32, z: 0, L: 64, d: 0 }]
+  const sh = RD.roadShares([pathsAcross(31, 65)])
+  const own = (x, z) => sh.get(`${x},${z}`) ?? null
+  const r = RD.roadInstance('R9', nodes, { col, style: RD.roadStyle2(1, {}), lamp: false, read, own })
+  assert.strictEqual(r.why, 'shared_slab'); assert.deepStrictEqual([r.bad[0], r.bad[2]], [31, r.bad[2]])
+  await withMutant(ROADS_PATH, "  for (const k of gr.slab) { const c = paved.get(k); if (c && !slabOk(own(c.x, c.z), c.L)) return { ok: false, why: 'shared_slab', bad: [c.x, c.L, c.z] } }\n", '', async M => {
+    const m = M.roadInstance('R9', nodes, { col, style: M.roadStyle2(1, {}), lamp: false, read, own })
+    assert.ok(m.ok && m.cells.some(c => c.at[0] === 31 && c.ws?.type === 'bottom'), 'the mutant lays a slab on the path')
+  })
+})
+
+await t('roadsite: a VERGE beside built work (a fence line, a torch) is left standing -- the road keeps to its line instead of refusing; a paved column on it still refuses', async () => {
+  const extra = new Map(); for (let x = 14; x <= 70; x++) extra.set(`${x},65,3`, { name: 'oak_fence', boundingBox: 'block' })   // a fence along the line, 3 off it
+  const { rec, out } = siteAll(world({ extra }))
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  assert.ok(rec.cells.every(c => !(c.at[2] === 3 && c.at[1] >= 64)), 'nothing laid on the fence\'s column')
+  assert.ok(rec.instances.flatMap(i => i.path ?? []).some(p => p[1] === 0 && p[0] > 20), 'the road kept the traffic line (z 0) beside the fence')
+  await withMutant(ROADS_PATH, "    if (!paved && (gr.why === 'built' || gr.why === 'tree')) {", "    if (false) {", async M => {
+    const r = M.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
+    assert.ok(!r.nodes.some(n => n.z === 0 && n.x > 20), 'the mutant should leave the line (the fence refused as a verge)')
+  })
+})
+
+await t('roadsite: a bots\' 1x1 PILLAR of dirt on the line is cut down (counted as their stack, not natural ground)', async () => {
+  const extra = new Map(); for (let y = 65; y <= 68; y++) extra.set(`30,${y},0`, { name: 'dirt', boundingBox: 'block' })
+  const real = RD.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
+  assert.ok(real.nodes.some(n => n.x === 30 && n.z === 0 && n.L === 64), 'the real router cuts the pillar down to the road')
+  await withMutant(ROADS_PATH, " || (n !== 'air' && n !== 'cave_air' && pillar(y))) stack++", ") stack++", async M => {
+    const r = M.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
+    assert.ok(!r.nodes.some(n => n.x === 30 && n.z === 0 && n.L === 64), 'the mutant should refuse the 4-high natural cut')
+  })
+})
+
+await t('roadsite: a trench 4 deep across the line is filled under the road (fillMax 4: the proof decides the stands), every walking step at most half a block', async () => {
+  const pit = (x, z) => (x === 30 && Math.abs(z) <= 10 ? 60 : 64)   // a bot's trench, 1 wide, 4 deep, across the line
+  const { rec, out } = siteAll(world({ ground: pit }))
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  const nodes = rec.instances.flatMap(i => i.path ?? [])
+  assert.ok(nodes.some(p => p[0] === 30 && Math.abs(p[1]) <= 4 && p[2] >= 63), `the road crosses the trench 3+ over its floor: ${JSON.stringify(nodes)}`)
+  assert.ok(rec.cells.some(c => c.at[0] === 30 && /-core$/.test(c.role)), 'the pit under the road is filled')
+  assert.ok(maxStep(rec) <= 1, `a walking step of ${maxStep(rec)} half blocks`)
+  await withMutant(ROADS_PATH, '  fillMax: 4,', '  fillMax: 2,', async M => {
+    const r = M.routeRoad(world({ ground: pit }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
+    assert.ok(!r.nodes.some(n => n.x === 30 && Math.abs(n.z) <= 8 && n.L >= 63), `the old limit should never fill the trench 3 deep (it digs the road down into it): ${JSON.stringify(r.nodes.map(n => [n.x, n.z, n.L]))}`)
+  })
+})
+
+await t('roadsite: a route\'s FIRST instance paves its start row (the landing joins the road, flat or by a half step)', async () => {
+  const { rec, out } = siteAll(world())
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  const first = rec.instances.find(i => i.design?.kind === 'road2')
+  const [sx, sz] = first.path[0]
+  assert.ok(surface(rec).some(c => c.at[0] === sx && c.at[2] === sz), `no road cell on the start row ${sx},${sz}`)
+  assert.strictEqual(first.land.x, sx - 1, 'the landing is the column before the paved start row')
+  await withMutant(ROADS_PATH, "last ? r.nodes : [start, ...r.nodes], { prevEnd", "r.nodes, { prevEnd", async M => {
+    const r = M.siteRoad2(world(), { id: 'R1', home: HOME, routes: [route()], ring: RING, townBoxes: [RING], avail: { stone_bricks: 2000 } })
+    assert.ok(r.ok, JSON.stringify(r.tried))
+    assert.ok(!r.inst.cells.some(c => c.at[0] === r.meta.land.x + 1 && /-(tr|acc|ed|sl)$/.test(c.role)), 'the mutant should leave the start row natural')
+  })
+})
+
+await t('roadsite: a road never touches itself -- routeRoad\'s nodes keep 3 apart from every node more than 4 back (a boxed-in lane: the cheapest way on loops)', async () => {
+  // the village case in small: the line east is reserved past x 26 for z <= 1 (a zone), open further south -- a sidestep of 5 lanes
+  const guard = (x, z) => (x >= 26 && z <= 1 ? 'zone' : null)
+  const line = [[13, 0], [70, 0]]
+  const ok = nodes => nodes.every((q, i) => nodes.slice(0, Math.max(0, i - 4)).every(o => Math.max(Math.abs(o.x - q.x), Math.abs(o.z - q.z)) > 2))
+  const r = RD.routeRoad(world(), { line, start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64, guard })
+  assert.ok(ok(r.nodes), JSON.stringify(r.nodes.map(n => [n.x, n.z])))
+  // the invariant over the real replay's shapes: every node list the siting produces on random rough ground
+  for (let seed = 1; seed <= 6; seed++) {
+    const g = (x, z) => 64 + ((((x * 73856093) ^ (z * 19349663) ^ seed * 83492791) >>> 0) % 7 === 0 ? 2 : 0)
+    const q = RD.routeRoad(world({ ground: g }), { line, start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64, guard })
+    assert.ok(ok(q.nodes), `seed ${seed}: ${JSON.stringify(q.nodes.map(n => [n.x, n.z]))}`)
+  }
+})
+
+await t('roadsite: STRUCTURE -- skills.mjs roads2Ctx hands the siting the shared columns (roadShares over every other record, the country\'s plan included)', () => {
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const at = src.indexOf('function roads2Ctx ()')
+  const body = src.slice(at, src.indexOf('\nfunction ', at + 10))
+  assert.ok(/const shares = roadShares\(recs\)/.test(body), 'roadShares builds the terms')
+  assert.ok(/recs\.push\(\{ plot: COUNTRY_PLOT, rec: cr \}\)/.test(body), 'the country head is among them')
+  assert.ok(/own: \(x, z\) => shares\.get\(`\$\{x\},\$\{z\}`\) \?\? null/.test(body), 'own answers the terms')
 })
 
 console.log(`\nroads: ${pass} passed, ${fail} failed`)

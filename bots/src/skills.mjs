@@ -342,7 +342,7 @@ import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-onl
 import { ornamentKind } from './sinks.mjs'   // fences-01: dress, decor and wood spend their own supply, never the stone
 import { zoneReason, zonedInstance, dropInstance } from './sinks.mjs'   // zonesite-01show: a sink never stands in a protected zone
 import { cellZone } from './buildbot.mjs'   // zonesite-01show: the zone guard's own answer for a build's placement at a cell
-import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
+import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes, roadShares } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
 import { fnv1a as decorHash } from './zigdesign.mjs'   // decorator-01: a pot's plant by its cell
@@ -27451,12 +27451,15 @@ function roads2Ctx () {
   const wallCols = new Set(walls.flatMap(r => (r.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
   const boxes = [...walls.map(r => r.ring), t.ring, t.ext].filter(b => Array.isArray(b) && b.length === 4)
   const ringFor = st => boxes.find(b => Math.max(b[0] - st[0], st[0] - b[2], b[1] - st[1], st[1] - b[3]) <= 2) ?? t.ring ?? null
-  // every OTHER record's cell columns (the paths', the yard's piles, the ziggurat's, a tower's, the tidy's grading...): a road cell never
-  // stands in one (a record without zones -- the yard, the ziggurat -- reserves nothing through the guard; its cells still do)
-  const pathCols = new Set(heads.filter(x => x.plot !== SINK_PLOTS.road && x.plot !== LAND_PLOT && x.plot !== SITEPREP_PLOT).flatMap(x => (x.head?.rec?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
-  // country fold (Codex BLOCKER): the country band's planned cells (its cells, cuts and clears) are owned too; an unreadable head: no road
-  if (COUNTRY_ON) { const cr = countryHeadNow(); if (cr === undefined) throw new Error('country record unreadable'); for (const k of withPlanCells(new Set(), cr)) { const [x, , z] = k.split(','); pathCols.add(`${x},${z}`) } }
-  return { routes: t.routes, ringFor, townBoxes: boxes, landOk: (x, z) => !wallCols.has(`${x},${z}`), own: (x, z) => pathCols.has(`${x},${z}`) }
+  // every OTHER record's cell columns (the paths', the yard's piles, the ziggurat's, a tower's, the tidy's grading...): roadsite-01show
+  // (roads.mjs roadShares): the paths' and the grading records' (tidy, country) columns are SHARED on terms (the road becomes the path
+  // there; the road takes the grade), every other record's column refuses (a record without zones -- the yard, the ziggurat -- reserves
+  // nothing through the guard; its cells still do)
+  const recs = heads.filter(x => x.plot !== SINK_PLOTS.road && x.plot !== LAND_PLOT && x.plot !== SITEPREP_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null }))
+  // country fold (Codex BLOCKER): the country band's planned cells, cuts and clears are its terms too; an unreadable head: no road
+  if (COUNTRY_ON) { const cr = countryHeadNow(); if (cr === undefined) throw new Error('country record unreadable'); if (cr) recs.push({ plot: COUNTRY_PLOT, rec: cr }) }
+  const shares = roadShares(recs)
+  return { routes: t.routes, ringFor, townBoxes: boxes, landOk: (x, z) => !wallCols.has(`${x},${z}`), own: (x, z) => shares.get(`${x},${z}`) ?? null }
 }
 function sinkReady (kind) {
   try {

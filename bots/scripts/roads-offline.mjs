@@ -39,7 +39,9 @@ const recOf = plot => all.find(p => p.plot === plot)?.rec ?? null
 const land = recOf('land')
 const others = all.filter(p => p.plot !== 'land' && p.plot !== 'road').map(p => p.rec)
 const walls = ['wall', 'wallext'].map(recOf).filter(Boolean)
-const pathCols = new Set(all.filter(p => !['road', 'land', 'siteprep'].includes(p.plot)).flatMap(p => (p.rec.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
+// roadsite-01show: the shared columns (roads.mjs roadShares: the paths' and the grading records' on terms, every other record's refused)
+const shares = RD.roadShares(all.filter(p => !['road', 'land', 'siteprep'].includes(p.plot)))
+const own = (x, z) => shares.get(`${x},${z}`) ?? null
 const wallCols = new Set(walls.flatMap(r => (r.cells ?? []).map(c => `${c.at[0]},${c.at[2]}`)))
 const T = RD.trafficRoutes(JSON.parse(fs.readFileSync(trafficPath, 'utf8')), Date.parse(JSON.parse(fs.readFileSync(trafficPath, 'utf8')).at) + 1000)
 if (!T.ok) { console.error('traffic:', T.why); process.exit(1) }
@@ -52,7 +54,9 @@ const g0 = () => guard()
 const guard = () => {
   const zones = [...R.zones, ...recordZones([...others, ...(land && LP ? [LP.landReservation(land)] : [])]).filter(z => !/^(land:road|project:paths)/.test(String(z?.why ?? '')))]
   const res = reservations(plan, { zones, wells: R.wells, farm: R.farm, z0: zig ? { box: zig.box } : null })
-  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zones.find(zb => { const b = zb.box; return x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
+  // roadsite-01show: zoneReason (the bots' own, skills.mjs sinkGuardFor): a protected zone has no `why` -- the old find(...)?.why read a
+  // village's box as free ground (zonesite-01show's bug, still here: the replay laid work-92_68 into village-taiga-6_1)
+  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? S.zoneReason(zones, x, z, y0, y1)
 }
 if (process.env.DBG) { const rt = T.routes[+process.env.DBG]; const st = RD.routeStart(read, rt, { ring: ringFor(rt.start), guard: g0(), hy: home.y, landOk: (x, z) => !wallCols.has(`${x},${z}`) }); console.error("start", JSON.stringify(st)); if (st.ok) { const r = RD.routeRoad(read, { line: rt.line, start: st.start, guard: g0(), hy: home.y, forbid: (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }); console.error("route", r.ok, r.why, r.pops, JSON.stringify(r.tally), JSON.stringify(r.nodes)) } process.exit(0) }
 // the cells the pool's bots stood on in town (the shop's stood file: the town walk's seeds, as the bot's siting reads them)
@@ -64,7 +68,7 @@ for (let i = 0; i < count; i++) {
   const n = S.instancesOf(rec).length + 1
   const id = `R${n}`
   const t0 = Date.now()
-  const r = S.siteSink(read, { kind: 'road', n, id, home, pool, avail, guard: g, rec, stood, roads2: { routes: T.routes, ringFor, townBoxes: boxes, own: (x, z) => pathCols.has(`${x},${z}`), landOk: (x, z) => !wallCols.has(`${x},${z}`), lamp: true } })
+  const r = S.siteSink(read, { kind: 'road', n, id, home, pool, avail, guard: g, rec, stood, roads2: { routes: T.routes, ringFor, townBoxes: boxes, own, landOk: (x, z) => !wallCols.has(`${x},${z}`), lamp: true } })
   const ms = Date.now() - t0
   if (!r.ok) { out.failed.push({ n, why: r.why, tried: r.tried, ms }); break }
   rec = S.completeInstance(S.appendInstance(rec, { kind: 'road', home, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } }))
