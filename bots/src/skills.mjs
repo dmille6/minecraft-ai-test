@@ -342,7 +342,7 @@ import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-onl
 import { ornamentKind } from './sinks.mjs'   // fences-01: dress, decor and wood spend their own supply, never the stone
 import { zoneReason, zonedInstance, dropInstance } from './sinks.mjs'   // zonesite-01show: a sink never stands in a protected zone
 import { cellZone } from './buildbot.mjs'   // zonesite-01show: the zone guard's own answer for a build's placement at a cell
-import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes, roadShares, roadLanternDraw, roadOpenZone } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
+import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes, roadShares, roadLanternDraw, roadOpenZone, indexHolders } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
 import { fnv1a as decorHash } from './zigdesign.mjs'   // decorator-01: a pot's plant by its cell
@@ -28386,7 +28386,13 @@ async function roadKit (ctx, rec, palette, signal) {
       const spareLanterns = Math.max(0, (Number(t.lantern) || 0) - (Number(R0?.lantern) || 0))
       const fromTown = roadLanternDraw(Math.min(ROAD_KIT_MAX, nd.lantern), spareLanterns)
       const held0 = countItem(bot, 'lantern')
-      if (fromTown > 0) { await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown })); check(signal) }
+      // ...from the chests the town index says hold them, first (indexHolders), then the town search as any draw
+      if (fromTown > 0) {
+        let first = []
+        try { first = indexHolders(townIndexEntries(bot), 'lantern', { fresh: e => indexStateOf(e) === 'known' }).map(k => bot.blockAt(new Vec3(...k.split(',').map(Number)))).filter(b => b && /chest|barrel/.test(String(b.name))) } catch { first = [] }
+        await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown }), null, null, { first })
+        check(signal)
+      }
       const drawn = Math.max(0, countItem(bot, 'lantern') - held0)
       // (Codex r3 BLOCKER: nd.lantern is already net of the bag's lanterns -- only the ones just drawn are subtracted)
       const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - drawn)

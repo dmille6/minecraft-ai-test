@@ -781,6 +781,17 @@ export const roadOpenZone = route => (route?.kind === 'project' && Object.hasOwn
 /** roadsite-01show: the lanterns a road visit draws from the town's chests -> n. `want` the lanterns its open cells still owe less the
  *  bag's, `spare` the town's above its reserve (unread: 0). Pure. */
 export const roadLanternDraw = (want, spare) => Math.max(0, Math.min(Number(want) || 0, Number(spare) || 0))
+/** roadsite-01show (rig 11-20: the withdraw's twelve nearest-first visits never reached a chest holding lanterns -- the town's 179 sit
+ *  in the store hall and one house chest): THE CONTAINERS THE TOWN INDEX SAYS HOLD `name` -> their keys "x,y,z", most first, at most
+ *  `max` (the kit's withdraw tries them before the town search). `fresh(entry)` -> the entry is read and fresh (townindex.mjs
+ *  indexStateOf 'known'). Pure. */
+export function indexHolders (entries, name, { fresh = () => true, max = 4 } = {}) {
+  return Object.entries(entries ?? {})
+    .map(([k, e]) => [k, Number(e?.obs?.names?.[name]?.[0]) || 0, e])
+    .filter(([k, n, e]) => n > 0 && /^-?\d+,-?\d+,-?\d+$/.test(k) && fresh(e))
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, max).map(([k]) => k)
+}
 /**
  * THE KIT A ROAD VISIT CRAFTS (skills.mjs roadKit) -> { slab, fence, lantern, log }: what the open cells of the record still owe in the
  * bag-made roles, less what the bag holds. Pure. `open(c)` -> the cell is not done; `held` the bag.
