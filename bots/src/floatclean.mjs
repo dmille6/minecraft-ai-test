@@ -196,6 +196,19 @@ export function floatSurvey (read, { cp = new Map(), cells = () => false, zone =
   return { jobs, census, verdict, beams: beams.map((b, i) => ({ beam: i, area: names[b.ai], n: b.cells.length, top: b.cells[0].at })) }
 }
 
+/**
+ * THE GUARD (the lap's, Codex r1/r2 BLOCKERS) -> (k) -> bool. Pure. `records`: every guarded project's record (each [x,y,z] it lists
+ * anywhere -- `at` or `cell` of any top-level array: its cells AND its clears, cuts, replants, trees); `extra`: more cell keys (the
+ * bridges' planned cells); `plan`: the town plan as townPlanHead gives it (`head.plan`): every plot's box [x0, z0, x1, z1] guards its
+ * columns, every height.
+ */
+export function floatGuardOf ({ records = [], extra = [], plan = null } = {}) {
+  const out = new Set(extra)
+  const tri = a => Array.isArray(a) && a.length === 3 && a.every(Number.isInteger)
+  for (const rec of records) for (const v of Object.values(rec ?? {})) if (Array.isArray(v)) for (const q of v) { const at = q?.at ?? q?.cell; if (tri(at)) out.add(at.join(',')) }
+  const boxes = (plan?.plots ?? []).map(p => p?.box).filter(b => Array.isArray(b) && b.length === 4)
+  return k => { if (out.has(k)) return true; const [x, , z] = k.split(',').map(Number); return boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }
+}
 /** A job list as read from a file -> the list | null (malformed, or another pool's). Pure. */
 export function floatListOk (doc, pool) {
   if (!doc || doc.v !== 1 || !Array.isArray(doc.jobs)) return null

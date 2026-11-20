@@ -284,7 +284,7 @@ import { tempStandOn, standVeto, otherCellsStrict } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { floatcleanOn, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
+import { floatcleanOn, floatGuardOf, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
@@ -30091,20 +30091,17 @@ function floatGuardStrict (bot) {
   try {
     const dir = townDir()
     const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : []), STEPWELL_PLOT, UPKEEP_PLOT])]
-    const out = new Set()
-    const tri = a => Array.isArray(a) && a.length === 3 && a.every(Number.isInteger)
+    const records = []
     for (const pl of plots) {
       const h = recordHead(dir, projKeyOf(pl))
       if (!h.ok || (h.rejected?.length ?? 0) > 0) return null
-      for (const v of Object.values(h.head?.rec ?? {})) if (Array.isArray(v)) for (const q of v) { const at = q?.at ?? q?.cell; if (tri(at)) out.add(at.join(',')) }
+      if (h.head?.rec) records.push(h.head.rec)
     }
     const bs = exBridgeSitesStrict()
     if (bs == null) return null
-    for (const k of bridgeCellKeys(bs)) out.add(k)
     const ph = townPlanHead(bot)
-    if (!ph.ok || !ph.head) return null
-    const boxes = (ph.head.rec?.plots ?? []).map(p => p?.box).filter(b => Array.isArray(b) && b.length === 4)
-    return k => { if (out.has(k)) return true; const [x, , z] = k.split(',').map(Number); return boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }
+    if (!ph.ok || !ph.head?.plan) return null
+    return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })   // Codex r2: the plan head is `head.plan`
   } catch { return null }
 }
 /** The cells under this bot's body (its feet's floor, every column its 0.6-wide box stands over) -> ['x,y,z']. Never throws. */
