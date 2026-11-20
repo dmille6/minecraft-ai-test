@@ -209,6 +209,14 @@ export function floatGuardOf ({ records = [], extra = [], plan = null } = {}) {
   const boxes = (plan?.plots ?? []).map(p => p?.box).filter(b => Array.isArray(b) && b.length === 4)
   return k => { if (out.has(k)) return true; const [x, , z] = k.split(',').map(Number); return boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }
 }
+/** The cells under a body (every column its box stands over, at its feet's floor) -> ['x,y,z']. Pure. `pos` { x, y, z } its feet,
+ *  `width` its box's width (a player 0.6; Codex r5: a spider 1.4 stands over the middle column too -- every column, not the corners). */
+export function floorKeys (pos, width = 0.6) {
+  if (!pos || ![pos.x, pos.y, pos.z].every(Number.isFinite)) return []
+  const w = (Number(width) || 0.6) / 2, y = Math.floor(pos.y + 1e-6) - 1, out = []
+  for (let x = Math.floor(pos.x - w); x <= Math.floor(pos.x + w); x++) for (let z = Math.floor(pos.z - w); z <= Math.floor(pos.z + w); z++) out.push(`${x},${y},${z}`)
+  return out
+}
 /** A job list as read from a file -> the list | null (malformed, or another pool's). Pure. */
 export function floatListOk (doc, pool) {
   if (!doc || doc.v !== 1 || !Array.isArray(doc.jobs)) return null
