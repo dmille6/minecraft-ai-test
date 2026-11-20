@@ -162,3 +162,83 @@ Acceptance:
 
 - The visit replay on this region with the fix: visits advance past y=70 (no `--air`) and log `set_aside` rows.
 - The Paper rig on the real region (sandbox2, the T11 recipe) shows blocks placed per visit and layers advancing.
+
+## 7. Built: stepwell-03show (base db59a782, the live release)
+
+The fix follows §6.
+
+1. **Set-aside.** Code: `stepwell.mjs` asideRefusal / asideFor / unitHolding, and the `stepwellvisit.mjs` loop.
+   - A cut can be set aside only after the visit has walked at every one of its stands (at most 6 walks) or found none.
+   - Each set-aside writes one `_stepwell op=set_aside at= why= y=` row, and the visit works the next layer.
+   - Every set-aside cell is read again before each scan. If it turns to sand or gravel, gets a liquid beside it, or goes
+     unread, it is revoked: `op=aside_revoked`, and it holds its layer again.
+   - The cell stays owed on the record.
+   - The crew shares its proofs through `<key>.aside.<holder>.json` pool files, valid for 60 min.
+   - Switch: `SWASIDE=off`.
+2. **The hold.**
+   - The tank's stamp now names its passed cells and the code version.
+   - A stepwell stamp from another version, or the old tank form (no version, no cells), holds nothing. So does one
+     whose cells all read done.
+   - Felling stamps, which name cells, are judged as before.
+   - The step well's project-turn back-off counts only entries written by this version, and an old count never carries
+     over. The version now survives the turn file (`buildproj.mjs` turnOf).
+   - Other projects are unchanged.
+
+**Reviews.** `protected.py`: not protected, so one engine.
+
+| Codex round | Result | Fixed in |
+|---|---|---|
+| r1 | 2 blockers: a failed walk counted as proof while stands were still untried; set-aside cells were never re-read | 98642e37a |
+| r2 | 2 blockers: turnOf dropped the version; the version rule released fresh felling stamps | dc3f972e5 |
+| r3 | NO BLOCKERS | |
+
+**Tests.**
+- `bots/test/stepwell-aside.test.mjs`: 37 pass. They run the chain on the real visit loop, each with a positive control
+  that matches LIVE, and every guard has an anchored mutant.
+- The existing stepwell, stepwell03, stepwell05, projturn, buildproj and felldone tests pass.
+- Full suite on ci2 at dc3f972e: **552/555**. The 3 failures:
+  - nothing-important-is-orphaned: `bagdiet.test.mjs` is not on this base.
+  - well.test.mjs: passes alone, on both base and head.
+  - showdrop.test.mjs: a timing test; passes alone.
+
+**Replay on the real region** (`stepwell-visit-replay.mjs`, real loop and real pathfinder, no counterfactual).
+- Visit 1 proves -58,70,-74 by `walk_failed` and sets it aside. Later visits set it aside as `remembered`.
+- 10 visits dig and place 20-91 ops each.
+- The next unit goes y70 → 65 → 63 → 61 → 60 → 59.
+- No visit ends `passed`.
+
+### Rig run 2 (sandbox3, 14:01-14:48Z)
+
+- **World and code.** A copy of the T11 rig world (`world.drawshort-rig3-20261118`). Its tank is the live one, bridge
+  block included. The code was b80330171, i.e. r2.
+  - r3 changed only turnOf and the felling-stamp scope. Neither is on this rig's path.
+- **Setup.**
+  - 3 bots (Iris, Juno, Delta) and a copy of the pool.
+  - Stamps were planted the way today's live visits wrote them: fresh, no cells, no version.
+- **Hold.** All three bots read the stuck back-off as **released** (`stuckAt: null`).
+
+| | before (saved 11-18) | after rig |
+|---|---|---|
+| tank units done | 4 / 180 | **11 / 180** |
+| next unit worked | y 70 (stuck) | **y 59** (y=70 set aside) |
+| listed cuts open | 2,552 / 3,659 | **2,968** (+416) |
+| record cells good | 1,734 / 2,168 | **1,836** (+102) |
+| -58,70,-74 | dirt | dirt (set aside, still owed) |
+
+- **Visits.** 213 visit calls, 0 ended `passed`.
+  - Iris dug 498 and placed 85; her visits dug 15-78 cuts each.
+  - Juno and Delta start with **empty bags** in this world copy, so they hit `no_pickaxe` and spent visits drawing. That
+    is a rig artifact, not this fix.
+  - 46-64 `slots_full` calls each: 3 bots for 2 crew slots.
+- **Set-aside rows.** 58: 1 `walk_failed`, then 57 `remembered` across all three bots (the crew sharing works).
+- **Deaths.** 0.
+- **Tiers.** No tier reads built. Tier 1's layers are worked down to y 59, but tier 1 stays owed until the set-aside cell
+  is dug. That is by design.
+- **Lock.** sandbox3 was locked (sbxlock) and its world restored afterwards
+  (`sandbox/stepwell/swrigworld.sh`, the crrigworld.sh recipe). sandbox2 was held by other agents throughout.
+
+**Still open, not in this piece.**
+- Torches for the lights (indexfetch).
+- The source of the bridge mess: explore bridges over a pit, and the takeback expires.
+- The floating bridge blocks (tidy).
+- The crew's `shared` endings when 3 bots contend for 2 slots: designed behaviour, slow but moving.
