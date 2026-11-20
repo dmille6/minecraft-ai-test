@@ -85,7 +85,7 @@ await t('MUTANTS (pillarclean.mjs): the freshness bound and the material rule ea
 await t('WIRING skills.mjs (comments stripped): the lap\'s list is the host\'s list plus the hand-off files, the listed cells skipped -- and the mutant without it is caught', () => {
   const src = strip(readFileSync(SK_URL, 'utf8'))
   const ok = s => /return pillarListWith\(list, scafLeftPillars\(c\.sl, Date\.now\(\), \{ skip: q => named\.has\(q\) \}\), pool\)/.test(s) &&
-    /c = \{ at: Date\.now\(\), d, sl: scafLeftFiles\(dir\) \}/.test(s) && /\/\^scafleft-\[A-Za-z0-9_\.-\]\+\\\.json\$\//.test(s)
+    /c = \{ at: Date\.now\(\), sl: scafLeftFiles\(dir\) \}/.test(s) && /\/\^scafleft-\[A-Za-z0-9_\.-\]\+\\\.json\$\//.test(s)
   assert.ok(ok(src), 'wired')
   const old = 'return pillarListWith(list, scafLeftPillars(c.sl, Date.now(), { skip: q => named.has(q) }), pool)'
   assert.strictEqual(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
