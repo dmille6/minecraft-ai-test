@@ -289,6 +289,8 @@ const REQUIRED = [
   'bots/test/fellfirst.test.mjs',  // fellfirst-01 (11-06): a tree with no sapling of its kind anywhere is felled first  // gkmarker-01 (11-06): the groundskeeper never plans a cut on an expedition marker  // levelfall-01 + stationzone-01 (11-05): the workshop's floor fallback; no village station
   'bots/test/fixtures/levelfall-x1-1105.json',  // plotprep-03 (11-05): a plot's trees fall once their own saplings are settled
   'bots/test/stepwell03.test.mjs',  // stepwell-03 (11-05): the siting reaches its site (reservations first, the wall's gap)
+  'bots/test/stepwell-aside.test.mjs', 'bots/scripts/stepwell-trace.mjs', 'bots/scripts/stepwell-visit-replay.mjs',   // stepwell-03show: the set-aside's tests and the trace's replays
+  'docs/reports/stepwell-trace-2026-11-20.md',   // stepwell-03show: the trace
   'bots/src/bagroom.mjs',  // bagroom-01 (11-06): the build's room -- the well's band dispose, the share bank
   'bots/test/bagroom.test.mjs',
   'bots/src/bagfix.mjs',  // bagfix-01show (11-16): the room bank's target, the light fallback, the bag trim, carried chests, merging deposits
