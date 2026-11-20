@@ -4,7 +4,7 @@ import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { wellTurn, readTickets, touchTicket, dropTicket, wellTurnDetail, wellTurnOn, wellWaitMs, WELL_TICKET_TTL_MS, WELL_WAIT_MS } from '../src/wellturn.mjs'
+import { wellTurn, readTickets, touchTicket, dropTicket, wellTurnDetail, wellTurnOn, wellWaitMs, WELL_TICKET_TTL_MS, WELL_WAIT_MS, WELL_PRESENT_MS } from '../src/wellturn.mjs'
 import { acquireFurnaceLease, furnaceLeaseState } from '../src/furnacelease.mjs'
 
 let pass = 0, fail = 0
@@ -32,10 +32,15 @@ await t('a bot with no ticket is last in line', () => {
   const r = wellTurn({ lease: { live: false }, tickets: [{ who: 'Z', at: NOW - 10, seen: NOW }], me: 'A', now: NOW })
   assert.deepEqual([r.go, r.why, r.place], [false, 'queued', 2])
 })
-await t('NO DEAD HEAD: a ticket not refreshed for WELL_TICKET_TTL_MS drops out of line by itself', () => {
-  const tk = [{ who: 'Z', at: NOW - 10 * 60_000, seen: NOW - WELL_TICKET_TTL_MS }, { who: 'A', at: NOW - 1000, seen: NOW }]
+await t('NO DEAD HEAD (Claude r1 BLOCKER 1): a bot that is not here waiting (no refresh for WELL_PRESENT_MS) holds nobody back', () => {
+  const tk = [{ who: 'Z', at: NOW - 60_000, seen: NOW - WELL_PRESENT_MS }, { who: 'A', at: NOW - 1000, seen: NOW }]
   assert.equal(wellTurn({ lease: { live: false }, tickets: tk, me: 'A', now: NOW }).go, true)
-  assert.equal(wellTurn({ lease: { live: false }, tickets: [{ ...tk[0], seen: NOW - WELL_TICKET_TTL_MS + 1 }, tk[1]], me: 'A', now: NOW }).go, false, 'positive control: one ms younger, it is still ahead')
+  assert.equal(wellTurn({ lease: { live: false }, tickets: [{ ...tk[0], seen: NOW - WELL_PRESENT_MS + 1 }, tk[1]], me: 'A', now: NOW }).go, false, 'positive control: one ms younger, it is still ahead')
+})
+await t('A RETURNING BOT keeps its first ask: back and waiting, it is ahead of a newer waiter again', () => {
+  const tk = [{ who: 'Z', at: NOW - 60_000, seen: NOW }, { who: 'A', at: NOW - 1000, seen: NOW }]
+  assert.equal(wellTurn({ lease: { live: false }, tickets: tk, me: 'A', now: NOW }).who, 'Z')
+  assert.equal(wellTurn({ lease: { live: false }, tickets: tk, me: 'Z', now: NOW }).go, true)
 })
 await t('the words name who, the place, the wait, and what happens next (nothing for the bot to decide)', () => {
   assert.match(wellTurnDetail({ why: 'busy', who: 'B', place: 1, waitedMs: 30_000 }), /^wait for B to finish its turn at the town junk well; waited 30 s here\. This bot keeps place 1 in line for 3 min and the order is asked again at its cooldown$/)
@@ -90,9 +95,9 @@ await t('MUTANT: the line ignored (only the lease) -> the newer bot jumps the ol
     assert.equal(M.wellTurn({ lease: { live: false }, tickets: tk, me: 'A', now: NOW }).go, true, 'mutant inert')
   })
 })
-await t('MUTANT: stale tickets kept -> a dead head blocks the line forever (the dead end the TTL removes)', async () => {
-  await mutant(' && now - Number(t.seen ?? t.at) < ttl)', ')', M => {
-    const tk = [{ who: 'Z', at: NOW - 3_600_000, seen: NOW - 3_600_000 }, { who: 'A', at: NOW - 1000, seen: NOW }]
+await t('MUTANT: absent tickets kept -> a bot gone to other work blocks the line (the dead end the presence rule removes)', async () => {
+  await mutant(' && (t.who === me || now - Number(t.seen ?? t.at) < present))', ')', M => {
+    const tk = [{ who: 'Z', at: NOW - 3_600_000, seen: NOW - 120_000 }, { who: 'A', at: NOW - 1000, seen: NOW }]
     assert.equal(M.wellTurn({ lease: { live: false }, tickets: tk, me: 'A', now: NOW }).go, false, 'mutant inert')
   })
 })

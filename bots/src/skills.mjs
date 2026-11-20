@@ -10354,21 +10354,44 @@ const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 let _wsModeSaid = false   // wellstep-01: its licence row, once per spawn (the first walk that fails at the well)
 /** wellfix-01show: how long the thrower walks to step off the well when another bot is in line for it. */
 const WELL_STEP_OFF_MS = 8_000
+/** The bot's own feet within the admission's radius of this cap (well.mjs wellAdmission's measure, from the rim cell's centre). */
+const withinAdmission = (bot, cap) => { const p = bot.entity?.position; return !!p && Math.hypot(p.x - (cap.x + 0.5), p.y - (cap.y + 1), p.z - (cap.z + 0.5)) <= ADMISSION_RADIUS }
+/** WELLFIX-01SHOW: STEP OFF THE WELL -- a bounded (WELL_STEP_OFF_MS), abortable walk beyond the admission's 5 blocks, so another bot
+ *  can be admitted. `why` names whose turn it frees in the `_well_turn` row. Never throws. */
+async function wellStepOff (bot, cap, signal, why) {
+  if (signal?.aborted || !bot.pathfinder || !goals?.GoalInvert) return false
+  const off = new goals.GoalInvert(new goals.GoalNear(cap.x, cap.y + 1, cap.z, ADMISSION_RADIUS + 1.5))
+  const onAbort = () => { if (bot.pathfinder?.goal === off) { try { haltPath(bot) } catch { /* stopped */ } } }
+  signal?.addEventListener?.('abort', onAbort, { once: true })
+  try {
+    await withTimeout(walkToGoal(bot, off, () => bot.pathfinder.setGoal(off)), WELL_STEP_OFF_MS, bot, { what: 'stepping off the junk well' })
+    try { logEvent({ kind: 'well_turn', status: 'success', snapshot: snapshot(bot), detail: `op=step_off why=${why} cap=${cap.x},${cap.y},${cap.z}` }) } catch { /* telemetry */ }
+    return true
+  } catch (e) {
+    onAbort()
+    try { logEvent({ kind: 'well_turn', status: 'failed', snapshot: snapshot(bot), detail: `op=step_off why=${why} cap=${cap.x},${cap.y},${cap.z} err=${String(e?.name ?? e?.message ?? e).slice(0, 40)}` }) } catch { /* telemetry */ }
+    return false
+  } finally { signal?.removeEventListener?.('abort', onAbort) }
+}
 /**
- * WELLFIX-01SHOW (wellturn.mjs): A TURN AT THE WELL -> { turn } | { refused, detail }. Waits HERE (bounded, WELL_WAIT_MS) for the
- * lease on the cap, this bot's place at the head of the line, and the admission's 5 blocks to clear -- the remedy performed, not
- * advised. Past the wait: the lease is given back, the ticket kept (its place for WELL_TICKET_TTL_MS), and the refusal is a free
- * skip the order re-asks at its cooldown. WELLTURN=off: the base's one look (player_near).
+ * WELLFIX-01SHOW (wellturn.mjs): A TURN AT THE WELL -> { turn } | { refused, detail }. Waits HERE (bounded: wellWaitMs, 0 for a
+ * clerk's throw inside its own visit) for the lease on the cap, this bot's place at the head of the line, and the admission's 5
+ * blocks to clear -- the remedy performed, not advised. A bot that must wait while it stands within the 5 blocks STEPS OFF first
+ * (Codex + Claude r1: the holder waits for the waiter's body, the waiter for the holder's lease -- a mutual wait). Past the wait:
+ * the lease is given back, the ticket kept (its place for WELL_TICKET_TTL_MS), and the refusal is a free skip the order re-asks at
+ * its cooldown. WELLTURN=off: the base's one look (player_near).
+ * BUDGET (Claude r1): dispose_well's 120 s = this wait (12 s, its step-off inside it) + the walk (25) + the wellstep walk (25) +
+ * centring (1.5 + 2) + the visit (45) + the step-off after (8) = 118.5 s.
  */
-async function wellTurnWait (bot, cap, signal) {
+async function wellTurnWait (bot, cap, signal, { waitMs = wellWaitMs(process.env) } = {}) {
   const nearNow = () => wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (!wellTurnOn(process.env)) {
     const near = nearNow()
     return near ? { refused: 'player_near', detail: `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes` } : { turn: null }
   }
-  const dir = townDir(), me = leaseHolder(bot), t0 = Date.now(), waitMs = wellWaitMs(process.env)
+  const dir = townDir(), me = leaseHolder(bot), t0 = Date.now()
   bot.wellTurnState = { dir, cap, me, held: null, waited: false }
-  let last = null
+  let last = null, steppedOff = false
   for (;;) {
     touchTicket(dir, cap, me)
     let turn = wellTurn({ lease: furnaceLeaseState(dir, cap), tickets: readTickets(dir, cap), me })
@@ -10385,6 +10408,8 @@ async function wellTurnWait (bot, cap, signal) {
     last = { ...turn, near }
     if (Date.now() - t0 + WELL_POLL_MS > waitMs) break
     bot.wellTurnState.waited = true
+    // not this bot's turn and its own body is in the way of the one whose turn it is: off the well first (once a wait)
+    if (!turn.go && !steppedOff && withinAdmission(bot, cap)) { steppedOff = true; await wellStepOff(bot, cap, signal, `wait_${turn.why}`); check(signal); continue }
     await sleep(WELL_POLL_MS, signal)
   }
   // not this bot's turn within the wait: the lease goes back (a holder that cannot throw blocks nobody), the place is kept
@@ -10394,7 +10419,7 @@ async function wellTurnWait (bot, cap, signal) {
   return { refused: why, detail: wellTurnDetail({ why: last.go ? 'near' : last.why, who: last.who, place: last.place, waitedMs: Date.now() - t0, near: last.near }) }
 }
 /** The turn's end (every way dispose_well ends): the lease back; out of line unless the wait timed out (its place is kept);
- *  and when another bot is in line, the thrower steps beyond the admission's 5 blocks so the next one is admitted. */
+ *  and when another bot holds a place in line, the thrower steps beyond the admission's 5 blocks so the next one is admitted. */
 async function wellTurnEnd (bot, signal, refused) {
   const st = bot.wellTurnState
   bot.wellTurnState = null
@@ -10405,15 +10430,7 @@ async function wellTurnEnd (bot, signal, refused) {
   if (!held || signal?.aborted) return
   let waiting = false
   try { waiting = readTickets(st.dir, st.cap).some(t => t.who !== st.me && Date.now() - Number(t.seen ?? t.at) < WELL_TICKET_TTL_MS) } catch { waiting = false }
-  if (!waiting || !bot.pathfinder || !goals?.GoalInvert) return
-  const c = st.cap, off = new goals.GoalInvert(new goals.GoalNear(c.x, c.y + 1, c.z, ADMISSION_RADIUS + 1.5))
-  try {
-    await withTimeout(walkToGoal(bot, off, () => bot.pathfinder.setGoal(off)), WELL_STEP_OFF_MS, bot, { what: 'stepping off the junk well for the next bot in line' })
-    try { logEvent({ kind: 'well_turn', status: 'success', snapshot: snapshot(bot), detail: `op=step_off cap=${c.x},${c.y},${c.z}` }) } catch { /* telemetry */ }
-  } catch (e) {
-    if (bot.pathfinder?.goal === off) { try { haltPath(bot) } catch { /* stopped */ } }
-    try { logEvent({ kind: 'well_turn', status: 'failed', snapshot: snapshot(bot), detail: `op=step_off cap=${c.x},${c.y},${c.z} err=${String(e?.name ?? e?.message ?? e).slice(0, 40)}` }) } catch { /* telemetry */ }
-  }
+  if (waiting && withinAdmission(bot, st.cap)) await wellStepOff(bot, st.cap, signal, 'next_in_line')
 }
 async function disposeWell (ctx, _args, signal) {
   let r
@@ -10473,7 +10490,7 @@ async function disposeWellRun (ctx, _args, signal) {
   const entryPlan = roomPlanOf ? roomPlanOf(items()) : visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   // wellfix-01show: this bot's turn (the lease, its place in line, nobody within 5) -- waited for here, bounded
-  { const t = await wellTurnWait(bot, cap, signal); if (t.refused) return skip(t.refused, t.detail) }
+  { const t = await wellTurnWait(bot, cap, signal, clerk ? { waitMs: 0 } : undefined); if (t.refused) return skip(t.refused, t.detail) }
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')

@@ -10,11 +10,12 @@
 //     O_EXCL shape the furnace, the drain and the mats draw already share; key = the cap's x_y_z, what = 'well'). TTL =
 //     the skill's whole budget (dispose_well maxMs 120 s) + the hard-stop grace: a crashed holder frees it by itself.
 //   * THE LINE: a bot that finds the well taken leaves a TICKET (`<dir>/well-queue/<cap>/<bot>.json`: its first ask and its
-//     last). Tickets live WELL_TICKET_TTL_MS after their last refresh, so a bot that went to do something else keeps its
-//     place for that long and then drops out of line by itself. When the lease is free, only the OLDEST live ticket may
-//     take it (no ticket of its own counts as newest).
-//   * THE REMEDY, PERFORMED: the bot WAITS for its turn where it is, polling every WELL_POLL_MS, up to WELL_WAIT_MS -- for
-//     the lease, for its place in line, and for the admission's 5 blocks to clear. Past that it returns `no_effect` (a free
+//     last). A ticket holds others back only while its bot is waiting (refreshed within WELL_PRESENT_MS); its first ask is
+//     kept WELL_TICKET_TTL_MS, so a bot that went to do something else and comes back is ahead again. When the lease is
+//     free, only the OLDEST waiting ticket may take it (no ticket of its own counts as newest).
+//   * THE REMEDY, PERFORMED: the bot WAITS for its turn, polling every WELL_POLL_MS, up to WELL_WAIT_MS -- for the lease,
+//     for its place in line, and for the admission's 5 blocks to clear; a waiter standing within those 5 steps off first
+//     (skills.mjs wellStepOff), and so does a thrower whose turn ends with a bot in line. Past that it returns `no_effect` (a free
 //     skip: well.mjs wellOrderOutcome charges nothing) with its place kept, and the order is asked again at its cooldown
 //     (the room trip at ROOM_WELL_NEAR_RETRY_MS). Nothing is printed that the bot must decide to do.
 //
@@ -28,10 +29,12 @@ export const WELL_LEASE_TTL_MS = 150_000
 /** A ticket's life after its last refresh: a bot that comes back within it keeps its place. */
 export const WELL_TICKET_TTL_MS = 180_000
 /** The longest a bot waits in one dispose_well for its turn (the walk, 25 s, and the visit, 45 s, still fit in 120 s). */
-export const WELL_WAIT_MS = 30_000
+export const WELL_WAIT_MS = 12_000
 /** The wait as configured (WELLTURN_WAIT_MS; a test's short clock), never above WELL_WAIT_MS. */
 export const wellWaitMs = (env = process.env) => { const v = Number(env.WELLTURN_WAIT_MS); return Number.isFinite(v) && v >= 0 ? Math.min(v, WELL_WAIT_MS) : WELL_WAIT_MS }
 export const WELL_POLL_MS = 1_000
+/** A ticket BLOCKS others only while its bot is here waiting (refreshed within this); its place (`at`) is kept WELL_TICKET_TTL_MS. */
+export const WELL_PRESENT_MS = 4 * WELL_POLL_MS
 
 export const wellTurnOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env.WELLTURN ?? 'on').toLowerCase())
 export const capKey = cap => `${Math.floor(cap.x)}_${Math.floor(cap.y)}_${Math.floor(cap.z)}`
@@ -45,8 +48,10 @@ export const capKey = cap => `${Math.floor(cap.x)}_${Math.floor(cap.y)}_${Math.f
  * go=false why='queued' the lease is free but an older live ticket is ahead (`who` = the head);
  * go=true               this bot may take the lease. `place` is this bot's 1-based place in line (1 when it may go).
  */
-export function wellTurn ({ lease = null, tickets = [], me, now = Date.now(), ttl = WELL_TICKET_TTL_MS } = {}) {
-  const live = (Array.isArray(tickets) ? tickets : []).filter(t => t && t.who && Number.isFinite(Number(t.at)) && now - Number(t.seen ?? t.at) < ttl)
+export function wellTurn ({ lease = null, tickets = [], me, now = Date.now(), present = WELL_PRESENT_MS } = {}) {
+  // Claude r1 BLOCKER 1: only a bot WAITING NOW holds others back (a ticket left by a bot that went to work elsewhere blocks
+  // nobody); a bot that comes back within its ticket's life keeps its first ask, so it is ahead again once it is here
+  const live = (Array.isArray(tickets) ? tickets : []).filter(t => t && t.who && Number.isFinite(Number(t.at)) && (t.who === me || now - Number(t.seen ?? t.at) < present))
   // first ask first; a tie by name (deterministic on every bot)
   live.sort((a, b) => Number(a.at) - Number(b.at) || String(a.who).localeCompare(String(b.who)))
   const mine = live.findIndex(t => t.who === me)

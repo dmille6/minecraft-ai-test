@@ -3457,7 +3457,7 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
     } finally { process.env.WELLTURN_WAIT_MS = prev }
   })
   await t('WELLFIX TURNS MUTANT: the wait replaced by the base\'s one look -> B is refused player_near at once and throws nothing (the 186 refusals)', async () => {
-    const old = '  { const t = await wellTurnWait(bot, cap, signal); if (t.refused) return skip(t.refused, t.detail) }\n'
+    const old = '  { const t = await wellTurnWait(bot, cap, signal, clerk ? { waitMs: 0 } : undefined); if (t.refused) return skip(t.refused, t.detail) }\n'
     const neu = "  { const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username }); if (near) return skip('player_near', `wait for ${near.who}`) }\n"
     await withMutant(SKP, old, neu, async M => {
       const { A, B } = twoBots()
@@ -3466,6 +3466,35 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
       await within(M.SKILLS.dispose_well.run({ bot: A.bot }, {}, { aborted: false }), 15000, 'A')
       assert.equal(rb?.status, 'no_effect'); assert.match(rb.detail, /^wait for b-Alpha/)
       assert.equal(B.count('flint'), 64)
+    })
+  })
+  // Codex + Claude r1 BLOCKER: the holder waits for the waiter's body, the waiter for the holder's lease -- both within 5
+  const mutual = (M = null) => async () => {
+    const prev = process.env.WELLTURN_WAIT_MS; process.env.WELLTURN_WAIT_MS = '6000'
+    try {
+      const { A, B } = twoBots()
+      A.bot.entity.position = new Vec3(CAP.x + 2.5, STAND.y, CAP.z - 1 + 0.5)        // within 5, not on the stand
+      B.bot.entity.position = new Vec3(STAND.x + 0.5, STAND.y, STAND.z + 0.5)        // on the stand
+      A.bot.players['b-Bravo'] = { username: 'b-Bravo', get entity () { return { position: B.bot.entity.position } } }
+      const S0 = M ?? { SKILLS }
+      const ra = within(S0.SKILLS.dispose_well.run({ bot: A.bot }, {}, { aborted: false }), 30000, 'A')
+      await new Promise(r => setTimeout(r, 150))   // A holds the lease and waits for B's body
+      const rb = within(S0.SKILLS.dispose_well.run({ bot: B.bot }, {}, { aborted: false }), 30000, 'B')
+      return { A, B, ra: await ra, rb: await rb }
+    } finally { process.env.WELLTURN_WAIT_MS = prev }
+  }
+  await t('WELLFIX MUTUAL WAIT: holder A waits for B\'s body, B (on the stand) waits for A\'s lease -> B steps off, A throws, then B throws', async () => {
+    const { A, B, ra, rb } = await mutual()()
+    assert.equal(ra.status, 'success', ra.detail); assert.equal(rb.status, 'success', rb.detail)
+    assert.equal(A.count('egg') + B.count('flint'), 0)
+    assert.ok((await rows('_well_turn')).some(x => /op=step_off why=wait_busy/.test(x.skill.detail)), 'B stepped off while waiting')
+  })
+  await t('WELLFIX MUTUAL WAIT MUTANT: no step-off while waiting -> neither throws (the dead end both engines found)', async () => {
+    const old = "    if (!turn.go && !steppedOff && withinAdmission(bot, cap)) { steppedOff = true; await wellStepOff(bot, cap, signal, `wait_${turn.why}`); check(signal); continue }\n"
+    await withMutant(SKP, old, '', async M => {
+      const { A, B, ra, rb } = await mutual(M)()
+      assert.equal(ra.status, 'no_effect'); assert.equal(rb.status, 'no_effect')
+      assert.equal(A.count('egg'), 16); assert.equal(B.count('flint'), 64)
     })
   })
   await t('WELLFIX CHAIN (no dead end): a holder that never lets go -> B waits, is refused well_busy (a FREE skip, its place kept) -> the lease expires/frees -> B\'s next ask throws', async () => {
