@@ -273,6 +273,24 @@ export function indexFetchDistDetail ({ plot = '-', outcome = '-', ms = 0, from 
   }
   return head + (body || '-')
 }
+/** ONE CONTAINER'S WALK (control 11-19: was an `unreach` the path or the clock?) -> `walkOutcome`'s class. Pure. A walk that ended in
+ *  reach is `reached`; else the throw decides -- the walk's clock (withTimeout's budgetExceeded) is `timeout`, the pathfinder's own
+ *  "No path" / "goal was changed" give-ups `no_path`, anything else `error`; ended out of reach with no throw (an empty path that
+ *  resolves where it stands) `stopped`. */
+export function walkOutcome ({ inReach = false, err = null } = {}) {
+  if (inReach) return 'reached'
+  if (!err) return 'stopped'
+  if (err.budgetExceeded || /exceeded \d+ms/.test(String(err.message ?? ''))) return 'timeout'
+  if (/no path|noPath|goal was changed|path was stopped/i.test(String(err.message ?? err.name ?? ''))) return 'no_path'
+  return 'error'
+}
+/** The `_index_fetch op=leg` row: one container's walk -- its class, the time spent, the distance before and after, the blocks
+ *  covered toward it (`gain`) and how far the body moved (`moved`). Pure. */
+export function indexLegDetail ({ plot = '-', k = '-', outcome = '-', ms = 0, d0 = null, d1 = null, moved = null, cap = 0, why = null } = {}) {
+  const r = v => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 10) / 10 : '-')
+  const gain = Number.isFinite(Number(d0)) && Number.isFinite(Number(d1)) ? Number(d0) - Number(d1) : null
+  return `op=leg plot=${plot ?? '-'} k=${k} walk=${outcome} ms=${Math.round(Number(ms) || 0)} cap_ms=${Math.round(Number(cap) || 0)} d0=${r(d0)} d1=${r(d1)} gain=${r(gain)} moved=${r(moved)}${why ? ` why=${String(why).replace(/\s+/g, '_').slice(0, 60)}` : ''}`
+}
 /** The `_index_fetch` want row (a draw noted a trip). Pure. */
 export const indexWantDetail = ({ plot = '-', items = {}, targets = 0, near = '-' } = {}) =>
   `op=want plot=${plot ?? '-'} need=${Object.entries(items ?? {}).map(([n, c]) => `${n}:${c}`).join(',').slice(0, 80) || '-'} targets=${targets} first=${near}`
