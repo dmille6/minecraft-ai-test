@@ -32971,6 +32971,33 @@ function swFellDoneRow (bot, rec, gen) {
     stepwellRow(bot, 'fell_done', { why: `${ph.phase}:pending${ph.pending ?? '?'}/owed${ph.owed}`, n: fellDoneRow(d), ...(d.keys.length ? { at: d.keys[0].split(',').map(Number) } : {}), gen })
   } catch { /* telemetry */ }
 }
+// stepwell-03show (rig run 1, sandbox3 11-20: three builders, the crew's two slots): THE SET-ASIDE PROOFS ARE THE CREW'S. One file per
+// holder, `<key>.aside.<holder>.json` = { v, holder, at, cells: { 'x,y,z': ms } } (the stuck map's rule: a holder writes only its own,
+// a reader merges -- the newest proof per cell). A builder whose sector of a layer is done while the only cell holding the layer is in
+// another builder's sector and proven unreachable by that builder would otherwise end `shared` on that layer forever. Every proof is
+// read again before each scan (stepwellvisit.mjs: asideRefusal, ASIDE_MS), so another bot's proof never lets a cell be left that may
+// not be. Never throws.
+const swAsideFile = (dir, key, me) => path.join(dir, `${key}.aside.${String(me).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function swAsideLoad (dir, key, now = Date.now()) {
+  const m = new Map()
+  try {
+    const pre = `${key}.aside.`
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.startsWith(pre) || !n.endsWith('.json')) continue
+      let j = null
+      try { j = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')) } catch { continue }
+      for (const [k, t] of Object.entries(j?.cells ?? {})) if (/^-?\d+,-?\d+,-?\d+$/.test(k) && Number.isFinite(t) && t <= now + 60_000 && !((m.get(k) ?? -Infinity) >= t)) m.set(k, t)
+    }
+  } catch { /* none read: this visit proves its own */ }
+  return m
+}
+function swAsideSave (dir, key, me, m) {
+  try {
+    const f = swAsideFile(dir, key, me), tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder: me, at: Date.now(), cells: Object.fromEntries(m) }))
+    fs.renameSync(tmp, f)
+  } catch { /* the proofs are this visit's */ }
+}
 /** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
 async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh: rh0, rec: rec0 }, signal) {
   let rh = rh0, rec = rec0   // stepwell-05: the crew's generation is read back
@@ -33110,8 +33137,9 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     e.log = (op, d) => log0(op, op === 'dig' ? { ...d, block: e.lastDug ?? '-' } : d)
     const now = () => Date.now()
     const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
+    const swAside = swAsideOn() ? swAsideLoad(dir, key) : null
     const r = await runIt(() => runStepwellVisit({
-      plan, exit: rec.exit, share, aside: (bot.stepwellAside ??= new Map()),   // stepwell-03show: this bot's own set-aside proofs
+      plan, exit: rec.exit, share, aside: swAside,   // stepwell-03show: the crew's set-aside proofs (swAsideLoad)
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
         // stepwell-02: complete only when the descent (if the record has one) stands too
@@ -33127,6 +33155,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       },
     }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 }))
     bot.shopDamage = null
+    if (swAside) { bot.stepwellAside = swAside; swAsideSave(dir, key, me, swAside) }   // stepwell-03show: this visit's proofs for the crew
     if (r.placed > 0 || r.dug > 0) { try { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key) } catch { /* the clock */ } }
     stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}${r.aside ? `/aside${r.aside}` : ''}`, ms: Date.now() - t0, gen: rh.head.gen })
     const status = r.placed > 0 || r.dug > 0 ? 'success' : 'no_effect'
