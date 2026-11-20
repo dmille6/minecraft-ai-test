@@ -408,7 +408,7 @@ await t('WIRED: the room ask routes to the well trip, the dispatch reaches it, t
     'yardRoom: n => roomYardRoomNow(bot, n, now), visitMax: LANES.visitMax',
     "try { r = await buildShopVisit(ctx, {}, signal) } catch (e) { if (e?.aborted || signal?.aborted) book({ status: 'aborted', stop: 'aborted' }); throw e }",
     'book(r)',
-    "if (stop === 'player_near') { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS;",
+    "if (stop === 'player_near' || stop === 'well_busy') { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS;",
     "if (ROOM_BUSY_STOPS.includes(String(stop)) && used() >= slotsBefore) { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS;",
     'for (let leg = 0; leg < ROOM_YARD_LEGS; leg++) {',
     "{ const cap = cobbleWellCap(bot); if (cap !== 'at_cap') return { stacks: [], slots: 0, why: `cap_${cap}` } }",
