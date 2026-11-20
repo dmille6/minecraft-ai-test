@@ -128,6 +128,16 @@ test('A NAMED ITEM WITH ITS OWN PLAN IS NOT WIDENED: Onyx naming cobblestone dep
   assert.equal(r.ok, true); assert.equal(r.args.item, 'cobblestone'); assert.equal(A.lastDepositWidened, null)
 })
 
+test('AN ORDER\'S NAMED DEPOSIT IS NOT WIDENED: a work order naming wheat_seeds is refused on its own name', async () => {
+  const A = new AdmissionControl(null); A.activeMilestoneId = RUNG; A.fromOrder = true
+  const r = A.check({ skill: 'deposit', args: { item: 'wheat_seeds' } }, gateBot({ ...ONYX, inv: onyxBag() }), null)
+  assert.equal(r.reason, 'deposit_nothing_to_bank'); assert.equal(A.lastDepositWidened, null)
+  await withMutant(ADM_PATH, 'item: this.fromOrder ? null : arg.item, named: dv,', 'item: arg.item, named: dv,', async M => {
+    const B = new M.AdmissionControl(null); B.activeMilestoneId = RUNG; B.fromOrder = true
+    assert.equal(B.check({ skill: 'deposit', args: { item: 'wheat_seeds' } }, gateBot({ ...ONYX, inv: onyxBag() }), null).ok, true)
+  })
+})
+
 const COPPER = n => [it('raw_copper', n, 12)]
 const CASES = []
 for (const pos of [new Vec3(400, 70, 400), new Vec3(30, 70, 30), new Vec3(-6, 71, 10)])

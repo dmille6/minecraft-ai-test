@@ -494,7 +494,8 @@ export class AdmissionControl {
       // is `deposit` (the unnamed verdict); the showcase f7cc2a19 refused 1,956 named deposits in 8 h (wheat_seeds 976) on bags
       // whose surplus the rung counted, the model re-naming the same item after each refusal. The unnamed plan is the
       // bankable surplus only (tools, scaffold, stations kept), so the widened deposit moves what the offer said it would.
-      const wide = widenedDeposit({ cfg: depositWidenConfig(), item: arg.item, named: dv,
+      // ...the MODEL's name only (Claude review r1): an order names its own item (workorder.mjs room remedy) and is judged as named
+      const wide = widenedDeposit({ cfg: depositWidenConfig(), item: this.fromOrder ? null : arg.item, named: dv,
         unnamed: () => this.depositRunnable(bot, null, wanted, this.activeMilestoneId, { items, wants, noSwords, bank }) })
       if (wide.widened) { dv = wide.verdict; args.item = null; this.lastDepositWidened = arg.item }
       if (dv.reason === 'deposit_nothing_to_bank') {
