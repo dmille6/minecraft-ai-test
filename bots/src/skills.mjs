@@ -303,7 +303,7 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, set
 setBagDraw(() => activeMem?.bot?.drawLog ?? null)
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setFetchAsk } from './shop.mjs'   // indexfetch-01show: the short draw's fetch trip
-import { FETCH as INDEXFETCH, fetchStillWanted, fetchAllowed, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexFetchDistDetail, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
+import { FETCH as INDEXFETCH, fetchStillWanted, fetchAllowed, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexFetchDistDetail, indexLegDetail, walkOutcome, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
@@ -14896,7 +14896,15 @@ async function fetchVisitOne (ctx, tg, { walkMs, want }, w, signal, deadline) {
   // THE WALK, bounded by the container's cap: ANYWHERE IN TOWN (a chunk not loaded here is walked into, then read); withdrawVisit's own
   // walk then starts in reach. A walk that ends out of reach is this container's miss of a reach (the trip's one retry decides)
   if (!(eyeToBlock(bot.entity.position, p) <= OPEN_REACH)) {
-    try { await chestWalk(bot, new goals.GoalNear(p.x, p.y, p.z, 2), Math.max(1, Math.min(walkMs, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    // ONE `op=leg` ROW A WALK (control 11-19): the path or the clock -- the class, the ms, the distance before/after, the body's move
+    const cap = Math.max(1, Math.min(walkMs, deadline - Date.now()))
+    const t0 = Date.now(), at0 = bot.entity.position.clone?.() ?? bot.entity.position, d0 = eyeToBlock(bot.entity.position, p)
+    let err = null
+    try { await chestWalk(bot, new goals.GoalNear(p.x, p.y, p.z, 2), cap) } catch (e) { if (e?.aborted || signal?.aborted) throw e; err = e }
+    try {
+      const d1 = eyeToBlock(bot.entity.position, p)
+      logEvent({ kind: 'index_fetch', status: d1 <= OPEN_REACH ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: indexLegDetail({ plot: w?.plot ?? '-', k: tg.k, outcome: walkOutcome({ inReach: d1 <= OPEN_REACH, err }), ms: Date.now() - t0, cap, d0, d1, moved: bot.entity.position.distanceTo?.(at0), why: err ? (err.failClass ?? err.message) : null }) })
+    } catch { /* telemetry */ }
     check(signal)
   }
   let block = bot.blockAt?.(p)
