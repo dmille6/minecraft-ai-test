@@ -88,6 +88,7 @@ const REQUIRED = [
   'bots/scripts/floatclean-replay.mjs',   // floatclean-01show: the lap replayed offline (real visit loop + real pathfinder)
   'sandbox/floatclean/fcrig.mjs',   // floatclean-01show: the Paper rig driver
   'sandbox/floatclean/fcrigworld.sh',   // floatclean-01show: the rig world load/snap/restore
+  'docs/reports/floatclean/floatclean-2026-11-20.md',   // floatclean-01show: the report (survey, rig, pictures)
   'scripts/host/floatclean_cp.py',   // floatclean-01show: the bots' last placements from a CoreProtect copy (positive control)
   'bots/test/civicvisit.test.mjs',   // civicvisit-01show (11-15): a landmark's visit stands where its siting stood
   'bots/test/steprefusal.test.mjs',   // stepclass-01 (11-15): why a cell has no step, on the deferral row
