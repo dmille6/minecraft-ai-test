@@ -353,12 +353,13 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
   const tally = {}
   const xs = new Map()
   const cross = (x, z, L, d) => { const k = `${x},${z},${L},${d}`; if (!xs.has(k)) { const c = crossSection(read, col, guard, x, z, L, d, own); xs.set(k, c); if (!c.ok) tally[c.why] = (tally[c.why] ?? 0) + 1 } return xs.get(k) }
-  // a corner: the 5x5 square round the turn node all at L (each column within the fill/cut limits: the cross-sections both ways cover it
-  // but its four outer corners)
+  // a corner: the 5x5 square round the turn node all at L (each column within the fill/cut limits). roadsite-01show (Codex r1 BLOCKER):
+  // EVERY column of the square -- the cross-sections and the rows either side cover all but the quadrant ahead of the turn (22,-1 on a
+  // turn at 21,0 east-to-south), which a shared column's terms (a grading fill above L) must not escape
   const corner = (x, z, L, dIn, dOut) => {
     const a = cross(x, z, L, dIn), b = cross(x, z, L, dOut)
     if (!a.ok || !b.ok) return false
-    for (const sx of [-2, 2]) for (const sz of [-2, 2]) {
+    for (let sx = -2; sx <= 2; sx++) for (let sz = -2; sz <= 2; sz++) {
       const gr = col(x + sx, z + sz)
       if (gr.why || shareOk(own(x + sx, z + sz), L) || L - gr.g > ROADS.fillMax || gr.g - L > ROADS.cutMax + ROADS.litterMax || guard(x + sx, z + sz, Math.min(gr.g, L) - 1, L + 4)) return false
     }
@@ -493,8 +494,10 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
   const paved = pavedColumns(nodes, chain0)
   const gr = gradeOf(paved, tail, land)
   if (!gr.ok) return { ok: false, why: 'grade', bad: gr.bad }
-  // roadsite-01show: a slab is no full solid and no path block -- never on a path's cell nor on a grading record's fill (siteRoad2
-  // routes round that column)
+  // roadsite-01show: every paved column on its shared terms (the router's cross-sections and corners checked them; this is the layout's
+  // own word, whatever produced the nodes) -- and a slab is no full solid and no path block: never on a path's cell nor on a grading
+  // record's fill (siteRoad2 routes round that column)
+  for (const c of paved.values()) if (shareOk(own(c.x, c.z), c.L)) return { ok: false, why: 'shared', bad: [c.x, c.L, c.z] }
   for (const k of gr.slab) { const c = paved.get(k); if (c && !slabOk(own(c.x, c.z), c.L)) return { ok: false, why: 'shared_slab', bad: [c.x, c.L, c.z] } }
   const roles = {}
   const role = (tag, names) => { const r = `${id}-${tag}`; roles[r] ??= names; return r }
@@ -702,7 +705,7 @@ export function siteRoad2 (read, ctx = {}) {
       // landing and the road was left natural ground -- the join was never the flat or half step gradeOf checks against `land`)
       inst = roadInstance(id, last ? r.nodes : [start, ...r.nodes], { prevEnd: last ? last.end : null, tail: last?.tail ?? [], land, col, style, lamp, read, chain0, guard: g2, own })
       // roadsite-01show: a slab row on a shared column -- that column is routed round (one more retry), as a proof's failed cell is
-      if (!inst.ok && inst.why === 'shared_slab' && Array.isArray(inst.bad)) { bad.add(k2(inst.bad[0], inst.bad[2])); continue }
+      if (!inst.ok && (inst.why === 'shared_slab' || inst.why === 'shared') && Array.isArray(inst.bad)) { bad.add(k2(inst.bad[0], inst.bad[2])); continue }
       if (!inst.ok) break
       // the proof: the town walk (the road's slab rows floors) reaches the approach; every cell has a step, segment by segment
       const floors = new Set([...roadFloors(rec), ...inst.cells.filter(c => c.ws?.type === 'bottom').map(c => kOf(c.at))])
