@@ -30221,7 +30221,8 @@ export const floatcleanDue = (mem, now = Date.now()) => FC_ON && now >= (Number(
 function floatGuardStrict (bot) {
   try {
     const dir = townDir()
-    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : []), STEPWELL_PLOT, UPKEEP_PLOT])]
+    // restack onto pit-01show: the pit's record is guarded whatever its switch (a sited pit's cells and clears are its own)
+    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : []), STEPWELL_PLOT, UPKEEP_PLOT, PIT_PLOT])]
     const records = []
     for (const pl of plots) {
       const hd = recordHead(dir, projKeyOf(pl))
