@@ -152,8 +152,19 @@ await t('NOTHING BANKABLE IS NEVER DUE, and admission refuses an empty requested
   const { Lessons } = await import('../src/lessons.mjs')
   const ac = new AdmissionControl(new Lessons(path.join(os.tmpdir(), `mcai-cobble-lessons-${process.pid}.json`)))
   const w = town([stack('cobblestone', 50), stack('oak_log', 20)])
-  const r = ac.check({ skill: 'deposit', args: { item: 'cobblestone' } }, w.bot, null)
+  // DEPFIX-01: a named item with nothing of it to bank is widened to the unnamed deposit when that one would run (here: the
+  // logs), so the reserve-cobble refusal is asserted where nothing else banks, and under the widening's rollback
+  const only = town([stack('cobblestone', 50)])
+  const r = ac.check({ skill: 'deposit', args: { item: 'cobblestone' } }, only.bot, null)
   assert.equal(r.ok, false, JSON.stringify(r)); assert.equal(r.reason, 'deposit_nothing_to_bank'); assert.match(r.detail, /cobble reserve/)
+  const was = process.env.DEPOSITWIDEN
+  process.env.DEPOSITWIDEN = '0'
+  try {
+    const r0 = ac.check({ skill: 'deposit', args: { item: 'cobblestone' } }, w.bot, null)
+    assert.equal(r0.reason, 'deposit_nothing_to_bank', JSON.stringify(r0)); assert.match(r0.detail, /cobble reserve/)
+  } finally { if (was === undefined) delete process.env.DEPOSITWIDEN; else process.env.DEPOSITWIDEN = was }
+  const wide = ac.check({ skill: 'deposit', args: { item: 'cobblestone' } }, w.bot, null)
+  assert.equal(wide.ok, true, JSON.stringify(wide)); assert.equal(wide.args.item, null, 'widened: the unnamed plan (the logs), never the reserve cobble')
   const ok = ac.check({ skill: 'deposit', args: { item: 'oak_log' } }, w.bot, null)
   assert.equal(ok.ok, true, `positive control: the logs are admitted: ${JSON.stringify(ok)}`)
 })

@@ -38,6 +38,7 @@ const REQUIRED = [
   'bots/src/buildfirst.mjs',
   'bots/test/drawshort.test.mjs',   // drawshort-01show
   'bots/test/buildfirst.test.mjs',
+  'bots/src/depositoffer.mjs', 'bots/test/depositoffer.test.mjs', 'bots/test/depfix.test.mjs',   // depfix-01show (DEPOSITOFFER-01 port + the named-deposit widening)
   'bots/src/minecrewio.mjs',
   'bots/test/minecrew.test.mjs',
   'bots/test/minecrew-off.test.mjs',
