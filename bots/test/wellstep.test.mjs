@@ -315,9 +315,10 @@ test('MUTANT KILLED: a walk that takes an empty path for an arrival ends on the 
 function wiringProblems (src) {
   const code = strip(src)
   const out = []
-  const a = code.indexOf('async function disposeWell (')
+  // wellfix-01show: the visit's body is disposeWellRun (disposeWell wraps it with the turn's end)
+  const a = code.indexOf('async function disposeWellRun (')
   const b = code.indexOf('\nasync function ', a + 10)
-  if (a < 0 || b < 0) return ['disposeWell not found']
+  if (a < 0 || b < 0) return ['disposeWellRun not found']
   const body = code.slice(a, b)
   const at = (needle, what) => { const n = body.split(needle).length - 1; if (n !== 1) out.push(`${what}: found ${n}, want 1`); return body.indexOf(needle) }
   const iFirst = body.indexOf('bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z))')
