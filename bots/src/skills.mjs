@@ -28349,7 +28349,8 @@ async function roadKit (ctx, rec, palette, signal) {
       const held0 = countItem(bot, 'lantern')
       if (fromTown > 0) { await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown })); check(signal) }
       const drawn = Math.max(0, countItem(bot, 'lantern') - held0)
-      const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - countItem(bot, 'lantern'))
+      // (Codex r3 BLOCKER: nd.lantern is already net of the bag's lanterns -- only the ones just drawn are subtracted)
+      const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - drawn)
       const ironCap = Math.max(0, (Number(t.iron_ingot) || 0) - ROAD_IRON_KEEP)
       const iron = Math.min(ironCap, Math.max(0, Math.ceil((lacking * 8 - countItem(bot, 'iron_nugget')) / 9) - countItem(bot, 'iron_ingot')))
       const torch = Math.min(Math.max(0, (Number(t.torch) || 0) - (Number(R0?.torch) || 32)), Math.max(0, lacking - countItem(bot, 'torch')))
