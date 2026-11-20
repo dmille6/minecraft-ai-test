@@ -32893,8 +32893,8 @@ function pitBankCands (bot) {
       const p = keyVec(k)
       if (!(p.x === p.x) || !inTown(homeVec(), p)) continue
       const used = Number(e.obs?.used) || 0, size = Number(e.obs?.size) || 27
-      const dirt = Number(e.obs?.names?.dirt?.[0]) || 0
-      out.push({ k, pos: [p.x, p.y, p.z], dirt, free: Math.max(0, size - used), column: col.has(k), room: col.has(k) ? Math.max(0, size - used) : 0 })
+      const dirt = Number(e.obs?.names?.dirt?.[0]) || 0, dirtSlots = Number(e.obs?.names?.dirt?.[1]) || 0
+      out.push({ k, pos: [p.x, p.y, p.z], dirt, dirtRoom: Math.max(0, dirtSlots * 64 - dirt), free: Math.max(0, size - used), column: col.has(k), room: col.has(k) ? Math.max(0, size - used) : 0 })
     }
   } catch { /* what was read */ }
   return out
@@ -32909,7 +32909,7 @@ async function pitBank (ctx, signal, deadline, { final = false } = {}) {
   for (const [k, until] of skip) if (until <= Date.now()) skip.delete(k)
   const me = bot.entity?.position
   const order = pitBankOrder(pitBankCands(bot), { from: me ? [me.x, me.y, me.z] : [0, 0, 0], skip: new Set(skip.keys()) })
-  if (!order.length) return { banked: 0, to: [], why: 'no_container' }
+  if (!order.length) return { banked: 0, to: [`cands${pitBankCands(bot).length}`], why: 'no_container' }
   let banked = 0
   const to = []
   for (const k of order) {
