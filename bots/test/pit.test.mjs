@@ -347,7 +347,7 @@ await t('P1 replay: dug to the design through the real visit, no breach of the s
 
 console.log('THE DEMAND')
 await t('pitDemand: short of a named consumer -> dig; stocked, no need, or nothing read -> no dig; the bag\'s dug dirt counts', () => {
-  assert.deepEqual(P.pitDemand({ needs: { tidy: 226, warehouse: 47, grade: null }, stock: 20 }), { dig: true, short: 253, need: 273, stock: 20, consumer: 'tidy', why: 'short' })
+  assert.deepEqual(P.pitDemand({ needs: { tidy: 226, warehouse: 47, grade: null }, stock: 20 }), { dig: true, short: 253, chest: 253, need: 273, stock: 20, consumer: 'tidy', why: 'short' })
   assert.equal(P.pitDemand({ needs: { tidy: 30 }, stock: 40 }).dig, false)
   assert.equal(P.pitDemand({ needs: { tidy: 30 }, stock: 40 }).why, 'stocked')
   assert.equal(P.pitDemand({ needs: { tidy: 0, warehouse: 0 }, stock: 0 }).why, 'no_need')
@@ -356,6 +356,17 @@ await t('pitDemand: short of a named consumer -> dig; stocked, no need, or nothi
   assert.equal(P.pitDemand({ needs: { tidy: 50 }, stock: 10, bag: 40 }).dig, false, 'what the digger carries is the consumers\' already')
   assert.equal(P.pitDemand({ needs: { tidy: 50 }, stock: null }).short, 50, 'an unread index is the known part (0), never a guess upward')
   assert.equal(P.pitDigCap(10), 10); assert.equal(P.pitDigCap(500), P.PIT.visitMax); assert.equal(P.pitDigCap(0), 0)
+})
+await t('pitWanted: the pit stays offered for the BANK while the chests are short and the bag owes them (Codex r3), never for a stocked town', () => {
+  const covered = P.pitDemand({ needs: { tidy: 32 }, stock: 0, bag: 48 - 16 })
+  assert.equal(covered.dig, false, 'the bag covers the dig'); assert.equal(covered.chest, 32)
+  assert.equal(P.pitWanted(covered, 48), true, 'so the next visit banks it')
+  assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 32 }, stock: 40 }), 80), false, 'the chests hold the need: no bank, no dig')
+  assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: 32 }, stock: 0 }), 16), true, 'short: dig')
+  assert.equal(P.pitWanted(P.pitDemand({ needs: { tidy: null } }), 80), false, 'nothing read: never')
+})
+await t('MUTANT: the bank leg off the wanted state -- the carried dirt hides the pit and is never banked (killed)', async () => {
+  await killed('(dem.dig || ((dem.chest ?? 0) > 0 && pitBankDue(bagDirt, { T }) > 0))', '(dem.dig)', M => { assert.equal(M.pitWanted(M.pitDemand({ needs: { tidy: 32 }, stock: 0, bag: 32 }), 48), true) })
 })
 await t('MUTANT: the demand digs while stocked (need, not short) -- killed', async () => {
   await killed("return { dig: short > 0,", 'return { dig: need > 0,', M => { assert.equal(M.pitDemand({ needs: { tidy: 30 }, stock: 40 }).dig, false) })
@@ -402,7 +413,7 @@ await t('skills.mjs: the order dispatches the pit; the visit digs pitView with p
   assert.ok(call.length > 100 && call.length < 1200, `the pit's runVisit call (${call.length})`)
   assert.ok(SK.includes("bag => pitBankSteps(bag, want, PIT.keep), 'pit_bank')"), 'the bank clicks pitBankSteps')
   for (const part of ['record: pitView(rec, now0)', 'clearPart: pitClearPart(now0.half)', 'clearOk: (q, rd) => pitClearOk(q, rd)', 'clearMax: cap']) assert.ok(call.includes(part), part)
-  assert.match(SK, /if \(p\.plot === PIT_PLOT && !rec\?\.structure_complete && !pitDemandNow\(b, now\)\.dig\) return/)
+  assert.match(SK, /if \(p\.plot === PIT_PLOT && !rec\?\.structure_complete && !pitWanted\(pitDemandNow\(b, now\), b \? countItem\(b, 'dirt'\) : 0\)\) return/)
   assert.match(SK, /if \(pitHoldsDirt\(bot\)\) avail\.dirt = 0/)
   assert.match(SK, /const need = wantCob > 0 \|\| Object\.keys\(extra\)\.length \? needFromTown\(\{ \.\.\.\(wantCob > 0 \? \{ cobblestone: wantCob \} : \{\}\), \.\.\.extra \}/)
 })
