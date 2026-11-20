@@ -586,7 +586,7 @@ test('RUNGS MUTANTS KILLED: each of the three rungs follows the view', async () 
     const b = closedBot(); b.mineCrewView = view({ need: open('coal') })
     assert.equal(r(M, 'gather_iron_ore_3').done(b), false, 'the r0 rule: with only coal short the task is iron ore the gate refuses')
   })
-  await withMutant(MS_PATH, "    hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',\n  }, b => !crewRungClosed(b)),", "    hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',\n  }, () => true),", async M => {
+  await withMutant(MS_PATH, "    hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',\n  }, 'stone'), b => !crewRungClosed(b)),", "    hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',\n  }, 'stone'), () => true),", async M => {
     assert.equal(r(M, 'stockpile_stone').done(closedBot(), 0), false)
   })
   await withMutant(MS_PATH, "    hint: 'goto somewhere 80+ blocks from home, staying inside the border.',\n  }, b => !crewRungClosed(b)),", "    hint: 'goto somewhere 80+ blocks from home, staying inside the border.',\n  }, () => true),", async M => {
