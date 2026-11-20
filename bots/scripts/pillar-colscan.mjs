@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadRegion, reader } from './wellsite-replay.mjs'
-import { standTop, pillarCandidate } from '../src/pillarclean.mjs'
+import { standTop, pillarCandidate, columnGuard } from '../src/pillarclean.mjs'
 
 const args = process.argv.slice(2)
 const opt = (k, d = null) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d }
@@ -47,7 +47,8 @@ for (const [k, t] of tops) {
   if (!c) continue
   const body = []
   for (let y = c.med + 1; y <= t.y; y++) { const n = read(x, y, z)?.name ?? '?'; if (!/^(air|cave_air|void_air)$/.test(n)) body.push([y, n]) }
-  cand.push({ x, z, top: t.y, name: t.name, med: c.med, base: c.base, body })
+  const cd = { x, z, top: t.y, name: t.name, med: c.med, base: c.base, body }
+  cand.push({ ...cd, guard: columnGuard(read, cd) })   // the wider set's guard (pillarclean.mjs columnGuard); the proven list ignores it
 }
 fs.writeFileSync(outPath, JSON.stringify({ cols: tops.size, chunks: chunks.size, cand }))
 console.log(`_pillar op=colscan chunks=${chunks.size} cols=${tops.size} cand=${cand.length} ms=${Date.now() - t0}`)

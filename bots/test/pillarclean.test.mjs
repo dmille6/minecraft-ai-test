@@ -93,7 +93,7 @@ await t('MUTANTS: each guard of the verdict is load-bearing (anchored, unique)',
     ["  if (cells(k3(job.at))) return 'record'\n", M => M.pillarVerdict(J([0, 66, 0]), W(set), { listed, cells: () => true }), 'record'],
     ["  if (zone(x, y, z)) return 'zoned'\n", M => M.pillarVerdict(J([0, 66, 0]), W(set), { listed, zone: () => true }), 'zoned'],
     ["  if (ns.some(isLiquid)) return 'wet'\n", M => M.pillarVerdict(J([0, 66, 0]), W({ ...set, '0,66,1': 'water' }), { listed }), 'wet'],
-    ["  for (const [dx, , dz] of N4) { const s = read(x + dx, y, z + dz); if (!isAir(s) && !isSolid(s)) return 'holds' }\n", M => M.pillarVerdict(J([0, 66, 0]), W({ ...set, '1,66,0': 'wall_torch' }), { listed }), 'holds'],
+    ["  for (const [dx, , dz] of N4) { const s = read(x + dx, y, z + dz); if (!isAir(s) && !isSolid(s) && !cover(s) && !isLiquid(s)) return 'holds' }\n", M => M.pillarVerdict(J([0, 66, 0]), W({ ...set, '1,66,0': 'wall_torch' }), { listed }), 'holds'],
   ]
   for (const [anchor, run, want] of cases) {
     assert.strictEqual(run(PC), want)
@@ -253,6 +253,53 @@ await t('the other body\'s block waits (pillarClearOk `others`), and the bot\'s 
   await killedBy(PC_PATH, PC, [["  if (under.includes(k3(c.at)) || under.some(k => noFloor(k))) return false\n", "  if (under.some(k => noFloor(k))) return false\n"]], M => assert.strictEqual(M.pillarClearOk(c, read, { under: ['0,65,0'] }), false, 'the block under the bot'))
 })
 
+console.log('THE WIDER SET (owner 11-20: natural and unnatural; the control session\'s guards)')
+const C = (x, z, med, ys, name = 'stone') => ({ x, z, med, top: Math.max(...ys), body: ys.map(y => [y, name]) })
+await t('columnGuard: a lone column of the ground\'s blocks is ok; a slope\'s edge, a tree, a plant, ice, a structure\'s block, something on it are not', () => {
+  const col = { '0,65,0': 'stone', '0,66,0': 'stone', '0,67,0': 'stone' }
+  const c = C(0, 0, 64, [65, 66, 67])
+  assert.strictEqual(PC.columnGuard(W(col), c), 'ok')
+  assert.strictEqual(PC.columnGuard(W({ ...col, '1,65,0': 'short_grass', '0,68,0': 'snow' }), c), 'ok', 'a grass tuft beside it, snow on it: still lone')
+  assert.strictEqual(PC.columnGuard(W({ ...col, '1,65,0': 'stone', '1,66,0': 'stone' }), c), 'not_lone', 'the edge of a slope: the ground rises beside it')
+  assert.strictEqual(PC.columnGuard(W({ ...col, '0,68,0': 'spruce_leaves' }), c), 'tree')
+  assert.strictEqual(PC.columnGuard(W({ ...col, '0,66,1': 'sugar_cane' }), c), 'plant')
+  assert.strictEqual(PC.columnGuard(W({ '0,65,0': 'packed_ice', '0,66,0': 'packed_ice', '0,67,0': 'packed_ice' }), C(0, 0, 64, [65, 66, 67], 'packed_ice')), 'ice', 'an ice spike')
+  assert.strictEqual(PC.columnGuard(W({ '0,65,0': 'spruce_planks', '0,66,0': 'spruce_planks', '0,67,0': 'spruce_planks' }), C(0, 0, 64, [65, 66, 67], 'spruce_planks')), 'material', 'a structure\'s post')
+  assert.strictEqual(PC.columnGuard(W({ ...col, '0,68,0': 'torch' }), c), 'holds')
+  assert.strictEqual(PC.columnGuard(W(col), C(300, 0, 64, [65])), 'unread')
+})
+await t('a column of the wider set is dug only while it is still lone and of the ground\'s blocks (the check at the dig; killed mutant)', async () => {
+  const scenario = M => {
+    const job = { at: [0, 66, 0], name: 'stone', lone: true }
+    const set = { '0,65,0': 'stone', '0,66,0': 'stone' }
+    assert.strictEqual(M.pillarVerdict(job, W(set)), 'take', 'the positive control')
+    assert.strictEqual(M.pillarVerdict(job, W({ ...set, '1,66,0': 'short_grass' })), 'take', 'cover beside it')
+    assert.strictEqual(M.pillarVerdict(job, W({ ...set, '1,66,0': 'dirt' })), 'not_lone', 'a block beside it now: a slope, never dug')
+    assert.strictEqual(M.pillarVerdict({ ...job, lone: false }, W({ ...set, '1,66,0': 'dirt' })), 'take', 'a proven pillar: CoreProtect says the bot placed it')
+  }
+  await killedBy(PC_PATH, PC, [["    for (const [dx, , dz] of N4) { const s = read(x + dx, y, z + dz); if (isSolid(s)) return 'not_lone' }\n", '\n']], scenario)
+})
+await t('the two lists as one, counted apart: proven n/N and other n/N', () => {
+  const pv = { v: 1, pool: 'showcase', surveyedAt: 5, pillars: [{ id: 0, x: 0, z: 0, med: 64, top: 65, take: [[0, 65, 0, 'dirt']] }] }
+  const ot = { v: 1, pool: 'showcase', surveyedAt: 7, pillars: [{ id: 100000, x: 3, z: 0, med: 64, top: 66, take: [[3, 65, 0, 'stone'], [3, 66, 0, 'stone']] }, { id: 100001, x: 6, z: 0, med: 64, top: 65, take: [[6, 65, 0, 'stone']] }] }
+  const m = PC.pillarListsMerged(PC.pillarListOk(pv, 'showcase'), PC.pillarListOk(ot, 'showcase'))
+  assert.strictEqual(m.pillars.length, 3); assert.strictEqual(m.surveyedAt, 7)
+  const read = W({ '3,65,0': 'stone', '3,66,0': 'stone' })   // the proven one and one other already level
+  const j = PC.pillarPassJobs(m, read, { pos: { x: 3, y: 65, z: 0 } })
+  assert.deepStrictEqual([j.census.proven_done, j.census.proven, j.census.other_done, j.census.other], [1, 1, 1, 2])
+  assert.ok(j.take.every(q => q.lone === true), 'the wider set\'s clears carry lone to the dig')
+  assert.deepStrictEqual(j.take.map(q => q.at[1]), [66, 65], 'top down')
+  assert.strictEqual(PC.pillarListsMerged(null, null), null)
+})
+await t('THE BUNDLED WIDER LIST: the showcase\'s, every column lone of the ground\'s blocks in the copy, its census adding up to the 5,331', () => {
+  const doc = JSON.parse(fs.readFileSync(new URL('../src/pillarclean/showcase-other.json', import.meta.url), 'utf8'))
+  const l = PC.pillarListOk(doc, 'showcase')
+  assert.ok(l && l.pillars.length === doc.pillars.length && l.pillars.length > 0)
+  const c = doc.census
+  assert.strictEqual(Object.entries(c).filter(([k]) => /^(drop_|pass)/.test(k)).reduce((a, [, v]) => a + v, 0), c.unproven, 'every unproven column is passed or dropped by a named guard')
+  for (const p of l.pillars) { assert.ok(p.id >= 100000); for (const t of p.take) assert.ok(PC.OTHER_BLOCKS.test(t[3]) && t[1] > p.med, String(t)) }
+})
+
 await t('RIG 11-20 (6db0cb11): never a dig while the bot is in water -- swimming, or its floor a liquid (killed mutant)', async () => {
   const read = W({ '0,65,0': 'dirt', '5,64,5': 'water' })
   const c = { at: [0, 65, 0], kind: 'pillar', name: 'dirt' }
@@ -282,6 +329,7 @@ await t('skills.mjs pillarcleanLap: clearKeepOrder, clearNoFloor of the lap\'s f
   assert.ok(g.includes('return pillarGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })'), 'the guard over the records, the bridges and the plan head')
   assert.ok(g.includes('if (!hd.ok || (hd.rejected?.length ?? 0) > 0) return null') && g.includes('if (!ph.ok || !ph.head?.plan) return null'), 'one unreadable record or no plan: no lap')
   assert.ok(src.includes('const plKeysOf = e => { try { return pillarFloorKeys(e.position, e.width) } catch { return [] } }'), 'the bodies read through the pure pillarFloorKeys')
+  assert.ok(src.includes("const list = pillarListsMerged(pillarListOne(pool, dir, ''), pillarListOne(pool, dir, '-other'))"), 'the lap reads both lists (then the scafleft hand-off on top)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
