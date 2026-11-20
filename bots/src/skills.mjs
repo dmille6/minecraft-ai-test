@@ -30186,12 +30186,12 @@ function floatGuardStrict (bot) {
     const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : []), STEPWELL_PLOT, UPKEEP_PLOT])]
     const records = []
     for (const pl of plots) {
-      const h = recordHead(dir, projKeyOf(pl))
-      if (!h.ok || (h.rejected?.length ?? 0) > 0) return null
-      if (h.head?.rec) records.push(h.head.rec)
+      const hd = recordHead(dir, projKeyOf(pl))
+      if (!hd.ok || (hd.rejected?.length ?? 0) > 0) return null
+      if (hd.head?.rec) records.push(hd.head.rec)
     }
     const bs = exBridgeSitesStrict()
-    if (bs == null) return null
+    if (bs === null || bs === undefined) return null   // an unreadable bridges file: no lap
     const ph = townPlanHead(bot)
     if (!ph.ok || !ph.head?.plan) return null
     return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })   // Codex r2: the plan head is `head.plan`
@@ -30236,10 +30236,10 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
   row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, ...pj.census })
   // a held cell's row (once a cell an FC.rowMs); an UNREAD one (its chunk not loaded for this bot) is no finding: counted in the survey row only
   for (const h of pj.held) { const k = k3(h.job.at); if (h.why !== 'unread' && rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-' }) }
-  if (!pj.take.length) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return no(pj.census.standing ? 'nothing_takeable' : 'list_done') }
   const take = new Map(pj.take.map(q => [k3(q.at), q]))
   let effects = null, cleared = 0
   try {
+    if (!pj.take.length) return no(pj.census.standing ? 'nothing_takeable' : 'list_done')
     const acks = (bot.shopAcks ??= shopAckInstall(bot))
     presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
     effects = botBuildEffects(bot, {
