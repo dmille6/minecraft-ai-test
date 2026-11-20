@@ -32745,7 +32745,6 @@ async function buildWarehouseSite (ctx, args, signal) {
 // ================================================================================================================================
 const PIT_WALK_MS = 60_000
 const PIT_NEAR = 24
-const PIT_BANK_TAIL_MS = 45_000
 const PIT_UNREAD_MAX = 0.1
 function pitRow (bot, op, d = {}, status = 'success') { try { logEvent({ kind: 'pit', status, snapshot: snapshot(bot), detail: pitDetail(op, d) }) } catch { /* telemetry */ } }
 /**
@@ -32876,6 +32875,13 @@ async function buildPit (ctx, args, signal) {
     if (bk.banked) pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+'), why: bk.why })
     return out(bk.banked ? 'success' : 'no_effect', 'no_demand', `the town is not short of dirt (${dem.why}: need ${dem.need ?? '-'}, stock ${dem.stock ?? '-'}); the pit waits`, { stop: 'no_demand' })
   }
+  // A BAG ALREADY HOLDING A BANK'S WORTH (PIT.bankMin above the keep) banks FIRST, with the whole visit's time: the walk from the pit
+  // to the town's chests is ~120 blocks, more than any dig visit's tail (rig run 1: banks after a dig ended `unreachable`)
+  if (pitBankDue(countItem(bot, 'dirt')) > 0) {
+    const bk = await pitBank(ctx, signal, t0 + budget - 5_000)
+    pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+') || '-', consumer: dem.consumer, short: dem.short, why: bk.why }, bk.banked ? 'success' : 'no_effect')
+    return out(bk.banked ? 'success' : 'no_effect', bk.banked ? 'banked' : 'bank_failed', `banked ${bk.banked} dirt for ${dem.consumer} (${bk.why}: ${bk.to.join(' ') || '-'})`, { stop: bk.banked ? 'banked' : 'bank_failed' })
+  }
   const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
   // THE WALK: the site is outside the town -- the visit walks there before it plans or digs (the remedy for `unread`, taken here)
   const near = () => Math.hypot(bot.entity.position.x - site.cx, bot.entity.position.z - site.cz) <= PIT_NEAR
@@ -32942,7 +32948,7 @@ async function buildPit (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     const dirt0 = countItem(bot, 'dirt')
     const r = await runVisit({ dir, key, me, home: root, stood: [], record: pitView(rec, now0), recordGen: rh.head.gen, palette: {}, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.pitStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      clearPart: pitClearPart(now0.half), clearOk: (q, rd) => pitClearOk(q, rd), domain: () => true, blockLayer: false, clearMax: cap, walkR: Math.min(48, walkR) }, effects, { deadline: Math.min(deadline, t0 + budget - PIT_BANK_TAIL_MS), maxSteps: 240 })
+      clearPart: pitClearPart(now0.half), clearOk: (q, rd) => pitClearOk(q, rd), domain: () => true, blockLayer: false, clearMax: cap, walkR: Math.min(48, walkR) }, effects, { deadline, maxSteps: 240 })
     const dug = Math.max(0, countItem(bot, 'dirt') - dirt0)
     // NOTHING OF THE LAYER DUG (no stand reached its cells): their misses counted, each set aside at PIT.missMax (pitMissed: the remedy)
     const missed = pitMissKeys(stairRead(bot), now0, r)
@@ -32952,11 +32958,9 @@ async function buildPit (ctx, args, signal) {
     }
     const after = pitDigNow(stairRead(bot), rec)
     pitRow(bot, 'dig', { y: now0.y, half: now0.half, n: `${r.cleared}c/left${after.left}/layer${after.y ?? '-'}`, dirt: dug, short: dem.short, consumer: dem.consumer, why: r.stop, gen: rh.head.gen }, r.cleared > 0 ? 'success' : 'no_effect')
-    // THE BANK: once the bag holds PIT.bankMin above its keep, or the dig has nothing left for this bot now
-    const bk = await pitBank(ctx, signal, t0 + budget - 5_000, { final: r.cleared === 0 || r.stop === 'complete' || r.stop === 'deadline' })
-    if (bk.banked || bk.why === 'no_container' || bk.why === 'none') pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+') || '-', consumer: dem.consumer, why: bk.why }, bk.banked ? 'success' : 'no_effect')
-    const status = r.cleared > 0 || bk.banked > 0 ? 'success' : 'no_effect'
-    return out(status, r.stop, `layer y${now0.y} ${now0.half}: ${r.why ?? r.stop}; dug ${r.cleared} (${dug} dirt), banked ${bk.banked}; ${after.left} cell(s) left`, { stop: r.stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
+    // THE BANK is the next visit's (above: a bag holding PIT.bankMin above its keep banks first, with the whole visit's time)
+    const status = r.cleared > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `layer y${now0.y} ${now0.half}: ${r.why ?? r.stop}; dug ${r.cleared} (${dug} dirt); ${after.left} cell(s) left; the bag's dirt is banked by the next visit`, { stop: r.stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
