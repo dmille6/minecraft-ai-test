@@ -25000,12 +25000,15 @@ function visitPaletteChoice (bot, rec, pal, read, { town = {}, bag = {}, planks 
     let jobs = []
     try { jobs = openJobs(refillJobsNow()) } catch { jobs = [] }
     const home = homeVec()
+    let townCoverage = 0
+    try { townCoverage = Number(matsTownStock(bot)?.coverage) || 0 } catch { townCoverage = 0 }
     const has = n => (Number(bag?.[n]) || 0) + (Number(town?.[n]) || 0)
     const { choice, rows } = paletteChoice(rec, {
       names: role => roleNames(pal, role, planks),
       read,
       done: (b, c) => buildCellDone(b, pal, c.role, c.ws),
       source: (name, n, used) => sourceOf(name, n, { held: x => has(x) - (Number(used?.[x]) || 0), finds, home, jobs }),
+      townCoverage,
     })
     for (const r of rows) { try { logEvent({ kind: 'palette_choice', status: r.took === '-' ? 'no_effect' : 'success', snapshot: snapshot(bot), detail: paletteChoiceDetail(plot, r) }) } catch { /* telemetry */ } }
     return choice.size ? choice : null

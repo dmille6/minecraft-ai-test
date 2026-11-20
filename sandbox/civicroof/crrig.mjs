@@ -83,6 +83,26 @@ P('ready pid', process.pid)
 while (!has('go')) await sleep(500)
 await sleep(3000)
 W('bags.jsonl', { bot: NAME, t: new Date().toISOString(), phase: 'start', bag: bag() })
+// CR_COUNTER=<bot> (bfrig.mjs's BF_COUNTER): the copied index is older than its freshness, so it knows no container (every name reads
+// 0 and the choice's coverage floor holds it off): that bot recounts every container the index does not know -- the town's own
+// recount, skills.mjs reconcileCobble -- RIG ONLY set beside each by an op's /tp; the others wait for `counted`
+try { const ts = SK.matsTownStock(bot); P('town before', JSON.stringify({ coverage: ts?.coverage, known: ts?.known, keys: ts?.keys, scan: ts?.scanComplete, spruce_stairs: ts?.stock?.spruce_stairs, lantern: ts?.stock?.lantern })) } catch (e) { P('town read threw', e.message) }
+if (process.env.CR_COUNTER === NAME) {
+  for (let i = 0; i < 3; i++) {
+    let keys = []
+    try { keys = SK.cobbleTownViewFor(bot, Date.now(), { fresh: true }).unknown ?? [] } catch { keys = [] }
+    P('recount pass', i, 'unknown', keys.length)
+    if (!keys.length) break
+    for (const k of keys) {
+      const [x, y, z] = k.split(',').map(Number)
+      bot.chat(`/tp ${NAME} ${x + 0.5} ${y + 1} ${z + 0.5}`); await sleep(1500)
+      try { const r = await SK.reconcileCobble(bot, new AbortController().signal, cap => Math.min(cap, 30000), [k], { remember: true, max: 1 }); P('reconcile', k, JSON.stringify(r ?? null).slice(0, 120)) } catch (e) { P('reconcile threw', k, e.message) }
+    }
+  }
+  try { const ts = SK.matsTownStock(bot); W('town.jsonl', { bot: NAME, t: new Date().toISOString(), coverage: ts?.coverage ?? null, known: ts?.known ?? null, keys: ts?.keys ?? null, stock: ts?.stock ?? null }) } catch (e) { P('town read threw', e.message) }
+  fs.writeFileSync(path.join(OUT, 'counted'), '1')
+}
+while (process.env.CR_COUNTER && process.env.CR_COUNTER !== NAME && !has('counted')) await sleep(2000)
 const until = Date.now() + Number(process.env.CR_MIN ?? 30) * 60000
 const ONLY = process.env.CR_ONLY ?? 'civicP'
 for (let n = 1; Date.now() < until && !has('stop'); n++) {

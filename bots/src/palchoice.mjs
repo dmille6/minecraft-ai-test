@@ -17,12 +17,17 @@
 //   - the first candidate with a source is taken. When it is the role's first name, nothing changes (the base's behaviour, no row).
 //     When it is not, every open cell of the course is placed in it and only it -- never a cell-by-cell mix of whatever the bag
 //     holds -- and the bill draws it; a `_palette_choice` row says what was taken and why;
-//   - when no candidate has a source, nothing is constrained (the base's behaviour) and the row says so.
+//   - when no candidate has a source, nothing is constrained (the base's behaviour) and the row says so; nor when the town index
+//     knows under MIN_TOWN_COVERAGE of the town's containers (a zero there is unread, not empty: `town_unread`).
 // Pure. Switch: PALCHOICE=off restores the base (no choice is made, no row).
 import { WOOD_PART } from './townstyle.mjs'
 
 const isOff = v => ['off', '0', 'false', 'no'].includes(String(v ?? '').trim().toLowerCase())
 export const PALCHOICE = Object.freeze({ on: !isOff(typeof process !== 'undefined' ? process.env?.PALCHOICE : undefined) })
+/** The share of the town's containers the index must know (fresh, read whole) before "the town holds none" is believed: below it a
+ *  zero is an unread container, not an empty one, and no choice is made (the rig, 11-20: a stale copied index read every name as 0 and
+ *  took spruce planks and a spruce slab while the town held dark oak). */
+export const MIN_TOWN_COVERAGE = 0.8
 /** How far from home a map find of the log still counts as a source (a trip a bot makes: the expedition's rings reach 128-256). */
 export const ATLAS_TRIP_R = 320
 
@@ -75,9 +80,11 @@ export function sourceOf (name, n, { held = () => 0, finds = [], home = null, jo
  *   names    role -> the role's names in palette order (shop.mjs roleNames: '$planks' resolved, '*solid' dropped)
  *   read     (x, y, z) -> block | null; `done(block, cell)` the visit's own done test (state-bearing cells in their state)
  *   source   (name, n) -> { ok, why } (sourceOf with the visit's stock bound; `n` is what this course still needs)
+ *   townCoverage  the town index's known share (skills.mjs matsTownStock coverage); below MIN_TOWN_COVERAGE nothing is chosen
  * A choice is made only for a course whose taken name is not the role's first; every other course is the base's.
  */
-export function paletteChoice (record, { names, read, done, source }) {
+export function paletteChoice (record, { names, read, done, source, townCoverage = 1 }) {
+  const trusted = Number(townCoverage) >= MIN_TOWN_COVERAGE
   const choice = new Map(), rows = []
   const groups = new Map()
   for (const c of record?.cells ?? []) {
@@ -107,6 +114,8 @@ export function paletteChoice (record, { names, read, done, source }) {
     let took = null, why = null
     for (const n of cands) { const s = n === list[0] ? first : src(n); if (s.ok) { took = n; why = s.why; break } }
     const row = { seg, role, y, open: open.length, placed, first: list[0], firstWhy: first.why, took: took ?? '-', why: took ? (cont === took ? `course:${why}` : why) : 'none' }
+    // an index that knows too few of the town's containers proves no zero: nothing is chosen (the base), and the row says so
+    if (!trusted) { rows.push({ ...row, took: '-', why: `town_unread(cov=${(Number(townCoverage) || 0).toFixed(2)})` }); continue }
     rows.push(row)
     if (!took || took === list[0]) { if (took) take(took, open.length); continue }
     take(took, open.length)
