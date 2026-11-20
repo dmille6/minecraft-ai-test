@@ -45,6 +45,8 @@ def main(argv=None):
     ap.add_argument('--list-out', default=None, help="the bot's list (bots/src/pillarclean/<pool>.json shape)")
     ap.add_argument('--pool', default='showcase')
     ap.add_argument('--walk-r', type=int, default=160, help='PL.walkR: nothing further from home is listed')
+    ap.add_argument('--other-out', default=None, help="the wider set's list (owner 11-20: natural and unnatural; columnGuard)")
+    ap.add_argument('--pit', default='-60,-111,-42,-87', help='the North Pit site (P1, sites map: ellipse 15 x 21 at -51,-99) + 2: never touched')
     ap.add_argument('--surveyed-at', type=int, default=None, help='ms; default: the CoreProtect window end (the copy\'s time)')
     a = ap.parse_args(argv)
     cand = json.load(open(a.cand))
@@ -100,10 +102,52 @@ def main(argv=None):
                     'dist': max(abs(x - hx), abs(z - hz)), 'body': body})
     out.sort(key=lambda p: (p['dist'], p['x'], p['z']))
     census['take_blocks'] = sum(len(p['take']) for p in out)
+    proven_cols = {(p['x'], p['z']) for p in out if p['kind'] != 'natural'}
     census['listed'] = sum(1 for p in out if p['take'])
     doc = {'v': 1, 'census': dict(census), 'source': {'cand': a.cand, 'cp': a.cp, 'cp_window': cp.get('window'), 'controls': cp['controls']},
            'pillars': out}
     json.dump(doc, open(a.out, 'w'))
+    if a.other_out:
+        # THE WIDER SET (owner 11-20 "remove all the pillars natural and unnatural"): every candidate outside the walls that is NOT on the
+        # proven list, guarded (control session 11-20): never touching a zone (a village, a structure: pad 1), never the pit's site,
+        # never a project box (+1, above), and the column itself lone, of the ground's own blocks, no tree, plant, ice, nothing on it
+        pit = [int(v) for v in a.pit.split(',')]
+        oc = collections.Counter()
+        olist = []
+        for c in cand['cand']:
+            x, z = c['x'], c['z']
+            if any(inbox(x, z, r) for r in RINGS) or any(inbox(x, z, b, 1) for _, b in proj) or (x, z) in wall:
+                continue
+            oc['outside'] += 1
+            if (x, z) in proven_cols:
+                oc['on_proven_list'] += 1
+                continue
+            oc['unproven'] += 1
+            if any(b[0] - 1 <= x <= b[3] + 1 and b[2] - 1 <= z <= b[5] + 1 for b in zones):
+                oc['drop_zone'] += 1
+                continue
+            if pit[0] <= x <= pit[2] and pit[1] <= z <= pit[3]:
+                oc['drop_pit'] += 1
+                continue
+            g = c.get('guard', 'unread')
+            if g != 'ok':
+                oc[f'drop_{g}'] += 1
+                continue
+            d = max(abs(x - hx), abs(z - hz))
+            if d > a.walk_r:
+                oc['pass_beyond_walk_r'] += 1
+                continue
+            oc['pass'] += 1
+            names = [b[1] for b in c['body']]
+            sea = c['base'] in ('water', 'ice', 'packed_ice', 'blue_ice')
+            where = 'sea' if sea else ('beach' if c['base'] in ('sand', 'gravel', 'sandstone') else 'land')
+            olist.append({'x': x, 'z': z, 'med': c['med'], 'top': c['top'], 'sea': sea, 'where': where, 'kind': 'other', 'dist': d,
+                          'take': [[x, y, z, n, '-'] for y, n in c['body']]})
+        olist.sort(key=lambda p: (p['dist'], p['x'], p['z']))
+        odoc = {'v': 1, 'pool': a.pool, 'set': 'other', 'surveyedAt': a.surveyed_at or int((cp.get('window') or [0, 0])[1]) * 1000,
+                'census': dict(oc), 'pillars': [{**{k: v for k, v in p.items() if k != 'dist'}, 'id': 100000 + i} for i, p in enumerate(olist)]}
+        json.dump(odoc, open(a.other_out, 'w'), separators=(',', ':'))
+        print('_pillar op=other ' + ' '.join(f'{k}={v}' for k, v in sorted(oc.items())) + f' cells={sum(len(p["take"]) for p in olist)}')
     if a.list_out:
         lp = [p for p in out if p['take'] and p['dist'] <= a.walk_r]
         lst = {'v': 1, 'pool': a.pool, 'surveyedAt': a.surveyed_at or int((cp.get('window') or [0, 0])[1]) * 1000,

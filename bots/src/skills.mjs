@@ -293,7 +293,7 @@ import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } 
 import { botBuildEffects } from './buildbot.mjs'
 import { floatcleanOn, floatGuardOf, floorKeys, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
-import { pillarcleanOn, pillarListOk, pillarListNewer, scafLeftPillars, pillarListWith, pillarPassJobs, pillarClearOk, pillarDetail, pillarGuardOf, pillarFloorKeys, pillarAsideAfter, pillarAsideNow, sameBlock as samePillarBlock, PL, PILLARCLEAN_PLOT } from './pillarclean.mjs'   // pillars-01show
+import { pillarcleanOn, pillarListOk, pillarListNewer, scafLeftPillars, pillarListWith, pillarListsMerged, pillarPassJobs, pillarClearOk, pillarDetail, pillarGuardOf, pillarFloorKeys, pillarAsideAfter, pillarAsideNow, sameBlock as samePillarBlock, PL, PILLARCLEAN_PLOT } from './pillarclean.mjs'   // pillars-01show
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
@@ -30360,15 +30360,26 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
 // ================================================================================================================================
 const PL_ON = pillarcleanOn()
 const plDocs = new Map()
-/** The bundled list and the pool's own `pillarclean.json` (read again at most every 5 min) -> the newer valid one | null. Never throws. */
+/** One list: the bundled `pillarclean/<pool><suffix>.json` and the pool's own `pillarclean<suffix>.json` (read again at most every
+ *  5 min) -> the newer valid one | null. Never throws. */
+function pillarListOne (pool, dir, suffix) {
+  if (!/^[a-z0-9-]+$/.test(String(pool))) return null
+  const b = `${pool}${suffix}`
+  if (!plDocs.has(b)) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(new URL(`./pillarclean/${pool}${suffix}.json`, import.meta.url), 'utf8')), pool) } catch { d = null } plDocs.set(b, d) }
+  const k = `${b}|${dir}`
+  let c = plDocs.get(k)
+  if (!c || Date.now() - c.at > 5 * 60_000) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(path.join(dir, `pillarclean${suffix}.json`), 'utf8')), pool) } catch { d = null } c = { at: Date.now(), d }; plDocs.set(k, c) }
+  return pillarListNewer(plDocs.get(b), c.d)
+}
+/** The proven list and the wider set (owner 11-20 "natural and unnatural"; 11-21 "remove the 78 extra free standing columns": `-other`)
+ *  as one, each counted apart, with scaffold-01show's hand-off on top. Never throws. */
 function pillarListNow (pool, dir) {
   if (!/^[a-z0-9-]+$/.test(String(pool))) return null
-  if (!plDocs.has(pool)) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(new URL(`./pillarclean/${pool}.json`, import.meta.url), 'utf8')), pool) } catch { d = null } plDocs.set(pool, d) }
-  const k = `${pool}|${dir}`
+  const list = pillarListsMerged(pillarListOne(pool, dir, ''), pillarListOne(pool, dir, '-other'))
+  const k = `scafleft|${dir}`
   let c = plDocs.get(k)
-  if (!c || Date.now() - c.at > 5 * 60_000) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(path.join(dir, 'pillarclean.json'), 'utf8')), pool) } catch { d = null } c = { at: Date.now(), d, sl: scafLeftFiles(dir) }; plDocs.set(k, c) }
+  if (!c || Date.now() - c.at > 5 * 60_000) { c = { at: Date.now(), sl: scafLeftFiles(dir) }; plDocs.set(k, c) }
   // scaffold-01show's hand-off: every bot's scafleft-<bot>.json (fresh entries only; judged again at the dig) on top of the list
-  const list = pillarListNewer(plDocs.get(pool), c.d)
   const named = new Set((list?.pillars ?? []).flatMap(p => p.take.map(t => `${t[0]},${t[1]},${t[2]}`)))
   return pillarListWith(list, scafLeftPillars(c.sl, Date.now(), { skip: q => named.has(q) }), pool)
 }
@@ -30437,7 +30448,7 @@ async function pillarcleanLap (ctx, signal, { deadline = Date.now() + PL.passMs 
   const slotRef = { gen: slot.gen }
   const rd0 = tidyRead(bot)
   const pj = pillarPassJobs(list, rd0, { pos: bot.entity?.position ?? null, aside: k => pillarAsideNow(mem, k), cells: guard, zone, max: PL.passMax, part: slot.slot - 1, parts: PL.builders })
-  row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, pillars_done: `${pj.census.done}/${pj.census.pillars}`, standing: pj.census.standing, take: pj.census.take, unread: pj.census.unread, aside: pj.census.aside, held: pj.census.why })
+  row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, pillars_done: `${pj.census.done}/${pj.census.pillars}`, proven: `${pj.census.proven_done}/${pj.census.proven}`, other: `${pj.census.other_done}/${pj.census.other}`, standing: pj.census.standing, take: pj.census.take, unread: pj.census.unread, aside: pj.census.aside, held: pj.census.why })
   for (const h of pj.held) { const k = h.job.at.join(','); if (rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-', pillar: h.job.pillar }) }
   const take = new Map(pj.take.map(q => [q.at.join(','), q]))
   let effects = null, cleared = 0
@@ -30471,9 +30482,10 @@ async function pillarcleanLap (ctx, signal, { deadline = Date.now() + PL.passMs 
     const after = pillarAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || samePillarBlock(b.name, take.get(k).name) }, considered: k => considered.has(k) && !visitGone(bot, signal) })
     mem.tries = after.mem.tries; mem.until = after.mem.until
     for (const a of after.aside) row('aside', 'no_effect', { at: a.k, why: 'unreached', tries: a.tries, block: take.get(a.k)?.name ?? '-', pillar: take.get(a.k)?.pillar ?? '-', until_min: Math.round(PL.asideMs / 60_000) })
-    const done = pj.pillars.filter(p => p.take.every(t => { const b = read2(t[0], t[1], t[2]); return !!b && !samePillarBlock(b.name, t[3]) })).length
+    const levelNow = pj.pillars.filter(p => p.take.every(t => { const b = read2(t[0], t[1], t[2]); return !!b && !samePillarBlock(b.name, t[3]) }))
+    const done = levelNow.length, doneOther = levelNow.filter(p => p.kind === 'other').length
     const status = cleared > 0 ? 'success' : 'no_effect'
-    row('pass', status, { cleared, offered: take.size, pillars: pj.pillars.length, pillars_cleared: done, pillars_done: `${pj.census.done + done}/${pj.census.pillars}`, aside: after.aside.length, stop: r.stop, ms: Date.now() - t0 })
+    row('pass', status, { cleared, offered: take.size, pillars: pj.pillars.length, pillars_cleared: done, pillars_done: `${pj.census.done + done}/${pj.census.pillars}`, proven: `${pj.census.proven_done + done - doneOther}/${pj.census.proven}`, other: `${pj.census.other_done + doneOther}/${pj.census.other}`, aside: after.aside.length, stop: r.stop, ms: Date.now() - t0 })
     return { tried: true, status, why: `lone pillars: ${cleared} of ${take.size} blocks taken down, ${done} of ${pj.pillars.length} pillars level (${r.stop})`, cleared, stop: r.stop }
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e

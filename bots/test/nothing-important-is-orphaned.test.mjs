@@ -572,6 +572,7 @@ const REQUIRED = [
   'bots/src/placeref.mjs',
   'bots/src/pillarclean.mjs',   // pillars-01show (11-20): bots take down the lone pillars bots left outside the walls
   'bots/src/pillarclean/showcase.json',   // pillars-01show: the showcase's pillar list (host survey, CoreProtect-proven)
+  'bots/src/pillarclean/showcase-other.json',   // pillars-01show follow-up (owner 11-20): the wider set, lone columns not CoreProtect-proven
   'bots/test/pillarclean.test.mjs',   // pillars-01show
   'bots/scripts/pillar-colscan.mjs',   // pillars-01show: the column scan (the vision render's pillar rule) over a region copy
   'bots/scripts/pillar-render.mjs',   // pillars-01show: the before/after pictures
@@ -581,6 +582,8 @@ const REQUIRED = [
   'sandbox/pillars/plrig.mjs',   // pillars-01show: the Paper rig driver
   'sandbox/pillars/plrigworld.sh',   // pillars-01show: the rig world load/snap/restore
   'docs/reports/pillars/pillars-2026-11-20.md',   // pillars-01show: the report (survey, sources, rig, pictures)
+  'docs/reports/pillars/other/README.md',   // pillars-01show follow-up: the wider set's guards, counts, map and samples
+  'bots/scripts/pillar-sample.mjs',   // pillars-01show follow-up: one picture per sampled column
   // zoneplant-01show (11-18): no placement of any purpose in a protected zone; no planting within GROWTH_MARGIN of one
   'bots/test/zoneplant.test.mjs',
   'docs/reports/zoneplant-2026-11-18.md',
