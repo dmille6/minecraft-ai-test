@@ -258,6 +258,19 @@ await t('THE BUNDLED LIST: the showcase\'s, valid, CoreProtect-controlled, the s
   assert.ok(l.jobs.every(j => /^showcase-[A-Z][a-z]+$/.test(j.placer)), 'every job names a bot as its placer')
 })
 
+await t('CODEX r1/r2 BLOCKERS: the guard covers every cell and clear a record lists, the bridges, and the plan plots (the plan head\'s real shape)', async () => {
+  const plan = BF.plan()   // the town plan as townPlanHead gives it (head.plan): plots with boxes [x0, z0, x1, z1]
+  const rec = { cells: [{ at: [1, 2, 3], role: 'wall' }], clear: [{ at: [4, 5, 6], kind: 'tree' }], replant: [{ cell: [7, 8, 9] }], box: [0, 0, 9, 9] }
+  const scenario = M => {
+    const g = M.floatGuardOf({ records: [rec], extra: ['20,70,20'], plan })
+    assert.strictEqual(g('1,2,3'), true, 'a cell'); assert.strictEqual(g('4,5,6'), true, 'a clear'); assert.strictEqual(g('7,8,9'), true, 'a replant')
+    assert.strictEqual(g('20,70,20'), true, 'a bridge cell')
+    assert.strictEqual(g('3,90,-4'), true, 'the plaza plot\'s column, any height')
+    assert.strictEqual(g('30,70,30'), false, 'the positive control: an unguarded cell')
+  }
+  await killedBy(FC_PATH, FC, [["  const boxes = (plan?.plots ?? []).map(p => p?.box)", "  const boxes = (plan?.rec?.plots ?? []).map(p => p?.box)"]], scenario)
+  await killedBy(FC_PATH, FC, [["const at = q?.at ?? q?.cell; if (tri(at)) out.add(at.join(','))", "const at = q?.at; if (tri(at) && q?.role) out.add(at.join(','))"]], scenario)
+})
 console.log('THE WIRING (structural: the lap passes the options the chain above was proved with; comments stripped)')
 await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, clearNoFloor of the take list, and floatClearOk at the dig', () => {
   const src = fs.readFileSync(SKILLS_PATH, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
@@ -270,10 +283,8 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.ok(body.includes('const guard = floatGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
   assert.ok(/clearOk: \(q, rd\) => floatClearOk\(q, rd \?\? rd0, \{ listed: k => take\.has\(k\), cells: cellsNow, zone, under: bodyFloorKeys\(bot\), floating: k => pj\.floor\.has\(k\) \}\)/.test(body), 'the guard read again at the dig, the body')
   const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function bodyFloorKeys'))
-  assert.ok(g.includes('for (const v of Object.values(h.head?.rec ?? {})) if (Array.isArray(v)) for (const q of v) { const at = q?.at ?? q?.cell; if (tri(at)) out.add(at.join(\',\')) }'), 'every listed cell of every record (cells and clears)')
-  assert.ok(g.includes('return boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])'), 'the plan plots')
-  const tv = src.slice(src.indexOf('async function buildTidyVisit'))
-  assert.ok(/if \(floatcleanDue\(procMem\(bot\)\)\) \{\n\s+const fl = await floatcleanLap\(ctx, signal, \{ deadline: t0 \+ budget - ZIG_VISIT_TAIL_MS \}\)/.test(tv), 'the lap at the head of the tidy visit')
+  assert.ok(g.includes('return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })'), 'the guard over the records, the bridges and the plan head (head.plan)')
+  assert.ok(g.includes('if (!ph.ok || !ph.head?.plan) return null'), 'no plan: no lap')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
