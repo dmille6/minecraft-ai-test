@@ -276,16 +276,18 @@ export function floatClearOk (c, read, { listed = () => false, cells = () => fal
  * THE SET-ASIDE MEMORY (one bot's) after a pass -> { mem, aside: [{ k, tries }] }. Pure. `mem` { tries: { k: n }, until: { k: t } }.
  *   offered   the take-list's cells; standing(k) -> bool: still standing after the pass; complete: the pass ran its list out (its
  *   visit stopped `complete`: every offered cell was considered -- a deadline or an abort says nothing about a cell)
+ * `considered(k)` (rig 11-20: laps that ran into their deadline on walks that never arrived re-offered the same cells forever): the
+ * visit asked its dig-time check for the cell (runVisit `clearOk`, asked before it looks for a stand and walks) -- default: `complete`.
  * A cell offered, considered and still standing gets a try; at FC.asideTries it is set aside until now + FC.asideMs. A cell dug
  * (no longer standing) forgets its tries.
  */
-export function floatAsideAfter (mem0, { offered = [], standing = () => true, complete = false, now = Date.now(), F = FC } = {}) {
+export function floatAsideAfter (mem0, { offered = [], standing = () => true, complete = false, considered = () => complete, now = Date.now(), F = FC } = {}) {
   const mem = { tries: { ...(mem0?.tries ?? {}) }, until: { ...(mem0?.until ?? {}) } }
   for (const [k, t] of Object.entries(mem.until)) if (!(t > now)) delete mem.until[k]
   const aside = []
   for (const k of offered) {
     if (!standing(k)) { delete mem.tries[k]; continue }
-    if (!complete) continue
+    if (!considered(k)) continue
     const n = (mem.tries[k] ?? 0) + 1
     if (n >= F.asideTries) { mem.until[k] = now + F.asideMs; delete mem.tries[k]; aside.push({ k, tries: n }) } else mem.tries[k] = n
   }

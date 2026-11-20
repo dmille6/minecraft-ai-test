@@ -30164,16 +30164,17 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
     const stood = stoodRead(dir, stoodKey(), home)
     const record = { v: 1, blueprint: 'floatclean@1', plot: FLOATCLEAN_PLOT, kind: 'floatclean', home, cells: [], clear: pj.take, segments: [], zones: [], palette: {}, structure_complete: false }
     const lease = `seg-clear-${String(me).replace(/[^A-Za-z0-9]/g, '')}`
+    const considered = new Set()   // the cells the visit asked its dig-time check for (a try each, when left standing)
     const r = await runVisit({ dir, key, me, home, stood, record, recordGen: 0, palette: {}, res: null, resFailed: false,
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.fcStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
       domain: () => true, walkR: FC.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
       clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
-      clearOk: (q, rd) => floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k) }) },
+      clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k) }) } },
     effects, { deadline: Math.min(deadline, t0 + FC.passMs), maxSteps: 200 })
     cleared = r.cleared ?? 0
     // set aside: a cell this lap offered, considered to the end of the list, and left standing (no stand, no arrival) -- per bot
     const read2 = tidyRead(bot)
-    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, complete: r.stop === 'complete' && !visitGone(bot, signal) })
+    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, considered: k => considered.has(k) && !visitGone(bot, signal) })
     mem.tries = after.mem.tries; mem.until = after.mem.until
     for (const a of after.aside) row('aside', 'no_effect', { at: a.k, why: 'unreached', tries: a.tries, block: take.get(a.k)?.name ?? '-', until_min: Math.round(FC.asideMs / 60_000) })
     const status = cleared > 0 ? 'success' : 'no_effect'
