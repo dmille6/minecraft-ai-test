@@ -416,6 +416,7 @@ await t('skills.mjs: the order dispatches the pit; the visit digs pitView with p
   assert.ok(call.length > 100 && call.length < 1200, `the pit's runVisit call (${call.length})`)
   assert.ok(SK.includes("bag => pitBankSteps(bag, want, PIT.keep), 'pit_bank')"), 'the bank clicks pitBankSteps')
   assert.ok(SK.includes("if (p.plot === PIT_PLOT && rec?.structure_complete) return { plot: p.plot, exists: true, complete: true, damaged: false, due: pitBankOwed(b), dueFirst: false }"), 'a dug pit is due while the bag owes its dirt')
+  assert.ok(SK.includes('if (r.blueprint === PIT_BLUEPRINT) return tidy && pitBankOwed(bot)'), 'the order\'s completion (shopDamaged) sees the owed bank')
   assert.match(SK, /if \(rh\.head\?\.rec\?\.structure_complete\) \{\n\s+(\/\/[^\n]*\n\s+)*if \(pitBankOwed\(bot\)\)/)
   for (const part of ['record: pitView(rec, now0)', 'clearPart: pitClearPart(now0.half)', 'clearOk: (q, rd) => pitClearOk(q, rd)', 'clearMax: cap']) assert.ok(call.includes(part), part)
   assert.match(SK, /if \(p\.plot === PIT_PLOT && !rec\?\.structure_complete && !pitWanted\(pitDemandNow\(b, now\), b \? countItem\(b, 'dirt'\) : 0\)\) return/)
