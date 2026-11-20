@@ -11,7 +11,7 @@
 import { Vec3 } from 'vec3'
 import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK, unitDone } from './stepwell.mjs'
 import { shareView } from './stepwell.mjs'   // stepwell-05: the crew's sector of a layer
-import { asideOn, asideFor, asideRefusal, ASIDE_MS } from './stepwell.mjs'   // stepwell-03show: an unreachable cut set aside
+import { asideOn, asideFor, asideRefusal, ASIDE_MS, ASIDE_WALKS } from './stepwell.mjs'   // stepwell-03show: an unreachable cut set aside
 import { isFull, isWet } from './shaftgeom.mjs'
 import { stairRead, stairItems } from './shaftvisit.mjs'
 import { withDigScope } from './digtown.mjs'
@@ -56,6 +56,7 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
   // stepwell-03show: the cells this visit proved no walk reaches (key -> why), and the ones it set aside (asideFor)
   const unreach = new Map()
   const aside = new Set()
+  const walkFails = new Map()   // key -> walks to its stands that failed this visit (Codex r1: every stand is tried before any proof)
   const setAside = (c, why, y) => {
     const k = kOf(c)
     if (aside.has(k)) return
@@ -79,12 +80,14 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
   let claims = 0
   const claim = () => ++claims <= CLAIMS_MAX && p.share.claimAll()
   const end = (stop, why = null, y = null) => { out.stop = stop; out.why = why; out.y = y; return out }
-  const fail = (c, why, own = false) => {
+  // `proof` (stepwell-03show): this refusal proves no walk reaches the cell -- only `no_stand` once every stand is banned, never the
+  // bot's own floor; the set-aside's why names a cell whose stands' walks failed `walk_failed`
+  const fail = (c, why, proof = false) => {
     const k = kOf(c)
     const n = (fails.get(k) ?? 0) + 1
     fails.set(k, n)
     e.log('refused', { at: c, why })
-    if (!own && (why === 'no_stand' || why === 'walk_failed')) unreach.set(k, why)
+    if (proof) unreach.set(k, walkFails.get(k) ? 'walk_failed' : why)
     else unreach.delete(k)   // refused for another reason: the cell is reached; it is never set aside this visit
     if (n >= CELL_TRIES) { skip.add(k); out.skipped++; if (!out.passed.includes(k)) out.passed.push(k) }
   }
@@ -96,6 +99,18 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       if (out.ops >= opsMax) return end('ops')
       const read = e.read
       const lit = !!lights() && !litOff
+      // stepwell-03show (Codex r1 BLOCKER 2): every set-aside cell is read again before each scan -- one that may no longer be left
+      // (it turned to sand, a liquid came beside it, it is unread) is revoked: it holds its layer again (the walks it already failed
+      // still count), and the bot's memory of it is dropped; one dug open since is simply done
+      for (const k of [...aside]) {
+        const why = asideRefusal(read, plan, k.split(',').map(Number))
+        if (why == null) continue
+        aside.delete(k)
+        if (why === 'open') continue
+        skip.delete(k); unreach.delete(k)
+        try { p.aside?.delete?.(k) } catch { /* the memory is the bot's */ }
+        e.log('aside_revoked', { at: k.split(',').map(Number), why })
+      }
       const w = firstUndoneUnit(read, plan, { lights: lit, aside })
       if (!w) return end('complete')
       if (w.unknown) return end('unknown', 'an unloaded or unread cell', w.unit.y)
@@ -149,9 +164,19 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       if (op.own || !inReach(e.feet(), op.at, SW.standReach)) {
         const st = standsFor(read, plan, op.at, { feet: e.feet(), banned: op.own ? new Set([...banned, kOf(e.feet())]) : banned })
         // the bot's OWN floor or body with no other stand is reached (it stands there): never a proof for the set-aside
-        if (!st.length) { fail(op.at, 'no_stand', op.own); fail(op.at, 'no_stand', op.own); continue }
+        if (!st.length) { fail(op.at, 'no_stand', !op.own); fail(op.at, 'no_stand', !op.own); continue }
         const ok = await e.walkTo(st[0])
-        if (!ok || !same(e.feet(), st[0])) { banned.add(kOf(st[0])); fail(op.at, 'walk_failed', op.own); continue }
+        if (!ok || !same(e.feet(), st[0])) {
+          banned.add(kOf(st[0]))
+          // stepwell-03show (Codex r1 BLOCKER 1): with the set-aside on, a failed walk is no proof while the cell has stands not yet
+          // tried -- the next stand is walked at (at most ASIDE_WALKS a cell); when none is left, the no-stand branch above proves it
+          if (swAside && !op.own) {
+            const nw = (walkFails.get(kOf(op.at)) ?? 0) + 1
+            walkFails.set(kOf(op.at), nw)
+            if (nw < ASIDE_WALKS) { e.log('refused', { at: op.at, why: 'walk_failed' }); continue }
+          }
+          fail(op.at, 'walk_failed'); continue
+        }
         // the walk took time and the world moved: decide again from the new stand
         continue
       }

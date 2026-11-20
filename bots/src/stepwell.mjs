@@ -627,6 +627,8 @@ export const asideOn = (env = process.env) => !['off', '0', 'false', 'no'].inclu
 export const ASIDE_MS = 60 * 60_000
 /** The proofs a visit gives that no walk reaches a cell (stepwellvisit.mjs fail's whys). */
 export const ASIDE_WHYS = Object.freeze(['no_stand', 'walk_failed'])
+/** How many failed walks a visit spends on one cell's stands before it passes the cell unproven (Codex r1: every stand before a proof). */
+export const ASIDE_WALKS = 6
 /**
  * MAY THIS CELL BE SET ASIDE? -> null (yes) | why not. Pure over read. Only a CUT of the plan (a listed cut, or a felling stand the
  * tank digs as foreign), read, not already open, holding a block with a collision box that is no liquid, no lava and no falling block,
