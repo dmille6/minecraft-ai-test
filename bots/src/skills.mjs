@@ -10409,7 +10409,8 @@ async function wellTurnWait (bot, cap, signal, { waitMs = wellWaitMs(process.env
     if (Date.now() - t0 + WELL_POLL_MS > waitMs) break
     bot.wellTurnState.waited = true
     // not this bot's turn and its own body is in the way of the one whose turn it is: off the well first (once a wait)
-    if (!turn.go && !steppedOff && withinAdmission(bot, cap)) { steppedOff = true; await wellStepOff(bot, cap, signal, `wait_${turn.why}`); check(signal); continue }
+    // ...and only while the walk fits in the wait (Claude r2 note: a late lost acquire must not push the skill past its 120 s)
+    if (!turn.go && !steppedOff && withinAdmission(bot, cap) && Date.now() - t0 + WELL_STEP_OFF_MS <= waitMs) { steppedOff = true; await wellStepOff(bot, cap, signal, `wait_${turn.why}`); check(signal); continue }
     await sleep(WELL_POLL_MS, signal)
   }
   // not this bot's turn within the wait: the lease goes back (a holder that cannot throw blocks nobody), the place is kept

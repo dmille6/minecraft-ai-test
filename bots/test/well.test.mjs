@@ -3470,7 +3470,8 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
   })
   // Codex + Claude r1 BLOCKER: the holder waits for the waiter's body, the waiter for the holder's lease -- both within 5
   const mutual = (M = null) => async () => {
-    const prev = process.env.WELLTURN_WAIT_MS; process.env.WELLTURN_WAIT_MS = '6000'
+    // the live wait (12 s): the step-off (8 s) runs only when it fits in the wait
+    const prev = process.env.WELLTURN_WAIT_MS; process.env.WELLTURN_WAIT_MS = '12000'
     try {
       const { A, B } = twoBots()
       A.bot.entity.position = new Vec3(CAP.x + 2.5, STAND.y, CAP.z - 1 + 0.5)        // within 5, not on the stand
@@ -3490,7 +3491,7 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
     assert.ok((await rows('_well_turn')).some(x => /op=step_off why=wait_busy/.test(x.skill.detail)), 'B stepped off while waiting')
   })
   await t('WELLFIX MUTUAL WAIT MUTANT: no step-off while waiting -> neither throws (the dead end both engines found)', async () => {
-    const old = "    if (!turn.go && !steppedOff && withinAdmission(bot, cap)) { steppedOff = true; await wellStepOff(bot, cap, signal, `wait_${turn.why}`); check(signal); continue }\n"
+    const old = "    if (!turn.go && !steppedOff && withinAdmission(bot, cap) && Date.now() - t0 + WELL_STEP_OFF_MS <= waitMs) { steppedOff = true; await wellStepOff(bot, cap, signal, `wait_${turn.why}`); check(signal); continue }\n"
     await withMutant(SKP, old, '', async M => {
       const { A, B, ra, rb } = await mutual(M)()
       assert.equal(ra.status, 'no_effect'); assert.equal(rb.status, 'no_effect')
