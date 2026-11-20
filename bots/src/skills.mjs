@@ -284,6 +284,7 @@ import { tempStandOn, standVeto, otherCellsStrict } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
+import { floatcleanOn, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
@@ -30062,6 +30063,99 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     try { effects?.close() } catch { /* gone */ }
   }
 }
+// ================================================================================================================================
+// FLOATCLEAN-01show (owner, control session 11-20; floatclean.mjs): the floating blocks other bots left behind -- the host survey's
+// list (bots/src/floatclean/<pool>.json, or a newer `floatclean.json` the host drops in the pool), CoreProtect-proven bot placements
+// perched over air -- taken down by every tidy visitor, a lap at the head of its visit at most every FC.everyMs (a lap that dug
+// keeps the next one due at once). The visit's own clear machinery: no scaffold walk, a dig stand on the town's walk nodes, the
+// list's order kept (top down, beam by beam), no stand on a listed cell, the cell judged again at the dig (floatClearOk).
+// FLOATCLEAN=off: no lap.
+// ================================================================================================================================
+const FC_ON = floatcleanOn()
+const fcDocs = new Map()
+/** The bundled list (bots/src/floatclean/<pool>.json, read once a process) and the pool's own `floatclean.json` (read again at
+ *  most every 5 min) -> the newer valid one | null. Never throws. */
+function floatListNow (pool, dir) {
+  if (!/^[a-z0-9-]+$/.test(String(pool))) return null
+  if (!fcDocs.has(pool)) { let d = null; try { d = floatListOk(JSON.parse(fs.readFileSync(new URL(`./floatclean/${pool}.json`, import.meta.url), 'utf8')), pool) } catch { d = null } fcDocs.set(pool, d) }
+  const k = `${pool}|${dir}`
+  let c = fcDocs.get(k)
+  if (!c || Date.now() - c.at > 5 * 60_000) { let d = null; try { d = floatListOk(JSON.parse(fs.readFileSync(path.join(dir, 'floatclean.json'), 'utf8')), pool) } catch { d = null } c = { at: Date.now(), d }; fcDocs.set(k, c) }
+  return floatListNewer(fcDocs.get(pool), c.d)
+}
+export const floatcleanDue = (mem, now = Date.now()) => FC_ON && now >= (Number(mem?.fcNextAt) || 0)
+/** One lap -> { tried, status, why, cleared, stop }. `tried` false: nothing walked to or dug (no list, nothing take-able now). */
+async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs } = {}) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const no = why => ({ tried: false, why })
+  const dir = townDir(), me = bot.username ?? 'bot', home = planHomeP()
+  const list = floatListNow(config.memory.pool, dir)
+  if (!list?.jobs?.length) return no('no_list')
+  if (deadline - t0 < FC.passMinMs) return no('late')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return no('zones_unknown')
+  const guard = bw3GuardStrict()   // every guarded project's cells, read strictly: one unreadable record, no lap
+  const row = (op, status, d) => { try { logEvent({ kind: 'floatclean', status, snapshot: snapshot(bot), detail: floatDetail({ op, ...d }) }) } catch { /* telemetry */ } }
+  if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }
+  const zb = (c.zones ?? []).map(z => z?.box).filter(b => Array.isArray(b) && b.length === 6)
+  const zone = (x, y, z) => zb.some(b => x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5])
+  const cells = k => guard.has(k)
+  const mem = (procMem(bot).floatclean ??= { tries: {}, until: {}, rows: {} })
+  const rowDueFor = (k, now = Date.now()) => { if (now - (Number(mem.rows[k]) || 0) < FC.rowMs) return false; mem.rows[k] = now; return true }
+  const key = projKeyOf(FLOATCLEAN_PLOT)
+  const slot = takeSlot(dir, key, me, FC.builders)
+  if (!slot.ok) return no('slots_full')
+  const slotRef = { gen: slot.gen }
+  const rd0 = tidyRead(bot)
+  const pj = floatPassJobs(list, rd0, { aside: k => floatAsideNow(mem, k), cells, zone, max: FC.passMax, part: slot.slot - 1, parts: FC.builders })
+  row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, ...pj.census })
+  for (const h of pj.held) { const k = k3(h.job.at); if (rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-' }) }
+  if (!pj.take.length) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return no(pj.census.standing ? 'nothing_takeable' : 'list_done') }
+  const take = new Map(pj.take.map(q => [k3(q.at), q]))
+  let effects = null, cleared = 0
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    effects = botBuildEffects(bot, {
+      acks,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => {
+        try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: FLOATCLEAN_PLOT, ...d }) : buildRowDetail({ project: FLOATCLEAN_PLOT, ...d }) }) } catch { /* telemetry */ }
+        // each block taken: its own row, with the placer CoreProtect named
+        if (kind === '_build' && d?.op === 'clear' && d?.kind === 'float' && Array.isArray(d.cell)) { const q = take.get(k3(d.cell)); row('dig', 'success', { at: k3(d.cell), block: d.block, placer: q?.placer ?? '-', beam: q?.beam ?? '-', area: q?.area ?? '-' }) }
+      },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const stood = stoodRead(dir, stoodKey(), home)
+    const record = { v: 1, blueprint: 'floatclean@1', plot: FLOATCLEAN_PLOT, kind: 'floatclean', home, cells: [], clear: pj.take, segments: [], zones: [], palette: {}, structure_complete: false }
+    const lease = `seg-clear-${String(me).replace(/[^A-Za-z0-9]/g, '')}`
+    const r = await runVisit({ dir, key, me, home, stood, record, recordGen: 0, palette: {}, res: null, resFailed: false,
+      slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.fcStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
+      domain: () => true, walkR: FC.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
+      clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
+      clearOk: (q, rd) => floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: k => { const g = bw3GuardStrict(); return !g || g.has(k) }, zone }) },
+    effects, { deadline: Math.min(deadline, t0 + FC.passMs), maxSteps: 200 })
+    cleared = r.cleared ?? 0
+    // set aside: a cell this lap offered, considered to the end of the list, and left standing (no stand, no arrival) -- per bot
+    const read2 = tidyRead(bot)
+    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, complete: r.stop === 'complete' && !visitGone(bot, signal) })
+    mem.tries = after.mem.tries; mem.until = after.mem.until
+    for (const a of after.aside) row('aside', 'no_effect', { at: a.k, why: 'unreached', tries: a.tries, block: take.get(a.k)?.name ?? '-', until_min: Math.round(FC.asideMs / 60_000) })
+    const status = cleared > 0 ? 'success' : 'no_effect'
+    row('pass', status, { cleared, offered: take.size, aside: after.aside.length, stop: r.stop, ms: Date.now() - t0 })
+    return { tried: true, status, why: `floating blocks: ${cleared} of ${take.size} taken down (${r.stop})`, cleared, stop: r.stop }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('pass', 'failed', { stop: 'error', why: String(e?.message ?? e) })
+    return { tried: true, status: 'failed', failClass: 'other', why: String(e?.message ?? e).slice(0, 100), cleared, stop: 'error' }
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
 const LITTER_ON = litterOn()   // litter-01
 /** litter-01: every bot's handed blocks for a survey (litter.mjs litterIntake; buildproj.mjs litterRead) -> [{ at, block, t, shape,
  *  by }], a cell another project's record names marked `claimed` (`records`: the survey's own, tidyInputs'); [] under LITTER=off or
@@ -30525,6 +30619,13 @@ async function buildTidyVisit (ctx, args, signal) {
     if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()   // keeperstall-01 r2: a visit on an ended connection never makes the next one wait
     const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
     if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared }, ww.failClass ?? null)
+  }
+  // FLOATCLEAN-01show: the floating blocks the bots left, a lap at the head of any crew bot's visit (keeper or helper) when due; a
+  // lap that took nothing (nothing take-able, no slot) goes on to the grounds; one that dug keeps the next lap due at once
+  if (floatcleanDue(procMem(bot))) {
+    const fl = await floatcleanLap(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+    if (!clientEnded(bot)) procMem(bot).fcNextAt = Date.now() + (fl.tried && fl.cleared > 0 ? 0 : FC.everyMs)
+    if (fl.tried) return out(fl.status, 'floatclean', fl.why, { stop: 'floatclean', cleared: fl.cleared }, fl.failClass ?? null)
   }
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
   const gkNext = lane === 'inside' && GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStageCycle(rh.head.rec) : null

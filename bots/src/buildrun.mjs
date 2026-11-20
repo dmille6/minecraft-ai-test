@@ -1443,8 +1443,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // cells): dug after the record's own clears, highest first, under the same lease and the same per-call bound
     // reroof-04 r6: a listed jump-apex leaf (`apex: 1`, reroof.mjs reroofApexLeaves) is never dug by this pass -- low before high it walked a
     // builder down into the pit beside the workshop (Paper 11-08) -- only by the walk, before a jump-up it plans needs it (buildbot apexDig)
-    const todo = [...(record.clear ?? []).filter(c => clearPartHas(p, c)).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c)))).sort((a, b) => a.at[1] - b.at[1]),
+    const todo = [...(record.clear ?? []).filter(c => clearPartHas(p, c)).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c)))).sort((a, b) => (p.clearKeepOrder ? 0 : a.at[1] - b.at[1])),
       ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => (p.tidyKeepOrder ? 0 : b.at[1] - a.at[1]))]
+    // floatclean-01show (`p.clearKeepOrder`): the record's clears in the caller's order (the floating blocks top down, beam by beam),
+    // never lowest first; (`p.clearNoFloor`: a Set of cells no stand may stand on -- the beam being taken down is never a floor)
     // groundskeeper-01 (`p.tidyKeepOrder`): the caller's order is kept -- the town tidy's cuts chained column by column from the
     // bot (tidy.mjs chainCuts: top first within a column), not highest first across the town (a walk across it between two digs)
     if (!todo.length) return null
@@ -1475,7 +1477,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (c.kind !== 'tree' && builtDone(c)) continue
         if (ownAtDig(c)) continue                                   // cottagepost-01: re-read AT the dig (an unknown cell resolved to a post)
         if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await e.sleep(SPAWN_DIG_QUIET_MS)
-        nodes ??= nodesFor()
+        nodes ??= nodesFor(new Set(), p.clearNoFloor instanceof Set && p.clearNoFloor.size ? p.clearNoFloor : null)
         // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these
         // (Codex zigtidy r1: counted at the list, a deadline or the clear bound spent untouched pillars' visits)
         if (c.kind === 'tidy') (out.tidied ??= []).push(kOf(c.at))
