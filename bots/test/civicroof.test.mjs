@@ -115,6 +115,16 @@ await t('a SOURCE for dark oak: the craft of 6 town logs (24 planks -> 16 stairs
   // the craft source is per course, by its recipe: 5 open -> 2 crafts -> 12 planks; 8 open -> 12 planks; the town's 4 planks count
   assert.strictEqual(choose(PC, { town: { ...TOWN, dark_oak_log: 1 } }).choice.size, 13, 'POSITIVE CONTROL: 1 log + the town\'s 4 dark oak planks (8) cover neither course (12 a course)')
 })
+const shared = M => {
+  // the rig world (11-18): 4 dark oak logs + 6 planks = 22 planks; the first course (5 open) takes 12, the upper (8 open) wants 12 more
+  const { choice, rows } = choose(M, { town: { ...TOWN, dark_oak_log: 4, dark_oak_planks: 6 } })
+  const first = ROOF.filter(c => c.role === 'roof' && c.at[1] === Y1).filter(c => !choice.has(k3(c.at)))
+  assert.strictEqual(rows.some(r => r.role === 'roof' && r.y === Y1), false, 'the first course: dark oak, crafted (no row)')
+  assert.deepStrictEqual(rows.filter(r => r.role === 'roof').map(r => [r.y, r.took, r.firstWhy]), [[Y1 + 1, 'spruce_stairs', 'none(held=0/8)']], 'the upper course: what is left (10 planks) is short -> spruce')
+  assert.strictEqual(first.length, 16, 'nothing chosen on the first course')
+}
+await t('TWO COURSES NEVER COUNT THE SAME LOGS: 22 planks\' worth crafts the first course in dark oak; the upper course falls to spruce', () => shared(PC))
+await t('MUTANT the craft\'s inputs not booked', () => kills('palchoice.mjs', '  const take = (name, n, s = null) => { for (const [k, v] of Object.entries(s?.uses ?? { [name]: n })) used[k] = (used[k] ?? 0) + v }', '  const take = (name, n) => { used[name] = (used[name] ?? 0) + n }', shared, PC))
 await t('a SOURCE on the map (a live dark oak log find within a trip) or a refill job keeps the design; a find beyond the trip does not', () => {
   assert.strictEqual(choose(PC, { finds: [{ kind: 'dark_oak_log', x: 150, z: -90 }] }).choice.size, 0, 'a find 175 out')
   assert.strictEqual(choose(PC, { finds: [{ kind: 'dark_oak_log', x: 900, z: 0 }] }).choice.size, 13, 'a find 900 out is no source')
