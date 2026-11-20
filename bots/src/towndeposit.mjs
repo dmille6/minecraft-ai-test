@@ -168,18 +168,20 @@ export function townKeeps (counts = {}, { wanted = [], noStock = NOSTOCK_KEEP.on
   let means = Math.min(PLANKS_MEANS, PLANKS.reduce((t, n) => t + (counts[n] ?? 0), 0))
   for (const n of [...PLANKS].sort(byHeldDesc(counts))) { const k = Math.min(means, counts[n] ?? 0); if (k > 0) { floor(n, k, 'ladder_means'); means -= k } }
   for (const [n, t] of Object.entries(heldTargetsFor(noStock))) floor(n, t, 'gather_rung')
+  for (const [n, k] of Object.entries(ironKeeps(counts, { wanted }))) floor(n, k, 'iron_ladder')
+  for (const n of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) floor(n, WANTED_KEEP, 'wanted')
+  for (const [n, k] of Object.entries(scaffoldKeep(counts))) floor(n, k, 'scaffold_reserve')
   // nostock-01show: THE ESCAPE'S DIRT. The scaffold reserve below never counts plain dirt (bankable.mjs isScaffoldItem: built for
   // the bank, which never takes dirt), but the pathfinder towers and bridges with it (mineflayer-pathfinder seeds scafoldingBlocks
   // with dirt and cobblestone; index.mjs extendScaffolding adds the rest). With the stock keep gone, a bot whose only blocks are
   // dirt would lay its way out of a hole into the town's ground, so dirt makes up the reserve to ESCAPE_BLOCKS -- less what the
-  // scaffold reserve already keeps of other tower blocks (one reserve, never two).
+  // scaffold reserve already keeps of other tower blocks (one reserve, never two) -- counted only where that keep is HARD (its reason
+  // in HARD_KEEP_RULES): a stone kept as `stockpile_stone` may be lowered by the partial-slot rule and banked (Codex r3), so it is
+  // not the escape. Last, after the scaffold reserve's own floor, so the reasons it reads are final.
   if (noStock) {
-    const towered = Object.entries(scaffoldKeep(counts)).filter(([n]) => n !== 'stick').reduce((t, [, k]) => t + k, 0)
+    const towered = Object.entries(scaffoldKeep(counts)).filter(([n]) => n !== 'stick' && HARD_KEEP_RULES.has(why[n])).reduce((t, [, k]) => t + k, 0)
     floor('dirt', ESCAPE_BLOCKS - towered, 'escape_reserve')
   }
-  for (const [n, k] of Object.entries(ironKeeps(counts, { wanted }))) floor(n, k, 'iron_ladder')
-  for (const n of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) floor(n, WANTED_KEEP, 'wanted')
-  for (const [n, k] of Object.entries(scaffoldKeep(counts))) floor(n, k, 'scaffold_reserve')
   return { keep, why }
 }
 

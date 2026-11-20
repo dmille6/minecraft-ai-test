@@ -118,18 +118,37 @@ await ta('(b) tidy draws bag dirt above the escape reserve: 40 dirt -> 8 kept (e
   assert.equal(TD.townKeeps({ dirt: 40 }, { noStock: false }).keep.dirt, 16, 'positive control: the fleet\'s gather_rung keep')
   assert.equal(TD.townKeeps({ dirt: 40, sand: 30 }).keep.sand, undefined, 'the 8-sand stock keep goes too')
 })
-await ta('(b) ONE reserve: other tower blocks count toward it (3 cobblestone -> 5 dirt; 20 cobblestone -> no dirt kept); 5 dirt alone is all kept', async () => {
-  assert.deepEqual(TD.townKeeps({ dirt: 40, cobblestone: 3 }).keep, { cobblestone: 3, dirt: 5 })
-  assert.equal(TD.townKeeps({ dirt: 40, cobblestone: 20 }).keep.dirt, undefined)
-  assert.equal(TD.townKeeps({ dirt: 5 }).keep.dirt, 5, 'never below the reserve: a deposit or visit never deepens it')
-  assert.equal(TD.townKeeps({ dirt: 40 }, { wanted: ['dirt'] }).keep.dirt, 40, 'a job that wants dirt keeps it up to a stack, as before')
-})
 // Codex r2 blocker: a full bag (30 slots) whose only tower blocks are 8 dirt, the warehouse's dirt column with room -- the deposit's
 // column and room layers lower a soft keep to free a slot; the escape's dirt is a HARD keep there, as the scaffold reserve is
 const FULLBAG = [{ name: 'dirt', count: 8, slot: 9, stackSize: 64 }, ...['spruce_sapling', 'wheat_seeds', 'sugar_cane', 'clay', 'gravel', 'poppy', 'dandelion', 'apple', 'egg', 'lantern', 'torch', 'bone_meal', 'string',
   'spruce_stairs', 'chest', 'furnace', 'crafting_table', 'composter', 'shears', 'bucket', 'stone_hoe', 'iron_axe', 'stone_pickaxe', 'iron_pickaxe', 'flint', 'stick', 'oak_sapling', 'birch_sapling', 'wheat']
   .map((name, i) => ({ name, count: 5, slot: 10 + i, stackSize: 64 }))]
 const dirtBanked = (T, o) => T.townDepositPlan(FULLBAG, o).steps.filter(st => st.name === 'dirt').reduce((t, st) => t + st.count, 0)
+await ta('(b) ONE reserve: a HARD scaffold reserve counts toward it (8 coarse_dirt -> no dirt kept); a SOFT stone keep does not (Codex r3: it may be banked)', async () => {
+  const cd = TD.townKeeps({ dirt: 40, coarse_dirt: 8 })
+  assert.equal(cd.why.coarse_dirt, 'scaffold_reserve'); assert.equal(cd.keep.dirt, undefined, 'the hard reserve is the escape')
+  for (const stone of [{ cobblestone: 3 }, { cobblestone: 20 }, { stone: 8 }, { andesite: 8 }]) {
+    const k = TD.townKeeps({ dirt: 40, ...stone })
+    assert.equal(k.why[Object.keys(stone)[0]], 'stockpile_stone'); assert.equal(k.keep.dirt, 8, `${JSON.stringify(stone)}: the soft stone keep is not the escape`)
+  }
+  assert.equal(TD.townKeeps({ dirt: 5 }).keep.dirt, 5, 'never below the reserve: a deposit or visit never deepens it')
+  assert.equal(TD.townKeeps({ dirt: 40 }, { wanted: ['dirt'] }).keep.dirt, 40, 'a job that wants dirt keeps it up to a stack, as before')
+})
+await ta('(b) Codex r3: a full bag of 40 dirt + 8 stone (its only other tower block), both columns open -> the deposit leaves 8+ tower blocks', async () => {
+  const bag = [{ name: 'dirt', count: 40, slot: 9, stackSize: 64 }, { name: 'stone', count: 8, slot: 39, stackSize: 64 }, ...FULLBAG.slice(1, 29)]
+  assert.equal(bag.length, 30)
+  const steps = TD.townDepositPlan(bag, { columns: () => true }).steps
+  const left = n => bag.filter(it => it.name === n).reduce((t, it) => t + it.count, 0) - steps.filter(st => st.name === n).reduce((t, st) => t + st.count, 0)
+  assert.ok(left('dirt') + left('stone') >= TD.ESCAPE_BLOCKS, `left dirt ${left('dirt')} stone ${left('stone')}`)
+})
+await ta('MUTANT KILLED (b): counting the soft stone keep as the escape leaves the bag with none (Codex r3 reproduction)', async () => {
+  await withMutant(TD_URL, ".filter(([n]) => n !== 'stick' && HARD_KEEP_RULES.has(why[n]))", ".filter(([n]) => n !== 'stick')", async T => {
+    const bag = [{ name: 'dirt', count: 40, slot: 9, stackSize: 64 }, { name: 'stone', count: 8, slot: 39, stackSize: 64 }, ...FULLBAG.slice(1, 29)]
+    const steps = T.townDepositPlan(bag, { columns: () => true }).steps
+    const banked = n => steps.filter(st => st.name === n).reduce((t, st) => t + st.count, 0)
+    assert.equal(banked('dirt') + banked('stone'), 48, 'all banked under the mutant')
+  })
+})
 await ta('(b) the escape\'s dirt is a HARD keep for the deposit: a full bag never banks its last 8 dirt to a column or a room bank (Codex r2)', async () => {
   assert.equal(FULLBAG.length, 30); assert.equal(TD.townKeeps({ dirt: 8, stick: 5 }).why.dirt, 'escape_reserve')
   assert.equal(dirtBanked(TD, { columns: () => true }), 0, 'the column layer')
@@ -146,7 +165,7 @@ await ta('(b) WIRED: every partialKeep hard rule in the source reads HARD_KEEP_R
   const sk = strip(readFileSync(SK_URL, 'utf8')), td = strip(readFileSync(TD_URL, 'utf8'))
   assert.equal((sk.match(/hard: HARD_KEEP_RULES\.has\(why\[name\]\)/g) ?? []).length, 1, 'yardKeepsNow')
   assert.equal((sk.match(/'scaffold_reserve'/g) ?? []).length, 0, 'no other hard list in skills.mjs')
-  assert.equal((td.match(/HARD_KEEP_RULES\.has\(why\[n\]\)/g) ?? []).length, 2, 'the room and column layers')
+  assert.equal((td.match(/(hard: n =>|hardKeep = n =>) HARD_KEEP_RULES\.has\(why\[n\]\)/g) ?? []).length, 2, 'the room and column layers')
 })
 await ta('MUTANT KILLED (b): the stock keep left on keeps 16', async () => {
   await withMutant(TD_URL, "for (const [n, t] of Object.entries(heldTargetsFor(noStock))) floor(n, t, 'gather_rung')", "for (const [n, t] of Object.entries(HELD_TARGETS)) floor(n, t, 'gather_rung')", async T => {
