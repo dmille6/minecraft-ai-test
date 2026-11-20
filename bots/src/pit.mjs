@@ -409,11 +409,12 @@ export function pitFillSplit (want = 0, townDirt = 0) {
  *   2. town containers the index knows that already hold dirt and have room (a draw then finds it in one place);
  *   3. any other known town container with a free slot.
  * Nearest to `from` first within each tier; never a container the caller marks full or failed (`skip`).
- *   cands  [{ k, pos: [x, y, z], dirt, free, column }]
+ *   cands  [{ k, pos: [x, y, z], dirt, dirtRoom, free, column, room }] (`dirtRoom`: room on its partial dirt stacks: a full chest still
+ *          takes dirt onto them -- bankInto merges, rig run 1: every chest that held dirt read full and the bank found none)
  */
 export function pitBankOrder (cands = [], { from = [0, 0, 0], skip = new Set(), max = 3 } = {}) {
   const d = c => Math.hypot(c.pos[0] - from[0], c.pos[2] - from[2])
-  const ok = (cands ?? []).filter(c => c && Array.isArray(c.pos) && !skip.has(c.k) && (c.free > 0 || (c.column && c.room > 0)))
+  const ok = (cands ?? []).filter(c => c && Array.isArray(c.pos) && !skip.has(c.k) && (c.free > 0 || (c.column && c.room > 0) || (c.dirt > 0 && c.dirtRoom > 0)))
   const tier = c => (c.column ? 0 : c.dirt > 0 ? 1 : 2)
   return ok.sort((a, b) => tier(a) - tier(b) || d(a) - d(b)).slice(0, max).map(c => c.k)
 }

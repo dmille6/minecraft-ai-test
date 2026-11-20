@@ -389,6 +389,7 @@ await t('pitBankOrder: the storehouse\'s dirt column first, then chests already 
   ]
   assert.deepEqual(P.pitBankOrder(c, { from: [0, 64, 0] }), ['d', 'e', 'b'])
   assert.deepEqual(P.pitBankOrder(c, { from: [0, 64, 0], skip: new Set(['d']), max: 5 }), ['e', 'b', 'a'])
+  assert.deepEqual(P.pitBankOrder([{ k: 'f', pos: [1, 64, 1], dirt: 40, dirtRoom: 24, free: 0 }, { k: 'g', pos: [1, 64, 1], dirt: 0, free: 0 }], { from: [0, 64, 0] }), ['f'], 'a full chest with room on its dirt stacks takes dirt (bankInto merges)')
   assert.equal(P.pitBankDue(40), 0, 'under the keep + bankMin'); assert.equal(P.pitBankDue(60), 44); assert.equal(P.pitBankDue(20, { final: true }), 4); assert.equal(P.pitBankDue(10, { final: true }), 0)
 })
 
