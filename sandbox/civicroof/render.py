@@ -3,7 +3,7 @@
 (from the south-east, above) as SVG, and a top-down view as PNG (stdlib only: no PIL on the hosts). Stairs and slabs are drawn in their
 real shape and facing (the block states are read from the region), so a roof reads as it stands in the game.
     python3 render.py <region dir> <townplan_blockdump.py> --box X0 Z0 X1 Z1 --y Y0 Y1 --out <prefix> [--title T] [--ground Y]
--> <prefix>.svg (isometric), <prefix>-top.png (top-down, 24 px a block), <prefix>-blocks.json (every non-air block, with its state)."""
+-> <prefix>.svg and <prefix>-nw.svg (isometric, from the south-east and the north-west), <prefix>-top.png (top-down, 24 px a block), <prefix>-blocks.json (every non-air block, with its state)."""
 import argparse, importlib.util, json, struct, zlib
 
 COL = {
@@ -76,30 +76,40 @@ def boxes(b):
 def shade(c, k): return '#%02x%02x%02x' % tuple(max(0, min(255, int(v * k))) for v in c)
 
 
-def iso_svg(blocks, title, sub):
-    S = 26  # px per block edge
-    pt = lambda x, y, z: ((x - z) * S * 0.866, (x + z) * S * 0.5 - y * S)
+def iso_svg(blocks, title, sub, view='se'):
+    S = 46  # px per block edge
+    # the view: from the south-east (the +x and +z faces show) or the north-west (the -x and -z faces): the world is mirrored for nw
+    sx = 1 if view == 'se' else -1
+    pt = lambda x, y, z: ((sx * x - sx * z) * S * 0.866, (sx * x + sx * z) * S * 0.5 - y * S)
     polys = []
     for b in blocks:
         bx, by, bz = b['at']; c = colour(b['name'])
         for (a0, b0, c0, a1, b1, c1) in boxes(b):
             X0, Y0, Z0, X1, Y1, Z1 = bx + a0, by + b0, bz + c0, bx + a1, by + b1, bz + c1
-            key = (X0 + X1) / 2 + (Z0 + Z1) / 2 + (Y0 + Y1) / 2 * 0.01, (Y0 + Y1) / 2
+            key = sx * ((X0 + X1) / 2 + (Z0 + Z1) / 2) + (Y0 + Y1) / 2 * 0.01, (Y0 + Y1) / 2
+            zf, xf = (Z1, X1) if view == 'se' else (Z0, X0)
             faces = [
                 ([pt(X0, Y1, Z0), pt(X1, Y1, Z0), pt(X1, Y1, Z1), pt(X0, Y1, Z1)], shade(c, 1.15)),   # top
-                ([pt(X0, Y0, Z1), pt(X1, Y0, Z1), pt(X1, Y1, Z1), pt(X0, Y1, Z1)], shade(c, 0.80)),   # south (+z)
-                ([pt(X1, Y0, Z0), pt(X1, Y0, Z1), pt(X1, Y1, Z1), pt(X1, Y1, Z0)], shade(c, 0.62)),   # east (+x)
+                ([pt(X0, Y0, zf), pt(X1, Y0, zf), pt(X1, Y1, zf), pt(X0, Y1, zf)], shade(c, 0.80)),   # the z face toward the viewer
+                ([pt(xf, Y0, Z0), pt(xf, Y0, Z1), pt(xf, Y1, Z1), pt(xf, Y1, Z0)], shade(c, 0.62)),   # the x face toward the viewer
             ]
             polys.append((key, faces))
     polys.sort(key=lambda q: (q[0][0] + q[0][1], q[0][1]))
     xs = [x for _, fs in polys for f, _ in fs for x, _ in f]; ys = [y for _, fs in polys for f, _ in fs for _, y in f]
     if not xs: xs, ys = [0, 1], [0, 1]
-    pad = 40; ox, oy = -min(xs) + pad, -min(ys) + pad + 40
-    W, H = max(xs) - min(xs) + 2 * pad, max(ys) - min(ys) + 2 * pad + 60
+    pad = 40
+    W0, H0 = max(xs) - min(xs) + 2 * pad, max(ys) - min(ys) + 2 * pad + 150
+    W = H = max(W0, H0, 640)   # square: a Quick Look thumbnail keeps all of it
+    ox, oy = -min(xs) + (W - (max(xs) - min(xs))) / 2, -min(ys) + 90
+    names = sorted({b['name'] for b in blocks if not b['name'].endswith('_log') or True})
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W:.0f}" height="{H:.0f}" viewBox="0 0 {W:.0f} {H:.0f}">',
            f'<rect width="100%" height="100%" fill="#dfe9f2"/>',
-           f'<text x="{pad}" y="30" font-family="Helvetica,Arial" font-size="18" fill="#222">{title}</text>',
-           f'<text x="{pad}" y="52" font-family="Helvetica,Arial" font-size="12" fill="#444">{sub}</text>']
+           f'<text x="20" y="30" font-family="Helvetica,Arial" font-size="16" fill="#222">{title}</text>',
+           f'<text x="20" y="52" font-family="Helvetica,Arial" font-size="11" fill="#444">{sub}</text>',
+           f'<text x="20" y="70" font-family="Helvetica,Arial" font-size="11" fill="#444">view from the {"south-east" if view == "se" else "north-west"}</text>']
+    for i, n in enumerate(names):
+        lx, ly = 20 + (i % 4) * 150, H - 50 + (i // 4) * 18
+        out.append(f'<rect x="{lx}" y="{ly - 10}" width="12" height="12" fill="{shade(colour(n), 1.0)}" stroke="#0004"/><text x="{lx + 18}" y="{ly}" font-family="Helvetica,Arial" font-size="11" fill="#222">{n}</text>')
     for _, fs in polys:
         for f, col in fs:
             out.append('<polygon points="%s" fill="%s" stroke="#00000033" stroke-width="0.6"/>' % (' '.join(f'{x + ox:.1f},{y + oy:.1f}' for x, y in f), col))
@@ -147,7 +157,8 @@ def main():
     bl = load(a.region_dir, a.dumper, a.box, a.y)
     if a.ground is not None: bl = [b for b in bl if b['at'][1] >= a.ground]
     open(a.out + '-blocks.json', 'w').write(json.dumps(bl))
-    open(a.out + '.svg', 'w').write(iso_svg(bl, a.title, a.sub))
+    open(a.out + '.svg', 'w').write(iso_svg(bl, a.title, a.sub, 'se'))
+    open(a.out + '-nw.svg', 'w').write(iso_svg(bl, a.title, a.sub, 'nw'))
     open(a.out + '-top.png', 'wb').write(top_png(bl, a.box))
     names = {}
     for b in bl: names[b['name']] = names.get(b['name'], 0) + 1

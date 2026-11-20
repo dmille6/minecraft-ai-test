@@ -88,7 +88,8 @@ W('bags.jsonl', { bot: NAME, t: new Date().toISOString(), phase: 'start', bag: b
 // recount, skills.mjs reconcileCobble -- RIG ONLY set beside each by an op's /tp; the others wait for `counted`
 try { const ts = SK.matsTownStock(bot); P('town before', JSON.stringify({ coverage: ts?.coverage, known: ts?.known, keys: ts?.keys, scan: ts?.scanComplete, spruce_stairs: ts?.stock?.spruce_stairs, lantern: ts?.stock?.lantern })) } catch (e) { P('town read threw', e.message) }
 if (process.env.CR_COUNTER === NAME) {
-  for (let i = 0; i < 3; i++) {
+  // ONE pass: the count refreshes the town index (matsTownStock's coverage), not the cobble cap's view, which stays `unknown`
+  for (let i = 0; i < 1; i++) {
     let keys = []
     try { keys = SK.cobbleTownViewFor(bot, Date.now(), { fresh: true }).unknown ?? [] } catch { keys = [] }
     P('recount pass', i, 'unknown', keys.length)
