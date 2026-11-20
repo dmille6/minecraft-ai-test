@@ -630,16 +630,24 @@ export function routeStarts (read, route, { ring = null, guard = () => null, hy 
   let d
   if (Array.isArray(ring) && ring.length === 4) d = sx > ring[2] ? 0 : sx < ring[0] ? 1 : sz > ring[3] ? 2 : sz < ring[1] ? 3 : null
   if (d == null) { const n1 = route.line[1] ?? route.line[0]; const ux = n1[0] - sx, uz = n1[1] - sz; d = Math.abs(ux) >= Math.abs(uz) ? (ux >= 0 ? 0 : 1) : (uz >= 0 ? 2 : 3) }
-  const [px, pz] = perp(d)
+  // roadsite-01show: a start at a CORNER of the ring (outside, or on, both an x side and a z side) may also leave along the line's own
+  // way out (start -> its last point): the warehouse's route leaves the north-east corner northward, along the wall extension
+  const dirs = [d]
+  if (Array.isArray(ring) && ring.length === 4 && (sx >= ring[2] || sx <= ring[0]) && (sz >= ring[3] || sz <= ring[1])) {
+    const e = route.line[route.line.length - 1], ux = e[0] - sx, uz = e[1] - sz
+    const dl = Math.abs(ux) >= Math.abs(uz) ? (ux >= 0 ? 0 : 1) : (uz >= 0 ? 2 : 3)
+    if (dl !== d && dl !== rev(d)) dirs.push(dl)
+  }
   const yHi = hy + ROADS.scanUp, yLo = hy - ROADS.scanDown
   const tried = {}, found = []
   // along the ring (o) nearest first, and out from it (out 0..startOut: a road's 7-wide cross-section clears the wall's own zone a
   // column or two out, its landing then on the open ground in front of the gap -- or past the end of a path the town already laid
   // out there: the road continues it)
   const cand = []
-  for (let out = 0; out <= ROADS.startOut; out++) for (const o of [0, ...Array.from({ length: ROADS.startSpan }, (_, i) => [i + 1, -(i + 1)]).flat()]) cand.push([o, out])
+  for (const d of dirs) for (let out = 0; out <= ROADS.startOut; out++) for (const o of [0, ...Array.from({ length: ROADS.startSpan }, (_, i) => [i + 1, -(i + 1)]).flat()]) cand.push([o, out, d])
   cand.sort((a, b) => Math.abs(a[0]) + a[1] - (Math.abs(b[0]) + b[1]))
-  for (const [o, out] of cand) {
+  for (const [o, out, d] of cand) {
+    const [px, pz] = perp(d)
     const x = sx + px * o + DIRS[d][0] * out, z = sz + pz * o + DIRS[d][1] * out
     const lx = x - DIRS[d][0], lz = z - DIRS[d][1]
     const lg = roadColumn(read, lx, lz, yHi, yLo)
@@ -671,8 +679,15 @@ export function siteRoad2 (read, ctx = {}) {
   const { id, n = 1, home, pool = '', avail = {}, guard = () => null, rec = null, routes = [], ring = null, landOk = () => true, stood = [], lamp = true, own = () => false } = ctx
   const tried = []
   let proofs = 0
+  const guard0 = guard
   for (const route of routes) {
     if (routeEnded(rec, route.id, ctx.now ?? Date.now())) { tried.push(`${route.id}:ended`); continue }
+    // roadsite-01show: the destination project's own zone opened for ITS route only (roadOpenZone; the caller builds that guard)
+    const openWhy = roadOpenZone(route)
+    // ...never its BOX (the project's footprint and growth: the road stops at its edge)
+    const gOpen = openWhy && typeof ctx.guardFor === 'function' ? ctx.guardFor(openWhy) : null
+    const db = Array.isArray(route.box) && route.box.length === 4 ? route.box : null
+    const guard = gOpen ? (x, z, y0, y1) => (db && x >= db[0] && x <= db[2] && z >= db[1] && z <= db[3] ? `dest:${route.to}` : gOpen(x, z, y0, y1)) : guard0
     const done = routeInstances(rec, route.id)
     const last = done[done.length - 1] ?? null
     let starts
@@ -757,6 +772,15 @@ export function siteRoad2 (read, ctx = {}) {
 export const roadFront = rec => (Array.isArray(rec?.instances) ? rec.instances : []).filter(i => i?.design?.kind === 'road2' && Array.isArray(i.front)).flatMap(i => i.front)
 /** Every ended route of a record -> { route: why }. Pure. */
 export const endedRoutes = (rec, now = Date.now()) => Object.fromEntries([...new Set((Array.isArray(rec?.instances) ? rec.instances : []).filter(i => i?.design?.kind === 'road2').map(i => i.route))].filter(r => routeEnded(rec, r, now)).map(r => [r, true]))
+/** roadsite-01show (OWNER 11-20 "Let roads enter warehouse area"): THE ZONE A ROUTE MAY ENTER because the route's destination IS that
+ *  project -- the warehouse's own growth/site zone for the warehouse's route (the showcase's sits 2 columns from the town's corner,
+ *  boxed by the T3 tower's zone and the village: no start outside all three). Every other zone (another project's, a tower's, a
+ *  village's, a protected one) stays refused, for this route too; the project's CELLS stay refused (own). -> the zone's why | null. */
+export const ROAD_DEST_ZONES = Object.freeze({ warehouse: 'project:warehouse' })
+export const roadOpenZone = route => (route?.kind === 'project' && Object.hasOwn(ROAD_DEST_ZONES, String(route?.to)) ? ROAD_DEST_ZONES[route.to] : null)
+/** roadsite-01show: the lanterns a road visit draws from the town's chests -> n. `want` the lanterns its open cells still owe less the
+ *  bag's, `spare` the town's above its reserve (unread: 0). Pure. */
+export const roadLanternDraw = (want, spare) => Math.max(0, Math.min(Number(want) || 0, Number(spare) || 0))
 /**
  * THE KIT A ROAD VISIT CRAFTS (skills.mjs roadKit) -> { slab, fence, lantern, log }: what the open cells of the record still owe in the
  * bag-made roles, less what the bag holds. Pure. `open(c)` -> the cell is not done; `held` the bag.
