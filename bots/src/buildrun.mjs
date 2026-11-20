@@ -630,7 +630,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // cottage2-01: a bed foot's click also fills its HEAD (the record cell `byFoot` of the same `bed`): never a stand there, never a click
   // while it is not clear or a body is in it
   const headAt = c => (c.role === 'bed' && c.bed ? record.cells.find(h => h.byFoot && h.bed === c.bed)?.at ?? null : null)
-  const wantOf = c => { const h = headAt(c); return (c.ws || c.blind || h ? { name: blockFor(palette, c.role, e.has) ?? roleFirst(palette, c.role), ws: c.ws ?? null, blind: !!c.blind, ...(h ? { also: [h] } : {}) } : null) }
+  // civicroof-01show (`p.choice`: cell key -> name, palchoice.mjs paletteChoice): a course whose first name had no source is placed in
+  // its chosen name and only that one -- never whichever of the role's names the bag happens to hold; every other cell as before
+  const placeFor = c => { const ch = p.choice?.get?.(kOf(c.at)); return ch ? (e.has(ch) ? ch : null) : blockFor(palette, c.role, e.has) }
+  const wantOf = c => { const h = headAt(c); return (c.ws || c.blind || h ? { name: placeFor(c) ?? p.choice?.get?.(kOf(c.at)) ?? roleFirst(palette, c.role), ws: c.ws ?? null, blind: !!c.blind, ...(h ? { also: [h] } : {}) } : null) }
   const misorientedAt = c => { if (!c.ws) return false; const b = rd(...c.at); return !!b && cellDone(b, palette, c.role) && !cellDone(b, palette, c.role, c.ws) }
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
@@ -962,7 +965,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       if (f >= T) break
       if (!isSolid(rd(x, f - 1, z)) || rd(x, f + 2, z)?.boundingBox !== 'empty') { ok = false; break }
       const c = accessCell.get(k3(x, f, z))
-      const block = (c && blockFor(palette, c.role, e.has)) || ['cobblestone', 'dirt', 'cobbled_deepslate'].find(b => e.has(b))
+      const block = (c && placeFor(c)) || ['cobblestone', 'dirt', 'cobbled_deepslate'].find(b => e.has(b))
       if (!block) { ok = false; break }
       let v = null
       for (let t = 0; t < 3; t++) { v = await placeHere([x, f, z], c?.role ?? null, block, [x, f - 1, z], [0, 1, 0], null, null, { rise: true, feetY: f, fence: false }); if (v === 'aborted' || e.feet()[1] > f) break }
@@ -1194,7 +1197,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const mayPlace = tstand.mayPlace ?? (() => true)
     // THE STAND'S BLOCK: a block this segment's own open cells place comes from the bag's spare only, one left for the cell; any
     // other cheap block may come from the KEPT ones too (the scaffold reserve: kept to pillar with, and dug back before the visit ends)
-    const segBlocks = new Set(record.cells.filter(c => c.seg === seg && !isDone(c)).map(c => blockFor(palette, c.role, e.has) ?? roleFirst(palette, c.role)).filter(Boolean))
+    const segBlocks = new Set(record.cells.filter(c => c.seg === seg && !isDone(c)).map(c => placeFor(c) ?? p.choice?.get?.(kOf(c.at)) ?? roleFirst(palette, c.role)).filter(Boolean))
     const spare = n => (typeof e.count === 'function' ? e.count(n) : (e.has(n) ? 1 : 0))
     const count = n => (!segBlocks.has(n) && typeof e.countAll === 'function' && typeof e.holdKept === 'function' ? e.countAll(n) : spare(n))
     // (r1, Claude's note b) dirt first; a STONE stand only with a pickaxe in the bag -- by hand it is ten seconds a block and drops nothing
@@ -1203,7 +1206,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     let plan = null, target = null
     for (const c of targets) {
       if (standPlans >= T.plans) break
-      const cellBlock = blockFor(palette, c.role, e.has)
+      const cellBlock = placeFor(c)
       if (!cellBlock) continue                                        // nothing to put in the cell: no stand for it
       standPlans++
       let pl = { ok: false, why: TS.standBlock(count, 1, needOf) ? 'no_pickaxe' : 'no_material' }
@@ -1293,7 +1296,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (s && !standKeys.has(kOf(s.support))) { c = q; step = s; break }
       }
       if (!c) break
-      const block = blockFor(palette, c.role, e.has)
+      const block = placeFor(c)
       if (!block) break
       const head = headAt(c)
       const v = await click(c.at, block, step, seg, lease.gen(), { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, c.role, c.ws), ws: c.ws ?? null, blind: !!c.blind, also: head ? [head] : null, stay: true, notSupport: standKeys, cutoff: until })
@@ -1655,7 +1658,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (shut.length) out.zonedPlace = [...zonedPlace.values()].filter(Boolean).length
         if (!open.length) {
           out.zonedWait = (out.zonedWait ?? 0) + shut.length
-          sayZoned(seg, shut0[0].at, blockFor(palette, shut0[0].role, e.has) ?? null, placeZoned(shut0[0].at), shut.length)
+          sayZoned(seg, shut0[0].at, placeFor(shut0[0]) ?? null, placeZoned(shut0[0].at), shut.length)
           deferredSegs.add(seg)
           break
         }
@@ -1684,7 +1687,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         let swapNodes = null
         const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => !openRole(o.role)).map(o => kOf(o.at)))); return !!stepZ(rd, home, q.at, swapNodes, domain, wantOf(q)) }
         // (zonesite-01show, Codex r3: the swap's hole rule reads EVERY open cell -- a zone-closed hole is a hole)
-        const swapOk = c => !p.swap || !c.sw || swapDigOk(c, openAll, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
+        const swapOk = c => !p.swap || !c.sw || swapDigOk(c, openAll, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!placeFor(q), fillable })
         // a swapped cell left standing over a hole no stand fills (its underpinning spent) is DEFERRED once -- the waiver closes it as its
         // old block -- never held open for good
         if (p.swap) for (const c of open) if (c.sw && !isClear(c.at) && !sealed.has(kOf(c.at)) && swapOverHole(c, open, q => isClear(q.at) && (tries.get(kOf(q.at)) ?? 0) >= BUILD_ATTEMPTS)) { sealed.add(kOf(c.at)); deferredCells.push(kOf(c.at)); deferredSegs.add(seg); deferWhy.set(kOf(c.at), 'swap hole_under') }
@@ -2045,7 +2048,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
           return out
         }
-        const block = blockFor(palette, picked.role, e.has)
+        const block = placeFor(picked)
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
         const pickedHead = headAt(picked)
         const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role, picked.ws), avoid: fellBack || feetIn ? null : blocking, ws: picked.ws ?? null, blind: !!picked.blind, also: pickedHead ? [pickedHead] : null })
