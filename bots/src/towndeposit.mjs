@@ -43,7 +43,7 @@ import { roomBankSteps, roomKitAlways } from './bagroom.mjs'   // bagfull-01: th
 import { BAGFIX, chestHalves, trimBankable } from './bagfix.mjs'   // bagfix-01show D: the carried chests' halves
 // junk never enters a chest (owner 10-04): the well's list and the composter's own judgement, not a copy of them
 import { WELL_JUNK } from './well.mjs'
-import { isCompostJunk } from './composter.mjs'
+import { isCompostJunk, SAPLING_RESERVE } from './composter.mjs'
 import { PEACEFUL_COMPOST } from './peacefulkit.mjs'
 import { groupOf, targetOf } from './stocktarget.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
@@ -280,6 +280,17 @@ let columnsHook = null
 /** The deposit's column reader for this process (skills.mjs installs it with the layout; none: no column layer). */
 export const setDepositColumns = fn => { columnsHook = typeof fn === 'function' ? fn : null }
 export const columnBankable = name => typeof name === 'string' && !!name && !roomKitAlways(name)
+/** SAPLINGKEEP-01SHOW (Codex r1 BLOCKER): a sapling or propagule. The base plan and the room layer never bank one (notForChest), but
+ *  the warehouse COLUMN layer did, whole: a bag at a sapling column with room kept none, and planting (workorder.mjs, above
+ *  PLANT_RESERVE 8) stopped. The column layer keeps composter.mjs SAPLING_RESERVE (16) a species, hard (the partial-slot rule never
+ *  lowers it), as the yard row does (yard.mjs ROW_BAG_KEEP). Pure. */
+export const isPlantKeep = n => typeof n === 'string' && /(_sapling|_propagule)$/.test(n)
+/** The column layer's keeps -> { name: n }: `keep` with every held sapling species raised to SAPLING_RESERVE. Pure. */
+export function columnKeeps (keep = {}, counts = {}) {
+  const out = { ...keep }
+  for (const n of Object.keys(counts ?? {})) if (isPlantKeep(n)) out[n] = Math.max(Number(out[n]) || 0, SAPLING_RESERVE)
+  return out
+}
 export function townDepositPlan (items = [], { columns = columnsHook, wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
                                                tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on,
                                                room = false, roomExclude = null } = {}) {
@@ -410,8 +421,9 @@ export function townDepositPlan (items = [], { columns = columnsHook, wanted = [
     const taken = new Set(steps.map(st => st.slot))
     const shared = roomExclude instanceof Set ? roomExclude : new Set()
     const eligible = n => { try { return columnBankable(n) && !CAP_COBBLE.includes(n) && !((holds[n] ?? 0) > 0) && !shared.has(n) && !!columns(n) } catch { return false } }
-    const hardKeep = n => HARD_KEEP_RULES.has(why[n])   // the goal's want and the scaffold reserve, as the room layer's
-    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: hardKeep, stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
+    const hardKeep = n => HARD_KEEP_RULES.has(why[n]) || isPlantKeep(n)   // the goal's want and the scaffold reserve, as the room layer's; saplings
+    const colKeep = columnKeeps(keep, counts)   // saplingkeep-01show (Codex r1 BLOCKER): a sapling column takes only what is above planting's floor
+    for (const st of roomBankSteps(list, { eligible, keep: colKeep, taken, hard: hardKeep, stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
       steps.push({ slot: st.slot, name: st.name, count: st.count, column: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count
       why[st.name] = 'column'
