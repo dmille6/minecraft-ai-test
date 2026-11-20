@@ -200,6 +200,7 @@ import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, c
 import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { WHSITE, WHS_PLOT, WHS_BLUEPRINT, WHS_BUILDERS, WHS_PREP, WHS_PALETTE, whSiteBase, whSiteAdd, whSiteCanopy, whPhase, whFellView, whLevelView, whStandDone, whQuadFor, whClearPart, whSiteDetail, whSiteModeDetail, whSurveyPublish, WHS_FILLS } from './whsite.mjs'   // whsite-01: the new storehouse's ground
 import { fellCanopy as whFellCanopy } from './fellcanopy.mjs'   // whsite-01: the leaves round a log no stand sees
+import { PITSITE, PIT, PIT_PLOT, PIT_BLUEPRINT, PIT_BUILDERS, PIT_HALVES, pitPlan, pitRecord, pitDigNow, pitView, pitClearPart, pitClearOk, pitMissed, pitMissKeys, pitDemand, pitDigCap, pitBankOrder, pitBankDue, pitDetail, pitModeDetail, pitFillSplit } from './pit.mjs'   // pit-01show: the town's dirt borrow pit
 import { WAREHOUSE, whHallLayout, whRows, whChestKinds, whHomes, whSectionOf, whTakes, whDepositOrder, whRoom, whPlace, whKindOf, whRecord, warehouseModeDetail, whFullFor, whFailUpdate, whEligible, whLabel, whAllFailed, whTryResult, whCargoRoutes } from './warehouse.mjs'   // warehouse-01: the columns per kind
 import { hubChestsOf, HALL_LAYOUT, hubSectionOf } from './storehub.mjs'   // warehouse-01: the old hall as a layout
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
@@ -12618,6 +12619,9 @@ export function pruneTarget (bot, items = bot?.inventory?.items?.() ?? []) {
     if (!sc.coverage) return null
     const avail = {}
     for (const g of [...STOCK_GROUP_NAMES, 'junk']) if (!isToolGroup(g)) avail[g] = stockTownViewFor(bot, g, now, { state: st }).avail
+    // pit-01show: the pit's dirt is the named consumers' (the tidy's fills, the storehouse level): while one still has open cells, the
+    // town's dirt is never pruned down the well (an available floor of 0 never offers a stack: prune.mjs prunePick)
+    if (pitHoldsDirt(bot)) avail.dirt = 0
     return prunePick({ obs: st.obs ?? {}, keys: sc.keys, avail, free: 36 - items.length, now, accept: cands => pruneAccepted(items, cands, pruneWellRule(bot)) })
   } catch { return null }
 }
@@ -18568,6 +18572,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
         // forest-01: an unsited forest whose siting found no site WAITS town-wide (siteWaitUntil), never the keeper's every order
         if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // pit-01show: the pit WAITS while the town is not short of dirt for a named consumer (pitDemandNow): a sited pit then reads
+        // complete (out of every pick), an unsited one waits (never offered) -- it is never dug for stock of its own
+        if (p.plot === PIT_PLOT && !rec?.structure_complete && !pitDemandNow(b, now).dig) return rec ? { plot: p.plot, exists: true, complete: true, damaged: false, due: false, dueFirst: false, waiting: true } : { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
@@ -19203,6 +19210,8 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
     if (r.blueprint === STEPWELL_BLUEPRINT) return stepwellDamaged(stairRead(bot), r) != null
     // whsite-01: the storehouse's prepared ground is never DAMAGED (its stairs came down, grass grew on its fills: no cell to repair)
     if (r.blueprint === WHS_BLUEPRINT) return false
+    // pit-01show: the pit is never DAMAGED (a dug cell is its progress; the pond finish is a later piece)
+    if (r.blueprint === PIT_BLUEPRINT) return false
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
@@ -22105,6 +22114,7 @@ export function yardLanesInstall (bot) {
   // lanes' keep and the well's hold use (whRoomNow), so a kind held for its column is always a kind the deposit banks
   try { setDepositColumns(WAREHOUSE.on ? name => { const b = activeMem?.bot ?? null; return !!b && whRoomNow(b, name)?.room > 0 } : null) } catch { /* no column layer */ }
   try { logEvent({ kind: 'warehouse_site', status: 'success', snapshot: snapshot(bot), detail: `op=mode ${whSiteModeDetail(WHSITE.site)}`.slice(0, 300) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'pit', status: 'success', snapshot: snapshot(bot), detail: pitModeDetail(PITSITE.site) }) } catch { /* telemetry */ }   // pit-01show
   try { logEvent({ kind: 'warehouse', status: 'success', snapshot: snapshot(bot), detail: `op=mode ${warehouseModeDetail(WAREHOUSE.on, whLayoutNow())}`.slice(0, 300) }) } catch { /* telemetry */ }
   try { logEvent({ kind: 'yard_lanes', status: 'success', snapshot: snapshot(bot), detail: `${lanesModeDetail(LANES)} well_hold=${LANES.on && wellHoldOn() ? 1 : 0}`.slice(0, 300) }) } catch { /* telemetry */ }
 }
@@ -24592,6 +24602,8 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
   if (proj.plot === PENS_PLOT) return buildPens(ctx, args, signal)
   // whsite-01: the new storehouse's ground (whsite.mjs: survey, fell by quadrant, level)
   if (proj.plot === WHS_PLOT) return buildWarehouseSite(ctx, args, signal)
+  // pit-01show: the town's dirt borrow pit (pit.mjs: the plan, the guard, the demand; the dig, then the bank)
+  if (proj.plot === PIT_PLOT) return buildPit(ctx, args, signal)
   // stepwell-01: the town stepwell's visit (stepwell.mjs siting; the felling, then the tank by layers)
   if (proj.plot === STEPWELL_PLOT) return buildStepwell(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
@@ -30780,7 +30792,12 @@ async function buildTidyVisit (ctx, args, signal) {
     // townterrace-01: the park's plants, a hoe for its tilled plots, bone meal for its meadow -- only what the town holds
     if (parkish) { try { Object.assign(extra, parkBill(rec, read, { held: held0, stock: matsTownStock(bot)?.stock ?? {}, done: q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role) })) } catch { /* the park waits for its bill */ } }
     if (wantSoil > 0) extra.dirt = (extra.dirt ?? 0) + wantSoil
-    const need = want > 0 || Object.keys(extra).length ? needFromTown({ ...(want > 0 ? { cobblestone: want } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
+    // pit-01show (pit.mjs pitFillSplit): the earth fills draw the TOWN'S DIRT first (the pit banks it for them; the earth palette lays
+    // dirt first), the rest cobblestone as before; no pit, or no dirt in town: exactly as before
+    const pitSplit = PITSITE.on && want > 0 ? pitFillSplit(want, (() => { try { return Number(matsTownStock(bot)?.stock?.dirt) || 0 } catch { return 0 } })()) : null
+    if (pitSplit?.dirt > 0) { extra.dirt = (extra.dirt ?? 0) + pitSplit.dirt; f.pitDirt = pitSplit.dirt }
+    const wantCob = pitSplit ? pitSplit.cobblestone : want
+    const need = wantCob > 0 || Object.keys(extra).length ? needFromTown({ ...(wantCob > 0 ? { cobblestone: wantCob } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
     let took = {}
     bag0 = held0
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
@@ -32716,6 +32733,224 @@ async function buildWarehouseSite (ctx, args, signal) {
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0 != null) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(WHS_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: {}, bag1: heldMap(bot) }), { drawn: '-', exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+// ================================================================================================================================
+// PIT-01SHOW: THE TOWN'S DIRT BORROW PIT (pit.mjs has the owner's words, the plan, the guard, the demand and the bank's order). The
+// record is published at the switch's site from the plan of the LOADED world (pitPlan: the curved cove, the keep-out rim to any water,
+// the 1:1 banks, the cells by layer); then each visit, only while the town is short of dirt for a named consumer (pitDemandNow), walks
+// there, digs the top layer of its half (runVisit's clears; every dig re-checked by the sea-breach guard, pitClearOk) and banks the dug
+// dirt where the town's draws search for it (pitBankOrder: the storehouse's dirt column when the layout is on, else the town's chests
+// the index knows). The pond finish is a later piece (docs/reports/pit/finish-plan.md).
+// ================================================================================================================================
+const PIT_WALK_MS = 60_000
+const PIT_NEAR = 24
+const PIT_BANK_TAIL_MS = 45_000
+function pitRow (bot, op, d = {}, status = 'success') { try { logEvent({ kind: 'pit', status, snapshot: snapshot(bot), detail: pitDetail(op, d) }) } catch { /* telemetry */ } }
+/**
+ * THE NAMED CONSUMERS' OPEN DIRT CELLS -> { tidy, warehouse, grade } (null: not read). The tidy record's earth and topsoil fills not done
+ * (its earth fills draw the town's dirt first: pitFillSplit), the storehouse level's fills (whsite: its draw is dirt), and the grade
+ * (no grade plan on this release: null). An unread cell counts as open: it is a real named cell. Never throws.
+ */
+function pitNeedsNow (bot) {
+  const out = { tidy: null, warehouse: null, grade: null }
+  try {
+    const read = stairRead(bot), dir = townDir()
+    const th = recordHead(dir, projKeyOf(TIDY_PLOT))
+    if (th.ok) {
+      const rec = th.head?.rec
+      const waived = q => !!rec?.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))
+      out.tidy = (rec?.cells ?? []).filter(q => (q.role === 'earth' || q.role === 'topsoil') && !waived(q) && !q.prev && !(read(...q.at) && buildCellDone(read(...q.at), TIDY_PALETTE, q.role))).length
+    }
+    if (WHSITE.on) {
+      const wh = recordHead(dir, projKeyOf(WHS_PLOT))
+      if (wh.ok) out.warehouse = wh.head?.rec?.blueprint === WHS_BLUEPRINT && !wh.head.rec.structure_complete ? (wh.head.rec.cells ?? []).filter(q => q.role === 'fill' && !(read(...q.at)?.boundingBox === 'block')).length : 0
+    }
+  } catch { /* what was read */ }
+  return out
+}
+/** IS THE TOWN SHORT OF DIRT NOW (pit.mjs pitDemand over pitNeedsNow and the index's dirt) -> pitDemand's answer. Memoised PIT.demandMs
+ *  per bot; a bot-less call (the order's states with no bot) answers no dig. Never throws. */
+export function pitDemandNow (bot, now = Date.now(), { fresh = false } = {}) {
+  try {
+    if (!bot || !PITSITE.on) return pitDemand({})
+    const m = bot.pitDemandMemo
+    if (!fresh && m && now - m.at < PIT.demandMs) return m.v
+    const needs = pitNeedsNow(bot)
+    const st = matsTownStock(bot)
+    const v = pitDemand({ needs, stock: st ? (Number(st.stock?.dirt) || 0) : null, bag: Math.max(0, countItem(bot, 'dirt') - PIT.keep) })
+    bot.pitDemandMemo = { at: now, v }
+    return v
+  } catch { return pitDemand({}) }
+}
+/** The town's dirt the pit's banking keeps out of the chest pruning: while a named consumer still has open cells (need > 0). */
+export function pitHoldsDirt (bot) { try { return PITSITE.on && (pitDemandNow(bot)?.need ?? 0) > 0 } catch { return false } }
+/** The candidates the bank may use -> [{ k, pos, dirt, free, column, room }] (the town index's known containers in town; the storehouse's
+ *  dirt column when the column layout is on). Never throws. */
+function pitBankCands (bot) {
+  const out = []
+  try {
+    const entries = townIndexEntries(bot) ?? {}
+    const whL = whLayoutNow()
+    const col = new Set(whL ? whRows(whL).filter(r => r.kind === 'dirt').map(r => r.k) : [])
+    for (const [k, e] of Object.entries(entries)) {
+      if (indexStateOf(e) !== 'known') continue
+      const p = keyVec(k)
+      if (!(p.x === p.x) || !inTown(homeVec(), p)) continue
+      const used = Number(e.obs?.used) || 0, size = Number(e.obs?.size) || 27
+      const dirt = Number(e.obs?.names?.dirt?.[0]) || 0
+      out.push({ k, pos: [p.x, p.y, p.z], dirt, free: Math.max(0, size - used), column: col.has(k), room: col.has(k) ? Math.max(0, size - used) : 0 })
+    }
+  } catch { /* what was read */ }
+  return out
+}
+/** THE BANK: the bag's dirt above the keep into the town (pitBankOrder's containers, sortPut: open, bank whole stacks, verify by a
+ *  re-open, the index updated -- so the town's draws find it). -> { banked, to, why }. */
+async function pitBank (ctx, signal, deadline, { final = false } = {}) {
+  const { bot } = ctx
+  const n = pitBankDue(countItem(bot, 'dirt'), { final })
+  if (!n) return { banked: 0, to: [], why: 'not_due' }
+  const skip = (bot.pitBankSkip ??= new Map())
+  for (const [k, until] of skip) if (until <= Date.now()) skip.delete(k)
+  const me = bot.entity?.position
+  const order = pitBankOrder(pitBankCands(bot), { from: me ? [me.x, me.y, me.z] : [0, 0, 0], skip: new Set(skip.keys()) })
+  if (!order.length) return { banked: 0, to: [], why: 'no_container' }
+  let banked = 0
+  const to = []
+  for (const k of order) {
+    if (banked >= n || deadline - Date.now() < 8_000) break
+    check(signal)
+    const tb = bot.blockAt?.(keyVec(k))
+    if (!tb || !isTownContainer(bot, tb)) { skip.set(k, Date.now() + 30 * 60_000); to.push(`${k}:gone`); continue }
+    try { await chestWalk(bot, new goals.GoalNear(tb.position.x, tb.position.y, tb.position.z, 2), Math.max(1000, Math.min(PIT_WALK_MS, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    if (!(eyeToBlock(bot.entity.position, tb.position) <= OPEN_REACH)) { to.push(`${k}:unreachable`); skip.set(k, Date.now() + 10 * 60_000); continue }
+    const p = await sortPut(bot, tb, { dirt: n - banked }, deadline, signal, { dirt: PIT.keep }, null, 'pit_bank')
+    const got = Number(p.put?.dirt) || 0
+    banked += got
+    to.push(`${k}:${got || p.why}`)
+    if (!got) skip.set(k, Date.now() + 30 * 60_000)
+  }
+  return { banked, to, why: banked >= n ? 'banked' : banked ? 'partial' : 'none' }
+}
+async function buildPit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: PIT_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, stop: extra.stop ?? outcome }
+  }
+  const site = PITSITE.site
+  if (!SHOP.on || !planOn() || !site || !projectsOn().some(p => p.plot === PIT_PLOT)) return out('no_effect', 'off', 'the pit is switched off (PIT_SITE names no site, or SHOP or TOWNPLAN is off)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is dug until they are')
+  const dir = townDir(), key = projKeyOf(PIT_PLOT), me = bot.username ?? 'bot'
+  bot.shopVisitKey = key
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the pit record could not be read')
+  if (rh.head?.rec?.structure_complete) return out('no_effect', 'complete', 'the pit is dug; its pond finish is a later piece')
+  // THE DEMAND: never stock for its own sake (pit.mjs pitDemand; the remedy for `no_demand` is the consumers' own draws -- the next
+  // reading, PIT.demandMs later, finds the town short again or not)
+  const dem = pitDemandNow(bot, Date.now(), { fresh: true })
+  pitRow(bot, 'demand', { short: dem.short, consumer: dem.consumer, n: `need${dem.need ?? '-'}/stock${dem.stock ?? '-'}`, why: dem.why }, dem.dig ? 'success' : 'no_effect')
+  if (!dem.dig) {
+    // what this bot dug and still carries goes to the town first (it is the consumers' already)
+    const bk = await pitBank(ctx, signal, t0 + budget - 5_000, { final: true })
+    if (bk.banked) pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+'), why: bk.why })
+    return out(bk.banked ? 'success' : 'no_effect', 'no_demand', `the town is not short of dirt (${dem.why}: need ${dem.need ?? '-'}, stock ${dem.stock ?? '-'}); the pit waits`, { stop: 'no_demand' })
+  }
+  const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+  // THE WALK: the site is outside the town -- the visit walks there before it plans or digs (the remedy for `unread`, taken here)
+  const near = () => Math.hypot(bot.entity.position.x - site.cx, bot.entity.position.z - site.cz) <= PIT_NEAR
+  if (!near()) {
+    const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
+    try { await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(site.cx, site.floor + 4, site.cz, 12)), Math.max(1000, Math.min(PIT_WALK_MS, deadline - Date.now())), bot)) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    if (!near()) { pitRow(bot, 'walk', { why: 'not_arrived' }, 'no_effect'); return out('no_effect', 'site_unread', 'the walk to the pit did not arrive; the next visit walks again', { stop: 'site_unread' }) }
+  }
+  // THE RECORD: the plan of the loaded world, published once (a site that cannot be read yet is planned by the next visit)
+  if (!rh.head) {
+    const plan = pitPlan(stairRead(bot), site)
+    if (!plan.ok) { pitRow(bot, 'sited', { why: `plan:${plan.why}`, n: `unread${plan.unread ?? '-'}` }, 'no_effect'); return out('no_effect', plan.why === 'unread' ? 'site_unread' : 'no_site', `the pit could not be planned (${plan.why})`, { stop: plan.why === 'unread' ? 'site_unread' : 'no_site' }) }
+    const record = pitRecord(plan, { home: planHomeP(), by: me })
+    const pub = publishRecord(dir, key, cur => (cur ? null : record), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') pitRow(bot, 'sited', { n: `cells${plan.cells.length}/cols${plan.cols.length}/rim${plan.rim.length}/held${plan.held.length}`, dirt: plan.dirt, why: `layers:${plan.layers.map(L => `${L.y}:${L.dirt}`).join(',')}`, gen: pub.gen })
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the pit record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  if (rec.blueprint !== PIT_BLUEPRINT) return out('no_effect', 'complete', 'the pit record is a later generation\'s')
+  const slot = takeSlot(dir, key, me, PIT_BUILDERS)
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }, slotName = `slot${slot.slot}`
+  let effects = null, diedAt = null, bag0 = null
+  const placedBy = {}
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const half = PIT_HALVES[(slot.slot - 1) % PIT_HALVES.length]
+    const now0 = pitDigNow(stairRead(bot), rec, { half })
+    // THE GUARD's set-aside cells: one row a visit (the remedy is the set-aside itself: the dig goes on round them)
+    if (now0.held.length) pitRow(bot, 'guard', { n: now0.held.length, at: now0.held[0].at, to: now0.held[0].w, why: `${now0.held[0].why}:set_aside_as_rim` }, 'no_effect')
+    if (now0.phase === 'unread') { pitRow(bot, 'walk', { why: 'cells_unread' }, 'no_effect'); return out('no_effect', 'site_unread', 'the pit\'s cells are not loaded from here; the next visit walks nearer', { stop: 'site_unread', slot: slot.slot }) }
+    if (now0.phase === 'done') {
+      const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === PIT_BLUEPRINT && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now(), setAside: now0.held.map(h => h.at) } : null), { by: me })
+      pitRow(bot, 'done', { n: `left${now0.left}/set_aside${now0.held.length}`, why: pub.result, gen: pub.gen ?? '-' })
+      try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PIT_PLOT, op: 'complete', kind: PIT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ }
+      const bk = await pitBank(ctx, signal, t0 + budget - 5_000, { final: true })
+      if (bk.banked) pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+'), why: bk.why })
+      return out('success', 'complete', `the pit is dug to its design (${now0.held.length} cell(s) set aside by the guard)`, { stop: 'complete', slot: slot.slot })
+    }
+    // the half's own lease: another builder working it ends this visit `shared` (the next visit takes whatever half is free)
+    const free = h => { try { const st = projLeaseState(dir, key, `seg-clear-${h}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil } catch { return false } }
+    if (!free(now0.half)) return out('no_effect', 'shared', `the pit's ${now0.half} half is being dug by another bot`, { stop: 'shared', slot: slot.slot })
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    bag0 = heldMap(bot)
+    const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: PIT_PLOT, ...d }) : buildRowDetail({ project: PIT_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const cap = pitDigCap(dem.short)
+    // the walk's root is where the bot stands at the pit (never the town's home: a 100-block walk graph for a 21-block pit)
+    const p0 = bot.entity.position
+    const root = { x: Math.floor(p0.x), y: Math.floor(p0.y), z: Math.floor(p0.z) }
+    const walkR = Math.max(...now0.cells.map(q => Math.max(Math.abs(q.at[0] - root.x), Math.abs(q.at[2] - root.z)))) + 6
+    bot.shopUnknown ??= new Set()
+    const dirt0 = countItem(bot, 'dirt')
+    const r = await runVisit({ dir, key, me, home: root, stood: [], record: pitView(rec, now0), recordGen: rh.head.gen, palette: {}, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.pitStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      clearPart: pitClearPart(now0.half), clearOk: (q, rd) => pitClearOk(q, rd), domain: () => true, blockLayer: false, clearMax: cap, walkR: Math.min(48, walkR) }, effects, { deadline: Math.min(deadline, t0 + budget - PIT_BANK_TAIL_MS), maxSteps: 240 })
+    const dug = Math.max(0, countItem(bot, 'dirt') - dirt0)
+    // NOTHING OF THE LAYER DUG (no stand reached its cells): their misses counted, each set aside at PIT.missMax (pitMissed: the remedy)
+    const missed = pitMissKeys(stairRead(bot), now0, r)
+    if (missed.length) {
+      const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === PIT_BLUEPRINT ? pitMissed(cur, missed) : null), { by: me })
+      pitRow(bot, 'guard', { y: now0.y, half: now0.half, n: missed.length, at: missed[0], why: `unreached:${r.stop}:miss_counted`, gen: pub.gen ?? '-' }, 'no_effect')
+    }
+    const after = pitDigNow(stairRead(bot), rec)
+    pitRow(bot, 'dig', { y: now0.y, half: now0.half, n: `${r.cleared}c/left${after.left}/layer${after.y ?? '-'}`, dirt: dug, short: dem.short, consumer: dem.consumer, why: r.stop, gen: rh.head.gen }, r.cleared > 0 ? 'success' : 'no_effect')
+    // THE BANK: once the bag holds PIT.bankMin above its keep, or the dig has nothing left for this bot now
+    const bk = await pitBank(ctx, signal, t0 + budget - 5_000, { final: r.cleared === 0 || r.stop === 'complete' || r.stop === 'deadline' })
+    if (bk.banked || bk.why === 'no_container' || bk.why === 'none') pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+') || '-', consumer: dem.consumer, why: bk.why }, bk.banked ? 'success' : 'no_effect')
+    const status = r.cleared > 0 || bk.banked > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `layer y${now0.y} ${now0.half}: ${r.why ?? r.stop}; dug ${r.cleared} (${dug} dirt), banked ${bk.banked}; ${after.left} cell(s) left`, { stop: r.stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, slotName, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0 != null) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(PIT_PLOT, bagBalance({ bag0, took: {}, crafted: {}, placed: placedBy, back: {}, bag1: heldMap(bot) }), { drawn: '-', exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: '-' }) }) } catch { /* telemetry */ } }
   }
 }
 // ================================================================================================================================
