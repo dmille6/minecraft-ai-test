@@ -77,7 +77,8 @@ function liveWorld () {
   return srv
 }
 const TOWN = { spruce_stairs: 102, dark_oak_planks: 4, dark_oak_slab: 5, lantern: 175, spruce_planks: 353, spruce_log: 400 }
-const choose = (M, { town = TOWN, bag = {}, finds = [], jobs = [], read = liveWorld().read } = {}) => M.paletteChoice(REC, {
+const choose = (M, { town = TOWN, bag = {}, finds = [], jobs = [], read = liveWorld().read, townCoverage = 1 } = {}) => M.paletteChoice(REC, {
+  townCoverage,
   names: role => SH.roleNames(PAL, role, 'spruce_planks'),
   read,
   done: (b, c) => R.cellDone(b, PAL, c.role, c.ws),
@@ -138,6 +139,17 @@ const continued = M => {
 await t('a course begun in the alternative stays in it when the first name comes back (never patched back to a mix)', () => continued(PC))
 await t('MUTANT the continuation dropped', () => kills('palchoice.mjs', '    const cands = cont ? [cont, ...list.filter(n => n !== cont)] : list', '    const cands = list', continued, PC))
 
+const unread = M => {
+  // the rig, 11-20: a copied index too old to know any container read every name as 0 -> spruce planks and a spruce slab chosen
+  const low = choose(M, { town: {}, bag: { spruce_log: 19 }, townCoverage: 0 })
+  assert.strictEqual(low.choice.size, 0, 'an unread town: nothing chosen')
+  assert.ok(low.rows.length >= 2 && low.rows.every(r => r.took === '-' && /^town_unread\(cov=0\.00\)$/.test(r.why)), JSON.stringify(low.rows.map(r => r.why)))
+  assert.strictEqual(choose(M, { town: {}, bag: { spruce_log: 19 }, townCoverage: 1 }).choice.size > 0, true, 'POSITIVE CONTROL: the same bag with a read town chooses')
+  assert.strictEqual(choose(M, { townCoverage: 0.8 }).choice.size, 13, 'at the floor: the live choice')
+}
+await t('AN UNREAD TOWN (index coverage under 0.8) proves no zero: nothing is chosen, each course\'s row says town_unread', () => unread(PC))
+await t('MUTANT the coverage floor ignored', () => kills('palchoice.mjs', '  const trusted = Number(townCoverage) >= MIN_TOWN_COVERAGE', '  const trusted = true', unread, PC))
+
 console.log('THE BILL (shop.mjs billOf)')
 const bill = Sh => {
   const read = liveWorld().read
@@ -191,6 +203,7 @@ const wiring = src => {
   assert.ok(bill > at, 'the bill takes it')
   assert.ok(s.indexOf('{ done: buildCellDone, inTown: billInTown(town), planks, choice: palChoice })', bill + 10) > bill, 'the wood parts\' bill takes it')
   assert.ok(s.indexOf('palette: pal, choice: palChoice, res, resFailed,', bill) > bill, 'the visit takes it')
+  assert.ok(s.includes('try { townCoverage = Number(matsTownStock(bot)?.coverage) || 0 } catch { townCoverage = 0 }') && s.includes('      townCoverage,\n    })'), 'the index coverage reaches the choice')
 }
 const SK = readFileSync(SRC('skills.mjs'), 'utf8')
 await t('skills.mjs: the choice is computed before the bill, and the bill, the parts\' bill and runVisit all take it', () => wiring(SK))
