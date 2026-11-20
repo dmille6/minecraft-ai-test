@@ -98,6 +98,34 @@ await t('THE HARD KEEP: at 30+ kinds the partial-slot rule lowers seeds and stic
   scenarioHard(Y)
 })
 
+// THE WAREHOUSE COLUMN LAYER (Codex r1 BLOCKER): the column layer banked every sapling whole, keeping none.
+const TD = await import('../src/towndeposit.mjs')
+const sap = (name, count, slot) => ({ name, count, slot, stackSize: 64 })
+const colBanked = (T, bag) => T.townDepositPlan(bag, { columns: () => true }).banked
+const FILL = Array.from({ length: 30 }, (_, i) => sap(['dirt', 'gravel', 'clay', 'poppy', 'dandelion', 'string', 'flint', 'egg', 'bone_meal', 'torch',
+  'lantern', 'apple', 'wheat', 'feather', 'leather', 'bucket', 'shears', 'chest', 'furnace', 'composter', 'crafting_table', 'spruce_stairs',
+  'stone_hoe', 'iron_axe', 'stone_pickaxe', 'iron_pickaxe', 'glass', 'sand', 'cactus', 'kelp'][i], 1, 20 + i))
+const scenarioColumn = T => {
+  assert.equal(colBanked(T, [sap('spruce_sapling', 16, 9)]).spruce_sapling, undefined, 'a column keeps 16 of a species')
+  assert.equal(colBanked(T, [sap('spruce_sapling', 10, 9), ...FILL]).spruce_sapling, undefined, 'at 30+ kinds the sapling keep is hard')
+}
+await t('THE COLUMN LAYER: a sapling column banks only what is above 16 a species; at 30+ kinds the keep stays', () => {
+  scenarioColumn(TD)
+  // positive control: the column does take saplings above the keep (whole stacks), and the other kinds are untouched
+  assert.equal(colBanked(TD, [sap('oak_sapling', 24, 9), sap('oak_sapling', 16, 10)]).oak_sapling, 16, '40 held: the smaller whole stack goes, 24 stay')
+  assert.equal(colBanked(TD, [sap('oak_sapling', 24, 9), sap('oak_sapling', 16, 10), sap('spruce_sapling', 16, 11)]).spruce_sapling, undefined)
+  assert.deepEqual(TD.columnKeeps({ dirt: 3 }, { dirt: 5, birch_sapling: 2, mangrove_propagule: 30 }), { dirt: 3, birch_sapling: 16, mangrove_propagule: 16 })
+  assert.equal(TD.isPlantKeep('spruce_sapling'), true); assert.equal(TD.isPlantKeep('wheat_seeds'), false)
+  // the chain: what the column leaves still plants
+  assert.ok(plantingOrder({ saplings: { spruce_sapling: 16 }, spot: SPOT, now: 1e12 }))
+})
+await t('MUTANT KILLED: the column layer on the bare keeps banks every sapling', async () => {
+  await killedBy(P('towndeposit'), TD, 'const colKeep = columnKeeps(keep, counts)', 'const colKeep = keep', scenarioColumn)
+})
+await t('MUTANT KILLED: the column layer\'s sapling keep not hard is lowered at 30+ kinds', async () => {
+  await killedBy(P('towndeposit'), TD, 'HARD_KEEP_RULES.has(why[n]) || isPlantKeep(n)', 'HARD_KEEP_RULES.has(why[n])', scenarioColumn)
+})
+
 await t('MUTANT KILLED: the row keep back to 4 a species starves planting', async () => {
   await killedBy(P('yard'), Y, 'sapling: SAPLING_RESERVE })', 'sapling: 4 })', scenarioKeep)
 })
