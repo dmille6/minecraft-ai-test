@@ -251,6 +251,7 @@ import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellD
 import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's descent stops above the town mine (owner 11-09)
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
 import { stepwellCrew, stepwellBuildersNow, stepwellCrewDue, crewSector } from './stepwell.mjs'   // stepwell-05: the tank's crew
+import { asideOn as swAsideOn, stampStale as swStampStale, cellDone as swCellDone } from './stepwell.mjs'   // stepwell-03show: set aside + the release's own hold
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { PENS_PLOT, PENS_BLUEPRINT, PEN, PEN_FOREIGN, penPalette, sitePens, penOpen, penOf, penDomain } from './pens.mjs'   // pens-01
 import { HERD, animalOf, herdCensus, herdState, noteAnimals, herdWork, lureStep, herdDetail } from './herd.mjs'   // herd-01
@@ -18925,7 +18926,7 @@ function projStuckLive (key, now = Date.now()) {
     const dir = townDir()
     const b = activeMem?.bot ?? null
     let rec
-    const stale = b ? keys => {
+    const stale = b ? (keys, stamp) => {
       if (rec === undefined) { const h = recordHead(dir, key); rec = h.ok ? h.head?.rec ?? null : null }
       // plotprep-02 (the LIVE quiet hours 16:05-22:05Z 11-04): a COMPLETE tidy whose next stage is due holds no back-off -- its stamp is
       // the finished stage's (the road light 14,76,-26 waived at its completion, never laid: the stamp read live for 6 h, the tidy waited
@@ -18947,6 +18948,11 @@ function projStuckLive (key, now = Date.now()) {
       // felldone-01: an OPEN stepwell's stamp that names only felling-stair cells whose trees are gone holds nothing (felldone.mjs
       // fellStampStale: the stair is obsolete; a stamp with no cells -- the tank's own back-off -- holds as before)
       if (rec?.blueprint === STEPWELL_BLUEPRINT && fellDoneOn() && fellStampStale(keys, rec, stairRead(b))) return true
+      // stepwell-03show: a stepwell stamp written by another code version (or before the rule), or whose cells all read done, holds nothing
+      if (rec?.blueprint === STEPWELL_BLUEPRINT && swAsideOn()) {
+        const rd = stairRead(b), pl = planOfRecord(rec)
+        if (swStampStale(stamp, keys, { code: config.code?.version ?? null, cellDone: k => swCellDone(rd, pl, k.split(',').map(Number)) })) return true
+      }
       // sealedcore-01: an OPEN monument's stamp whose cells all read done (waived since: the visit that waived them stamped the
       // stall first) holds nothing, as a complete record's (the sinks' rule above)
       if (isZigBlueprint(rec?.blueprint) && sealedCoreOn() && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true
@@ -28913,7 +28919,8 @@ function turnViewNow (b, now = Date.now()) {
   if (turnMem.view && turnMem.dir === dir && turnMem.me === me && now >= turnMem.at && now - turnMem.at < TURN.readMs) return turnMem.view
   const own = turnOwnNow(dir, me)
   const files = [...projTurnRead(dir, planHomeP(), { now }).filter(f => f.holder !== me), { holder: me, plots: own.plots }]
-  const view = turnView(files, { now, genOf: plot => recordGenNow(dir, projKeyOf(plot)) })
+  // stepwell-03show: the step well's no-progress back-off counts only entries this code version wrote (a release resets its hold)
+  const view = turnView(files, { now, genOf: plot => recordGenNow(dir, projKeyOf(plot)), codeOf: plot => (plot === STEPWELL_PLOT && swAsideOn() ? config.code?.version ?? null : null) })
   turnMem = { at: now, dir, me, view }
   return view
 }
@@ -29022,7 +29029,7 @@ function turnNote (bot, res, args, now = Date.now()) {
     if (oc === 'none') return
     turnMem.at = -Infinity
     const before = turnViewNow(bot, now).get(plot) ?? null
-    turnPut(dir, me, plot, turnAfter(turnOwnNow(dir, me).plots[plot] ?? null, before, oc, { now, stop: res?.stop ?? null, gen, repair: v.repair === true }), now)
+    turnPut(dir, me, plot, turnAfter(turnOwnNow(dir, me).plots[plot] ?? null, before, oc, { now, stop: res?.stop ?? null, gen, repair: v.repair === true, code: plot === STEPWELL_PLOT && swAsideOn() ? config.code?.version ?? null : null }), now)
     if (oc === 'progress' && !turnClaimNeeded(before)) return
     const e = turnViewNow(bot, now).get(plot) ?? null
     const st = activeMem?.states?.find(s => s?.plot === plot) ?? null
@@ -32964,6 +32971,33 @@ function swFellDoneRow (bot, rec, gen) {
     stepwellRow(bot, 'fell_done', { why: `${ph.phase}:pending${ph.pending ?? '?'}/owed${ph.owed}`, n: fellDoneRow(d), ...(d.keys.length ? { at: d.keys[0].split(',').map(Number) } : {}), gen })
   } catch { /* telemetry */ }
 }
+// stepwell-03show (rig run 1, sandbox3 11-20: three builders, the crew's two slots): THE SET-ASIDE PROOFS ARE THE CREW'S. One file per
+// holder, `<key>.aside.<holder>.json` = { v, holder, at, cells: { 'x,y,z': ms } } (the stuck map's rule: a holder writes only its own,
+// a reader merges -- the newest proof per cell). A builder whose sector of a layer is done while the only cell holding the layer is in
+// another builder's sector and proven unreachable by that builder would otherwise end `shared` on that layer forever. Every proof is
+// read again before each scan (stepwellvisit.mjs: asideRefusal, ASIDE_MS), so another bot's proof never lets a cell be left that may
+// not be. Never throws.
+const swAsideFile = (dir, key, me) => path.join(dir, `${key}.aside.${String(me).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function swAsideLoad (dir, key, now = Date.now()) {
+  const m = new Map()
+  try {
+    const pre = `${key}.aside.`
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.startsWith(pre) || !n.endsWith('.json')) continue
+      let j = null
+      try { j = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')) } catch { continue }
+      for (const [k, t] of Object.entries(j?.cells ?? {})) if (/^-?\d+,-?\d+,-?\d+$/.test(k) && Number.isFinite(t) && t <= now + 60_000 && !((m.get(k) ?? -Infinity) >= t)) m.set(k, t)
+    }
+  } catch { /* none read: this visit proves its own */ }
+  return m
+}
+function swAsideSave (dir, key, me, m) {
+  try {
+    const f = swAsideFile(dir, key, me), tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder: me, at: Date.now(), cells: Object.fromEntries(m) }))
+    fs.renameSync(tmp, f)
+  } catch { /* the proofs are this visit's */ }
+}
 /** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
 async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh: rh0, rec: rec0 }, signal) {
   let rh = rh0, rec = rec0   // stepwell-05: the crew's generation is read back
@@ -33103,8 +33137,9 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     e.log = (op, d) => log0(op, op === 'dig' ? { ...d, block: e.lastDug ?? '-' } : d)
     const now = () => Date.now()
     const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
+    const swAside = swAsideOn() ? swAsideLoad(dir, key) : null
     const r = await runIt(() => runStepwellVisit({
-      plan, exit: rec.exit, share,
+      plan, exit: rec.exit, share, aside: swAside,   // stepwell-03show: the crew's set-aside proofs (swAsideLoad)
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
         // stepwell-02: complete only when the descent (if the record has one) stands too
@@ -33120,12 +33155,19 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       },
     }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 }))
     bot.shopDamage = null
+    if (swAside) { bot.stepwellAside = swAside; swAsideSave(dir, key, me, swAside) }   // stepwell-03show: this visit's proofs for the crew
     if (r.placed > 0 || r.dug > 0) { try { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key) } catch { /* the clock */ } }
-    stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}`, ms: Date.now() - t0, gen: rh.head.gen })
+    stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}${r.aside ? `/aside${r.aside}` : ''}`, ms: Date.now() - t0, gen: rh.head.gen })
     const status = r.placed > 0 || r.dug > 0 ? 'success' : 'no_effect'
     // A VISIT THAT DID NOTHING AND STOPPED ON A FAILURE waits the project behind the others (the stair's rule: else it takes a free bot
     // every 2 min and starves the next projects)
-    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'].includes(r.stop)) { try { projStuckWrite(dir, key, me, {}, { stuckAt: Date.now() }) } catch { /* the order asks again */ } }
+    // stepwell-03show: the stamp names the cells passed and the code version that wrote it (projStuckLive: stale on another version, or
+    // once its cells read done)
+    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'].includes(r.stop)) {
+      const at = Date.now()
+      const cells = swAsideOn() ? Object.fromEntries((r.passed ?? []).map(k => [k, { visits: 1, firstAt: at, lastAt: at, by: me }])) : {}
+      try { projStuckWrite(dir, key, me, cells, { stuckAt: at, ...(swAsideOn() ? { code: config.code?.version ?? null } : {}) }) } catch { /* the order asks again */ }
+    }
     const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town; walls are crafted from it)', passed: ' -- the cells passed are tried again from other stands next visit', unsealed: ' -- the water is sealed from another stand next visit (nothing is cut beside it until then)' }[r.stop] ?? ''
     return out(status, r.stop, `${r.why ?? r.stop} at y ${r.y ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}`, { stop: r.stop, placed: r.placed, cleared: r.dug, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (err) {

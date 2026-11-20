@@ -618,17 +618,19 @@ export function stuckAt (dir, key, { holder = null, before = Infinity, stale = n
     const j = readJ(path.join(dir, n))
     const t = Number(j?.stuckAt)
     if (!(Number.isFinite(t) && t > 0 && t <= before && (best == null || t > best))) continue
-    if (typeof stale === 'function') { let s = false; try { s = !!stale(Object.keys(stuckCells(j))) } catch { s = false } if (s) continue }
+    // stepwell-03show: the stamp itself rides along (a rule may read its own fields: the code version that wrote it)
+    if (typeof stale === 'function') { let s = false; try { s = !!stale(Object.keys(stuckCells(j)), j) } catch { s = false } if (s) continue }
     best = t
   }
   return best
 }
 /** Replace THIS HOLDER's stuck map (temp + rename, fsynced) -> true | false (never throws; the caller fails closed on false). */
-export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt = null } = {}) {
+export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt = null, code = null } = {}) {
   try {
     wfs.mkdirSync(dir, { recursive: true })
     const f = stuckFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
-    writeSynced(tmp, JSON.stringify({ v: 2, holder, at: now, stuckAt: Number.isFinite(stuckAt) ? stuckAt : null, cells: cells ?? {} }))
+    // stepwell-03show `code`: the code version that wrote the stamp (absent: as before)
+    writeSynced(tmp, JSON.stringify({ v: 2, holder, at: now, stuckAt: Number.isFinite(stuckAt) ? stuckAt : null, cells: cells ?? {}, ...(code != null ? { code: String(code) } : {}) }))
     wfs.renameSync(tmp, f)
     return true
   } catch { return false }
@@ -650,7 +652,9 @@ const turnOf = j => {
   const plots = {}
   for (const [plot, e] of Object.entries(j.plots)) {
     if (!e || typeof e !== 'object') continue
-    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), rn: Math.max(0, Math.floor(Number(e.rn) || 0)), rnoAt: turnNum(e.rnoAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null }
+    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), rn: Math.max(0, Math.floor(Number(e.rn) || 0)), rnoAt: turnNum(e.rnoAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null,
+      // stepwell-03show (Codex r2 BLOCKER 1): the code version an entry was written under survives the file (projturn.mjs codeOf)
+      ...(typeof e.code === 'string' ? { code: e.code } : {}) }
   }
   return { holder: j.holder, at: Number(j.at) || 0, plots }
 }
