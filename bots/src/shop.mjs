@@ -870,11 +870,12 @@ export function withoutFootprint (m) {
  * THE BILL of the open cells -> { name: n }. Pure. `has(name)` is the bag; the first palette choice, a fallback only when the
  * first is not in the town (`inTown(name)`); '$planks' resolves to `planks` (the town's most-stocked species).
  */
-export function billOf (record, palette, read, { done, inTown = () => true, planks = 'oak_planks' } = {}) {
+export function billOf (record, palette, read, { done, inTown = () => true, planks = 'oak_planks', choice = null } = {}) {
   const out = {}
   for (const c of record?.cells ?? []) {
     if (done(read(...c.at), palette, c.role, c.ws)) continue   // townstyle-01: a state-bearing cell is done in its state only
-    const name = c.role === 'fill' ? 'cobblestone' : resolve(palette, c.role, inTown, planks)
+    // civicroof-01show: a course's chosen name (palchoice.mjs paletteChoice: its first had no source) is what its cells draw
+    const name = c.role === 'fill' ? 'cobblestone' : (choice?.get?.(`${c.at[0]},${c.at[1]},${c.at[2]}`) ?? resolve(palette, c.role, inTown, planks))
     if (name) out[name] = (out[name] ?? 0) + 1
   }
   return out
