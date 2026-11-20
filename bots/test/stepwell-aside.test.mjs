@@ -184,6 +184,74 @@ await t('a cell the bot REACHED and was refused (dig refused) is never set aside
   assert.strictEqual(r.stop, 'passed')
 })
 
+// three floating stands round the cut (the live shape: the bridge's other blocks); `ok(c)` says which walks arrive
+const threeStands = () => { const over = { [kOf(FLOAT)]: 'dirt' }; for (const c of [[9, G + 6, 10], [10, G + 6, 9], [11, G + 6, 10]]) over[kOf(c)] = 'stone'; return over }
+await t('Codex r1 BLOCKER 1: every stand is walked at before a proof -- the THIRD stand arrives, the cut is dug, nothing is set aside', async () => {
+  const P = S.planTank(SITE)
+  const w = world(threeStands())
+  assert.strictEqual(S.standsFor(w.read, P, FLOAT, { feet: START }).length, 3, 'three stands offered')
+  const log = []
+  const e = fakeBot(w, { start: START, log })
+  const tried = []
+  e.walkTo = async c => { tried.push(kOf(c)); if (tried.length < 3) return false; return true }
+  let feet = START
+  e.feet = () => feet
+  const walk0 = e.walkTo
+  e.walkTo = async c => { const ok = await walk0(c); if (ok) feet = [...c]; return ok }
+  const r = await visit(V, P, e, { swAside: true, opsMax: 1 }, { aside: new Map() })
+  assert.strictEqual(r.aside, 0)
+  assert.strictEqual(tried.length, 3)
+  assert.strictEqual(w.get(FLOAT), 'air', 'the cut was dug from the third stand')
+})
+await t('...and when all three walks fail the cell is proven (walk_failed) and set aside', async () => {
+  const P = S.planTank(SITE)
+  const w = world(threeStands())
+  const log = []
+  const e = fakeBot(w, { start: START, log })
+  const tried = []
+  e.walkTo = async c => { tried.push(kOf(c)); return false }
+  const r = await visit(V, P, e, { swAside: true, opsMax: 5 }, { aside: new Map() })
+  assert.deepStrictEqual(tried.slice(0, 3).sort(), [[9, G + 7, 10], [10, G + 7, 9], [11, G + 7, 10]].map(kOf).sort(), 'the cut\'s three stands first')
+  // (every walk fails in this world, so other cells are proven too: the floating cut is the first)
+  const sa = log.filter(q => q[0] === 'set_aside')
+  assert.deepStrictEqual([kOf(sa[0][1].at), sa[0][1].why], [kOf(FLOAT), 'walk_failed'])
+  assert.ok(r.aside >= 1)
+})
+await t('POSITIVE CONTROL (SWASIDE off): the same three stands, two walks, the cell passed -- the old rule', async () => {
+  const P = S.planTank(SITE)
+  const e = fakeBot(world(threeStands()), { start: START })
+  const tried = []
+  e.walkTo = async c => { tried.push(kOf(c)); return false }
+  const r = await visit(V, P, e, { swAside: false }, { aside: new Map() })
+  assert.strictEqual(tried.length, 2); assert.strictEqual(r.stop, 'passed')
+})
+await t('Codex r1 BLOCKER 2: a set-aside cell that turns to SAND mid-visit is revoked; nothing more is dug below it', async () => {
+  const P = S.planTank(SITE)
+  const w = world({ [kOf(FLOAT)]: 'dirt' })
+  const log = []
+  const e = fakeBot(w, { start: START, log })
+  const dig0 = e.dig
+  let n = 0, after = -1
+  e.dig = async c => { const r = await dig0(c); if (++n === 1) { w.set(FLOAT, 'sand'); after = log.length } return r }
+  const r = await visit(V, P, e, { swAside: true }, { aside: new Map([[kOf(FLOAT), 0]]) })
+  const rev = log.filter(q => q[0] === 'aside_revoked')
+  assert.deepStrictEqual(rev.map(q => [kOf(q[1].at), q[1].why]), [[kOf(FLOAT), 'falling']])
+  const below = log.slice(after).filter(q => q[0] === 'dig' && q[1][1] < FLOAT[1])
+  assert.strictEqual(below.length, 0, `dug below the revoked cell: ${below.length}`)
+  assert.strictEqual(r.stop, 'passed')
+})
+await t('...a set-aside cell dug open since is simply done (no revoke row)', async () => {
+  const P = S.planTank(SITE)
+  const w = world({ [kOf(FLOAT)]: 'dirt' })
+  const log = []
+  const e = fakeBot(w, { start: START, log })
+  const dig0 = e.dig
+  let n = 0
+  e.dig = async c => { const r = await dig0(c); if (++n === 1) w.set(FLOAT, 'air'); return r }
+  await visit(V, P, e, { swAside: true, opsMax: 30 }, { aside: new Map([[kOf(FLOAT), 0]]) })
+  assert.strictEqual(log.filter(q => q[0] === 'aside_revoked').length, 0)
+})
+
 console.log('MUTANTS (each guard, anchored)')
 await t('mutant: falling blocks allowed -> the sand cut is set aside (the falling guard is what holds it)', async () => {
   await withMutant(SW_PATH, "  if (isFalling(b)) return 'falling'", '  void 0', async M => {
@@ -200,7 +268,7 @@ await t('mutant: the neighbour liquid check removed -> a cut beside water may be
   })
 })
 await t('mutant: any refusal counted as a proof -> a reached, refused cell is set aside', async () => {
-  await withMutant(SV_PATH, "    if (!own && (why === 'no_stand' || why === 'walk_failed')) unreach.set(k, why)", "    if (!own) unreach.set(k, 'no_stand')", async M => {
+  await withMutant(SV_PATH, "    if (proof) unreach.set(k, walkFails.get(k) ? 'walk_failed' : why)\n    else unreach.delete(k)", "    unreach.set(k, 'no_stand')", async M => {
     const P = S.planTank(SITE)
     const over = { [kOf(FLOAT)]: 'dirt' }
     for (let y = G + 1; y < FLOAT[1]; y++) over[kOf([9, y, 10])] = 'stone'
@@ -208,7 +276,7 @@ await t('mutant: any refusal counted as a proof -> a reached, refused cell is se
     const dig0 = e.dig
     e.dig = async c => (kOf(c) === kOf(FLOAT) ? 'refused' : dig0(c))
     const r = await visit(M, P, e, { swAside: true }, { aside: new Map() })
-    assert.strictEqual(r.aside, 1, 'the mutant sets it aside: the guard is what kept it')
+    assert.ok(r.aside >= 1, 'the mutant sets it aside: the guard is what kept it')
   })
 })
 await t('mutant: the set-aside step removed -> the floating cut ends the visit passed again (the LIVE dead end)', async () => {
@@ -223,6 +291,30 @@ await t('mutant: firstUndoneUnit blind to the set-aside -> the loop ends passed 
     const P = S.planTank(SITE)
     const r = await visit(M, P, fakeBot(world({ [kOf(FLOAT)]: 'dirt' }), { start: START }), { swAside: true }, { aside: new Map() })
     assert.strictEqual(r.dug, 0)
+  })
+})
+
+await t('mutant: a failed walk counted at once (no stand exhaustion) -> the third stand is never tried', async () => {
+  await withMutant(SV_PATH, "            if (nw < ASIDE_WALKS) { e.log('refused', { at: op.at, why: 'walk_failed' }); continue }", '            void nw', async M => {
+    const P = S.planTank(SITE)
+    const e = fakeBot(world(threeStands()), { start: START })
+    const tried = []
+    e.walkTo = async c => { tried.push(kOf(c)); return tried.length >= 3 }
+    await visit(M, P, e, { swAside: true, opsMax: 1 }, { aside: new Map() })
+    assert.strictEqual(tried.length, 2)
+  })
+})
+await t('mutant: no revalidation -> digs continue below the cell turned to sand', async () => {
+  await withMutant(SV_PATH, "        if (why == null) continue\n        aside.delete(k)", "        continue", async M => {
+    const P = S.planTank(SITE)
+    const w = world({ [kOf(FLOAT)]: 'dirt' })
+    const log = []
+    const e = fakeBot(w, { start: START, log })
+    const dig0 = e.dig
+    let n = 0, after = -1
+    e.dig = async c => { const r = await dig0(c); if (++n === 1) { w.set(FLOAT, 'sand'); after = log.length } return r }
+    await visit(M, P, e, { swAside: true }, { aside: new Map([[kOf(FLOAT), 0]]) })
+    assert.ok(log.slice(after).filter(q => q[0] === 'dig' && q[1][1] < FLOAT[1]).length > 0)
   })
 })
 

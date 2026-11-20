@@ -87,7 +87,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const { r, rows, secs } = await replayVisit({ rec, read0, over, from, budgetS, asideMem, clock0: clockAt, log: (op, d) => { if (op === 'set_aside' || (!quiet && (op === 'refused' || op === 'walk' && !d.ok))) console.log(`   ${op} ${JSON.stringify(d)}`) } })
     clockAt += 20 * 60   // the next visit 20 min later (the turn's base back-off)
     const read = (x, y, z) => over.get(`${x},${y},${z}`) ?? read0(x, y, z)
-    const w = S.firstUndoneUnit(read, plan)
+    const w = S.firstUndoneUnit(read, plan, { aside: new Set(asideMem?.keys() ?? []) })   // the first unit the next visit works (its set-aside cells aside)
     const walks = rows.filter(q => q.op === 'refused').length
     console.log(`visit ${v}: stop=${r.stop} why=${r.why ?? '-'} y=${r.y ?? '-'} dug=${r.dug} placed=${r.placed} ops=${r.ops} skipped=${r.skipped} refused=${walks} aside=${r.aside} tiers=${r.tiers.join('+') || '-'} sim_s=${secs} wall_ms=${Date.now() - t0} | next unit ${w ? `i=${w.i} y=${w.unit.y}` : 'none'}`)
     if (r.stop === 'complete') break
