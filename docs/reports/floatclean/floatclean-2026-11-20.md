@@ -103,7 +103,8 @@ the region files, `plugins/CoreProtect/database.db` and the pool.
   - r2: 1 blocker (the plan head is `head.plan`). Fixed.
   - r3: NO BLOCKERS.
   - r4 (structural and try fixes): NO BLOCKERS.
-  - r5 (the other-body rule): see the push note.
+  - r5 (the other-body rule): 1 blocker (a wide mob's middle column was left out). Fixed in r6 with the pure `floorKeys`.
+  - r6: NO BLOCKERS.
 - **Tests.** `bots/test/floatclean.test.mjs`, 16 tests. They cover the verdict, the survey (a natural overhang is never listed),
   and the composed chain on the real visit loop: a beam over a pit taken top down from the rim, never from the beam; the held
   cells; the middle set aside after two laps; the bot left on the beam digs nothing; another body's block waits. They also check
@@ -112,6 +113,9 @@ the region files, `plugins/CoreProtect/database.db` and the pool.
   floatclean's lines (boardwalk3, shop, keeperstall, plus ledger, which passes alone). They are fixed in 327700ad.
   The failures on both base and head are nothing-important-is-orphaned (`bagdiet.test.mjs` is not on this base), plinth-skill,
   protected-paths and well.
+- **Final full suite** at f93629d6 on ci3: **552/555**. The 3 failures are lavastep, nothing-important-is-orphaned and well, and
+  all three fail on the base too (ci4, db59a782). The r6 change since is one pure function: floatclean, boardwalk3, keeperstall,
+  shop, upkeep and buildrun pass on it.
 
 ## Open
 
