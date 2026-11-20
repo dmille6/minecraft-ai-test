@@ -2574,7 +2574,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // walk that arrived and finds nothing takeable is a MISS: its find is marked gone for every bot (atlas.mjs gone)
     if (walkPending) {
       const w = walkPending; walkPending = null
-      const gone = missIsGone({ via: w.via, arrived: w.arrived, found: positions.length }) && !!w.find && bot.atlas?.gone?.(w.find) === true
+      const gone = missIsGone({ via: w.via, arrived: w.arrived, found: positions.length, capped: w.capped }) && !!w.find && bot.atlas?.gone?.(w.find) === true
       try { logEvent({ kind: 'gather_walk', status: positions.length ? 'success' : 'failed', snapshot: snapshot(bot), detail: walkRowDetail({ ...w, found: positions.length, gone }) }) } catch { /* telemetry */ }
     }
     // CLEANZONE-02: THE REMEDY IS PERFORMED. The clean zone emptied this search (it skipped ground and nothing else was in
@@ -2672,7 +2672,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         const at = bot.entity?.position ?? null
         const reached = !!at && Math.hypot(at.x - to.x, at.z - to.z) <= 6
         try { logEvent({ kind: 'gather_built', status: reached ? 'success' : 'failed', snapshot: snapshot(bot), detail: builtRowDetail({ op: 'walk', block: blockName, skipped: builtSkippedNow, from, to, reached, ms: Date.now() - t0, err: walkErr }) }) } catch { /* telemetry */ }
-        walkPending = { via: tgt.via, block: blockName, from, to, dist: tgt.dist, arrived: reached, ms: Date.now() - t0, built: builtSkippedNow, cave: caveNow.length, find: tgt.find ?? null, err: walkErr }
+        walkPending = { via: tgt.via, block: blockName, from, to, dist: tgt.dist, arrived: reached, ms: Date.now() - t0, built: builtSkippedNow, cave: caveNow.length, find: tgt.find ?? null, capped: tgt.capped === true, err: walkErr }
         continue
       }
     }

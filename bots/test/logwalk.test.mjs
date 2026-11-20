@@ -77,6 +77,7 @@ await ta('missIsGone / walkMsFor / walkSpentRemedy', () => {
   assert.equal(GB.missIsGone({ via: 'atlas', arrived: false, found: 0 }), false, 'not arrived: unknown, not gone')
   assert.equal(GB.missIsGone({ via: 'atlas', arrived: true, found: 2 }), false)
   assert.equal(GB.missIsGone({ via: 'step', arrived: true, found: 0 }), false, 'a step walk has no find')
+  assert.equal(GB.missIsGone({ via: 'atlas', arrived: true, found: 0, capped: true }), false, 'a capped point short of the find: the find is not gone (r1 BLOCKER)')
   assert.equal(GB.walkMsFor(25), GB.BUILT_WALK_MS); assert.equal(GB.walkMsFor(96), 57_600); assert.equal(GB.walkMsFor(1e6), GB.WALK_MS_MAX)
   assert.equal(GB.walkSpentRemedy({ block: 'spruce_log', walked: 0 }), '')
   assert.match(GB.walkSpentRemedy({ block: 'spruce_log', walked: 1, to: { x: 37, z: 0 }, next: { x: 62, z: 0 } }), /walked out 1 time\(s\) \(to 37,0\) .*goto x=62 z=0/)
@@ -234,6 +235,24 @@ await ta('CHAIN (miss): an atlas walk that arrives where the tree was felled -> 
     assert.match(rows[0], /^failed via=atlas .* arrived=1 found=0 .* gone=1/)
     assert.equal(r.status, 'failed')
   } finally { untap() }
+})
+await ta('CHAIN (capped, r1 BLOCKER): a find 200 out -> 96 blocks toward it, nothing there -> the find NOT marked gone', async () => {
+  const { rows, untap } = rowsOf('_gather_walk')
+  try {
+    const far = F(0, 200)
+    const { bot, gone } = townWorld({ house: HOUSE, cave: CAVE, trees: [[0, 30, 200]], finds: [far] })
+    await runGather(SK, bot)
+    assert.equal(bot.walks.length, 1); assert.ok(Math.abs(bot.walks[0][1] - 98) <= 2, `capped toward it: ${JSON.stringify(bot.walks)}`)
+    assert.deepEqual(gone, [], 'a live tree 100 blocks past the cap point is not gone')
+    assert.match(rows[0], /^failed via=atlas .* arrived=1 found=0 /); assert.doesNotMatch(rows[0], /gone=1/)
+  } finally { untap() }
+})
+await ta('MUTANT KILLED (r1): the capped flag dropped from the miss -> the far live find marked gone', async () => {
+  await withMutant(SK_URL, 'found: positions.length, capped: w.capped }) &&', 'found: positions.length }) &&', async S => {
+    const { bot, gone } = townWorld({ house: HOUSE, cave: CAVE, trees: [[0, 30, 200]], finds: [F(0, 200)] })
+    await runGather(S, bot)
+    assert.equal(gone.length, 1)
+  })
 })
 await ta('CHAIN (not arrived): the atlas walk finds no path -> not gone (unknown), the refusal', async () => {
   const { bot, gone } = townWorld({ house: HOUSE, cave: CAVE, trees: TREE, finds: [FIND], walkTo: 'noPath' })

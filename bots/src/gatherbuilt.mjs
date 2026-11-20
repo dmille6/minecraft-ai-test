@@ -119,8 +119,9 @@ export function walkTargetFor ({ from, home = null, cells = [], finds = [], kind
   return p ? { x: p.x, z: p.z, dist: Math.round(Math.hypot(p.x - from.x, p.z - from.z)), via: 'step' } : null
 }
 
-/** A MISS: an atlas walk that arrived and whose search found nothing takeable. Its find is marked gone. Pure. */
-export const missIsGone = ({ via, arrived, found } = {}) => via === 'atlas' && arrived === true && Number(found) === 0
+/** A MISS: an atlas walk that arrived AT THE FIND (not a capped point short of it: Codex + Claude r1 BLOCKER) and whose search found
+ *  nothing takeable. Its find is marked gone. Pure. */
+export const missIsGone = ({ via, arrived, found, capped = false } = {}) => via === 'atlas' && arrived === true && capped !== true && Number(found) === 0
 
 /** What the cave refusal adds once the walks are spent: the walk made and a point further out (a `goto` the bot can make). Pure. */
 export function walkSpentRemedy ({ block, walked = 0, to = null, next = null } = {}) {
