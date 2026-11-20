@@ -690,7 +690,7 @@ await t('roadsite r3: STRUCTURE -- the road kit draws the town\'s lanterns BEFOR
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const kit = src.slice(src.indexOf('async function roadKit'), src.indexOf('\nfunction ', src.indexOf('async function roadKit')))
   const draw = kit.indexOf("await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown }))")
-  const lack = kit.indexOf("const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - countItem(bot, 'lantern'))")
+  const lack = kit.indexOf("const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - drawn)")
   const craftAt = kit.indexOf("await craft(ctx, { item: 'lantern', count: k }, signal)")
   assert.ok(draw > 0 && lack > draw && craftAt > lack, `draw ${draw} lacking ${lack} craft ${craftAt}`)
   assert.ok(/const fromTown = roadLanternDraw\(Math\.min\(ROAD_KIT_MAX, nd\.lantern\), spareLanterns\)/.test(kit))
