@@ -378,6 +378,21 @@ await t('pitBankOrder: the storehouse\'s dirt column first, then chests already 
   assert.equal(P.pitBankDue(40), 0, 'under the keep + bankMin'); assert.equal(P.pitBankDue(60), 44); assert.equal(P.pitBankDue(20, { final: true }), 4); assert.equal(P.pitBankDue(10, { final: true }), 0)
 })
 
+await t('pitBankSteps: a single 48-stack with a 16 keep banks (halves); whole stacks first; never below the keep; never past n', () => {
+  const sum = st => st.reduce((t, x) => t + x.count, 0)
+  const one = P.pitBankSteps([{ slot: 36, name: 'dirt', count: 48 }], 32, 16)
+  assert.ok(sum(one) > 0 && sum(one) <= 32, JSON.stringify(one)); assert.ok(one.every(x => x.half && x.from === 48 - (one.indexOf(x) ? 24 : 0)))
+  assert.deepEqual(P.pitBankSteps([{ slot: 1, name: 'dirt', count: 64 }, { slot: 2, name: 'dirt', count: 40 }, { slot: 3, name: 'cobblestone', count: 64 }], 88, 16), [{ slot: 1, name: 'dirt', count: 64 }, { slot: 2, name: 'dirt', count: 20, from: 40, half: true }])
+  assert.deepEqual(P.pitBankSteps([{ slot: 1, name: 'dirt', count: 16 }], 10, 16), [], 'the keep')
+  for (const [bag, n] of [[[{ slot: 1, name: 'dirt', count: 64 }, { slot: 2, name: 'dirt', count: 7 }], 30], [[{ slot: 1, name: 'dirt', count: 33 }], 100]]) {
+    const st = P.pitBankSteps(bag, n, 16); const tot = bag.reduce((t, x) => t + x.count, 0)
+    assert.ok(sum(st) <= n && tot - sum(st) >= 16, JSON.stringify(st))
+  }
+})
+await t('MUTANT: whole stacks only (the halves gone) -- a single 48-stack banks nothing (killed)', async () => {
+  await killed('    while (it.cur > 1 && Math.ceil(it.cur / 2) <= left) {', '    while (false) {', M => { assert.ok(M.pitBankSteps([{ slot: 36, name: 'dirt', count: 48 }], 32, 16).length > 0) })
+})
+
 console.log('THE WIRING (structural: the skill is registered, the guard and the gate are what the visit runs, the prune hold, the fill split)')
 const strip = s => s.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*\*)/.test(l)).map(l => l.replace(/\s\/\/ .*$/, '')).join('\n')
 const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
@@ -385,6 +400,7 @@ await t('skills.mjs: the order dispatches the pit; the visit digs pitView with p
   assert.equal(SK.split("if (proj.plot === PIT_PLOT) return buildPit(ctx, args, signal)").length, 2)
   const call = SK.slice(SK.indexOf('const r = await runVisit({ dir, key, me, home: root'), SK.indexOf('const dug = Math.max(0, countItem(bot, \'dirt\') - dirt0)'))
   assert.ok(call.length > 100 && call.length < 1200, `the pit's runVisit call (${call.length})`)
+  assert.ok(SK.includes("bag => pitBankSteps(bag, want, PIT.keep), 'pit_bank')"), 'the bank clicks pitBankSteps')
   for (const part of ['record: pitView(rec, now0)', 'clearPart: pitClearPart(now0.half)', 'clearOk: (q, rd) => pitClearOk(q, rd)', 'clearMax: cap']) assert.ok(call.includes(part), part)
   assert.match(SK, /if \(p\.plot === PIT_PLOT && !rec\?\.structure_complete && !pitDemandNow\(b, now\)\.dig\) return/)
   assert.match(SK, /if \(pitHoldsDirt\(bot\)\) avail\.dirt = 0/)
