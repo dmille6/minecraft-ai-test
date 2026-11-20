@@ -35,6 +35,8 @@
 // YARD=off is the kill switch (never offered, never sited). On only in YARD_POOLS (default 'showcase') until a fleet rollout.
 
 import { rot } from './townplan.mjs'
+import { SAPLING_RESERVE } from './composter.mjs'   // saplingkeep-01show: the row keeps planting's floor (composter.mjs's own)
+import { partialKeep } from './bagfix.mjs'
 
 export const YARD_PLOT = 'yard'
 export const YARD_BLUEPRINT = 'yard@1'
@@ -220,9 +222,22 @@ export const overCapDetail = ({ name = '-', n = 0, lanes = 0, cap = 0, to = 'wel
 export const ROW_KINDS = Object.freeze(['wheat_seeds', 'sugar_cane', 'stick', 'sapling', 'iron_nugget', 'clay_ball', 'snowball'])
 /** The row kind a name belongs to -> kind | null. Every sapling and propagule shares one chest. Pure. */
 export const rowKindOf = name => (typeof name !== 'string' ? null : /(_sapling|_propagule)$/.test(name) ? 'sapling' : ROW_KINDS.includes(name) ? name : null)
-/** What a bag keeps of a row name (the kit: seeds and cane 16 -- bagfix.mjs TRIM_KIT_KEEP -- sticks 8, saplings 4 a species). Pure. */
-export const ROW_BAG_KEEP = Object.freeze({ wheat_seeds: 16, sugar_cane: 16, stick: 8, sapling: 4 })
+/** What a bag keeps of a row name (the kit: seeds and cane 16 -- bagfix.mjs TRIM_KIT_KEEP -- sticks 8, saplings composter.mjs
+ *  SAPLING_RESERVE (16) a species). Pure.
+ *  SAPLINGKEEP-01SHOW (11-20): the keep was 4 a species. Planting (workorder.mjs plantingOrder) fires only for a species held ABOVE
+ *  PLANT_RESERVE (8), so a row that banks down to 4 switches planting off: 117 saplings banked 13:53-14:34Z and plant orders fell from
+ *  6-16 an hour to ~0. The keep is now the composter's own sapling reserve (one constant, so the two cannot drift), and it is HARD
+ *  (ROW_HARD_KINDS): the partial-slot rule at 30+ kinds never lowers it. */
+export const ROW_BAG_KEEP = Object.freeze({ wheat_seeds: 16, sugar_cane: 16, stick: 8, sapling: SAPLING_RESERVE })
 export const rowKeepOf = name => ROW_BAG_KEEP[rowKindOf(name)] ?? 0
+/** The row kinds whose keep the partial-slot rule never lowers (saplings: planting's floor). */
+export const ROW_HARD_KINDS = Object.freeze(new Set(['sapling']))
+/** The bag's keep of one row name under the partial-slot rule (bagfix.mjs partialKeep: one partial slot under its keep may leave a
+ *  bag at 30+ kinds) -> n. A hard kind (ROW_HARD_KINDS) keeps rowKeepOf whole. `trim` as partialKeep's (undefined: BAGFIX.trim). Pure. */
+export function rowPartialKeep (name, { slots = 0, copies = 0, total = 0, stack = 64, trim } = {}) {
+  const o = { slots, copies, total, keep: rowKeepOf(name), stack, hard: ROW_HARD_KINDS.has(rowKindOf(name)) }
+  return partialKeep(trim === undefined ? o : { ...o, trim })
+}
 /** THE ROW'S CELLS of a yard record -> [[x, y, z]] in order: the rear floor row (v = the footprint's last), every other u from 1, one
  *  above the floor, never a cell the blueprint builds on (a light). Pure. */
 export function rowCells (rec, bp) {

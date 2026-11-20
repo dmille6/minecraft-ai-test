@@ -205,6 +205,7 @@ import { fellCanopy as whFellCanopy } from './fellcanopy.mjs'   // whsite-01: th
 import { WAREHOUSE, whHallLayout, whRows, whChestKinds, whHomes, whSectionOf, whTakes, whDepositOrder, whRoom, whPlace, whKindOf, whRecord, warehouseModeDetail, whFullFor, whFailUpdate, whEligible, whLabel, whAllFailed, whTryResult, whCargoRoutes } from './warehouse.mjs'   // warehouse-01: the columns per kind
 import { hubChestsOf, HALL_LAYOUT, hubSectionOf } from './storehub.mjs'   // warehouse-01: the old hall as a layout
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
+import { rowPartialKeep } from './yard.mjs'   // saplingkeep-01show
 import { kindRoom, guardStockDig, laneStale, rowFullKeys, rowHasRoom, ROW_FULL_MS } from './yard.mjs'   // Codex r2
 import { leasedPileCells, yardRestMs, yardsWanted, YARD_PLOTS_ALL } from './yard.mjs'   // Codex r1 BLOCKERS 1, 6; Paper proof 11-17
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
@@ -22215,7 +22216,7 @@ function yardRowKeepsNow (bot) {
       if (shares.has(name) || (wanted.has(name) && !clearActive(BAGFIX))) { out[name] = Infinity; continue }
       if (clearActive(BAGFIX)) { out[name] = 0; continue }   // bagclear: regardless of keeps
       const copies = items.filter(i => i?.name === name)
-      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: rowKeepOf(name), stack: copies[0]?.stackSize ?? 64 })
+      out[name] = rowPartialKeep(name, { slots: items.length, copies: copies.length, total: counts[name] ?? 0, stack: copies[0]?.stackSize ?? 64 })   // saplingkeep-01show: a sapling's keep is hard
     }
     return out
   } catch { return {} }

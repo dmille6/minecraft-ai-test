@@ -256,7 +256,7 @@ await t('the row: seeds, cane, sticks, saplings (one chest for every species), n
   assert.deepEqual([...Y.ROW_KINDS], ['wheat_seeds', 'sugar_cane', 'stick', 'sapling', 'iron_nugget', 'clay_ball', 'snowball'])
   assert.equal(Y.rowKindOf('spruce_sapling'), 'sapling'); assert.equal(Y.rowKindOf('mangrove_propagule'), 'sapling'); assert.equal(Y.rowKindOf('wheat_seeds'), 'wheat_seeds')
   assert.equal(Y.rowKindOf('cobblestone'), null, 'a block is a lane\'s'); assert.equal(Y.rowKindOf(null), null)
-  assert.deepEqual(['wheat_seeds', 'sugar_cane', 'stick', 'oak_sapling', 'iron_nugget', 'clay_ball'].map(Y.rowKeepOf), [16, 16, 8, 4, 0, 0])
+  assert.deepEqual(['wheat_seeds', 'sugar_cane', 'stick', 'oak_sapling', 'iron_nugget', 'clay_ball'].map(Y.rowKeepOf), [16, 16, 8, 16, 0, 0])
   assert.deepEqual([ON.row, ON.rowCap, ON.rowMin], [true, 2, 8])
   assert.equal(Y.laneSettings({ YARD: 'on', YARD_ROW: 'off' }).row, false)
   assert.deepEqual([Y.laneSettings({ YARD: 'on', YARD_ROW_CAP: '3', YARD_ROW_MIN: '4' }).rowCap, Y.laneSettings({ YARD: 'on', YARD_ROW_CAP: '3', YARD_ROW_MIN: '4' }).rowMin], [3, 4])
@@ -301,11 +301,11 @@ await t('THE CHAIN: a kind\'s first chest is PLACED from the carried chests and 
   assert.equal(Y.rowPlan({ ...P0, lanes: Y.laneSettings({ YARD: 'on', YARD_ROW: 'off' }) }).why, 'off')
   assert.equal(Y.rowPlan({ ...P0, lanes: OFF }).why, 'off')
 })
-await t('the steps: whole stacks while the keep stays, then HALVES (60 seeds with 16 kept: 30 go; 64 + 20: the 20, then 32); saplings keep 4 a species', () => {
+await t('the steps: whole stacks while the keep stays, then HALVES (60 seeds with 16 kept: 30 go; 64 + 20: the 20, then 32); saplings keep 16 a species (saplingkeep-01show)', () => {
   const b = (...xs) => xs.map(([name, count], i) => ({ name, count, slot: 9 + i }))
   assert.deepEqual(Y.rowSteps(b(['wheat_seeds', 60]), { wheat_seeds: 44 }, {}, TDm.logHalfSteps), [{ slot: 9, count: 30, from: 60, half: true, name: 'wheat_seeds' }])
   assert.deepEqual(Y.rowSteps(b(['wheat_seeds', 64], ['wheat_seeds', 20]), { wheat_seeds: 68 }, {}, TDm.logHalfSteps).map(s => [s.slot, s.count, !!s.half]), [[10, 20, false], [9, 32, true], [9, 16, true]])
-  assert.deepEqual(Y.rowSteps(b(['spruce_sapling', 10], ['oak_sapling', 3]), { spruce_sapling: 6 }, {}, TDm.logHalfSteps).map(s => [s.name, s.count]), [['spruce_sapling', 5]], '10 -> 5 banked, 5 kept (never under 4)')
+  assert.deepEqual(Y.rowSteps(b(['spruce_sapling', 5], ['spruce_sapling', 20], ['oak_sapling', 3]), { spruce_sapling: 9 }, {}, TDm.logHalfSteps).map(s => [s.name, s.count]), [['spruce_sapling', 5]], '25 -> 5 banked, 20 kept (never under 16)')
   assert.deepEqual(Y.rowSteps(b(['clay_ball', 20]), { clay_ball: 20 }, {}, TDm.logHalfSteps), [{ slot: 9, name: 'clay_ball', count: 20 }], 'no keep: the whole stack')
   assert.deepEqual(Y.rowSteps(b(['wheat_seeds', 12]), { wheat_seeds: 12 }, { wheat_seeds: 0 }, TDm.logHalfSteps).length, 1)
   const rows = Y.rowAssign([], [1, 2, 3], 'stick')
