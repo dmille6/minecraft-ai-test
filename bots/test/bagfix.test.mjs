@@ -601,7 +601,8 @@ await t('MUTANTS KILLED (C): the kit keep at 64; the rule under 30; the rule on 
   await killedBy(BAGFIX_PATH, BF, ' || !(Number(slots) >= TRIM_SLOTS) || copies !== 1', ' || !(Number(slots) >= TRIM_SLOTS)', rule)
   await killedBy(BAGFIX_PATH, BF, '  if (!trim || hard || ', '  if (!trim || ', rule)
   await killedBy(BAGFIX_PATH, BF, ' || !(total < stack) || ', ' || ', rule)
-  await killedBy(TD_PATH, TD, "hard: n => why[n] === 'wanted' || why[n] === 'scaffold_reserve'", 'hard: () => false', M => assert.deepEqual(M.townDepositPlan(bag({ sugar_cane: 12, ...filler(30) }), { wanted: ['sugar_cane'], room: true }).steps.filter(s => s.room && s.name === 'sugar_cane'), []))
+  await killedBy(TD_PATH, TD, "hard: n => HARD_KEEP_RULES.has(why[n]),", 'hard: () => false,',   // nostock-01show: the room layer's hard set is HARD_KEEP_RULES
+    M => assert.deepEqual(M.townDepositPlan(bag({ sugar_cane: 12, ...filler(30) }), { wanted: ['sugar_cane'], room: true }).steps.filter(s => s.room && s.name === 'sugar_cane'), []))
   await killedBy(TD_PATH, TD, '      (!IRON_LADDER.includes(n) || trimBankable(n)) && ', '      !IRON_LADDER.includes(n) && ', M => assert.equal(M.townDepositPlan(bag({ iron_nugget: 73 }), { wanted: [], room: true }).steps.filter(s => s.room).length, 2))
   await killedBy(BAGROOM_PATH, BR, 'const k = partialKeep({ slots: list.length, copies: copies.length, total, keep: k0,', 'const k = k0; void ({ slots: list.length, copies: copies.length, total, keep: k0,',
     M => assert.equal(M.roomBankSteps(bag({ sugar_cane: 12, ...filler(30) }), { eligible: n => n === 'sugar_cane', keep: {} }).length, 1))

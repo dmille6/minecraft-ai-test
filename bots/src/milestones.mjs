@@ -147,6 +147,19 @@ function countMySightings(worldFacts, minDist) {
 export const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
               'dark_oak_log', 'mangrove_log', 'cherry_log']
 
+// NOSTOCK-01show (OWNER 11-16 "we should not use idle bots to just collect random items"; docs/reports/gather-diag-2026-11-20.md
+// section 2): the gatherer chain's held counts (16 dirt, 12 logs, 8 sand, 8 cobblestone) are personal stock with no consumer, and
+// refresh()'s re-entry re-opened them every time a count dropped (the build spends them). Where NOSTOCK is on (the showcase: the
+// yard's lanes and the refill jobs) they are STEPPED OVER -- `done`, never `fulfilled` (rungOf's bypass: a step-over is not a
+// completion) -- so the chain neither lands on them nor re-enters for them. A gather is then asked only by a rung or job that names
+// its consumer: the refill job (the yard's draws), a project's bill, the iron ladder and the mine crew, the kit base's tools.
+// NOSTOCK off (the fleet): exactly as before. `noStockNow` reads NOSTOCK at call time (declared further down this file).
+let noStockNow = () => NOSTOCK.on
+/** Tests only: force the switch (true/false), or null to read NOSTOCK again. */
+export function setNoStock (v) { noStockNow = typeof v === 'boolean' ? () => v : () => NOSTOCK.on }
+/** A held-count rung that is stock: stepped over (done, not fulfilled) while the switch is on. */
+const stockRung = base => ({ ...base, stock: true, fulfilled: base.done, done: (b, ...rest) => noStockNow() || base.done(b, ...rest) })
+
 const M = {
   gather: (block, n, why) => ({
     // `wants` is what the admission gate reads to decide an action may not
@@ -380,7 +393,7 @@ export const MILESTONES_BY_ROLE = {
   // Bulk hand-mineable material. Deliberately simple, so it is the control
   // case: if THIS bot struggles, the problem is the skill layer, not the goal.
   gatherer: [
-    M.gather('dirt', 16, 'Hand-mineable building material.'),
+    stockRung(M.gather('dirt', 16, 'Hand-mineable building material.')),
     // THE ONLY RUNG CHANGED, and it is the only one that runs: measured
     // 2026-09-21, ALL 80 bots carry role `gatherer`, so the scout and miner
     // ladders above reach nobody and were left exactly as they were.
@@ -400,9 +413,9 @@ export const MILESTONES_BY_ROLE = {
     // to runs where the SAME bot had seen both species in one affordance scan
     // within 180 s: oak 13.9% success over 3,302 runs, birch 38.6% over 132 --
     // 2.8x, while the fleet asked oak 25:1.
-    M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12'),
-    M.gather('sand', 8, 'Found near water.'),
-    M.gather('cobblestone', 8, 'Needs a pickaxe; expect this to be hard without one.'),
+    stockRung(M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12')),
+    stockRung(M.gather('sand', 8, 'Found near water.')),
+    stockRung(M.gather('cobblestone', 8, 'Needs a pickaxe; expect this to be hard without one.')),
   ],
 }
 
@@ -490,7 +503,7 @@ function capCount (b, name, rungItem) {
 const rungOf = (base, hasMeans) =>
   // `fulfilled` is the rung ACTUALLY met; `done` also steps over a rung the bot has no means for. Only the first
   // resets the rung's skipCount (Codex review: a bypass is not a completion).
-  ({ ...base, fulfilled: base.done, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
+  ({ ...base, fulfilled: base.fulfilled ?? base.done, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
 const ladder = (item, n, why, hint, hasMeans) =>
   rungOf(M.craft(item, n, why, hint), hasMeans)
 /** The same wrapper over a furnace rung, so iron obeys the identical rule. */
@@ -760,9 +773,24 @@ export const REFILL_RUNG = Object.freeze({
 // the town deposit keeps -- so a deposit down to it never re-opens this rung. Stone keeps STOCKPILE_MAX.
 export const woodStockpileTarget = n => stockpileTarget(8, 4, n, WOOD_KEEP)
 
+// nostock-01show: THE KIT BASE'S CONSUMER, NAMED. The two stockpile rungs kept their base under REFILL-01 because the ladder
+// consumes it (a table, sticks, a pickaxe; a furnace). Where NOSTOCK is on, the base is asked only while that consumer exists:
+// wood while the bag lacks a crafting table or a working pickaxe, stone while it lacks a furnace or a stone-or-better pickaxe.
+// A bot that holds its kit is not sent for logs or cobblestone to hold (the gather-diag's `Stockpile 8 logs`, 149 prompts in 3.5 h).
+const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe']
+const hasPick = (b, from = 0) => PICKS.slice(from).some(n => capCount(b, n, n) >= 1)
+/** Does the kit still consume this stock? Pure over the bag. kind: 'wood' | 'stone'. */
+export function kitNeeds (b, kind) {
+  if (kind === 'wood') return countItem(b, 'crafting_table') < 1 || !hasPick(b, 0)
+  if (kind === 'stone') return countItem(b, 'furnace') < 1 || !hasPick(b, 1)
+  return true
+}
+/** A kit-base stock rung: done when met, or (NOSTOCK) when the kit no longer consumes it; `fulfilled` only when met. */
+const kitStock = (base, kind) => ({ ...base, fulfilled: base.done, done: (b, ...rest) => base.done(b, ...rest) || (noStockNow() && !kitNeeds(b, kind)) })
+
 export const SUSTAINING = [
   ...(NOSTOCK.on ? [REFILL_RUNG] : []),   // refill-01: only where the lanes are (the showcase)
-  {
+  kitStock({   // nostock-01show: asked only while the kit consumes it (kitNeeds), where NOSTOCK is on
     // WOOD IS WOOD. This counted `oak_log` alone while the fleet held 2,966 oak
     // and 4,105 logs of every other kind, so 58% of its wood was invisible to
     // the check and 39 of 80 bots (49%) read as short of the 8-log floor while
@@ -784,7 +812,7 @@ export const SUSTAINING = [
     done: (b, n) => woodUnits(b) >= woodStockpileTarget(n),
     progress: (b, n) => `${woodUnits(b)}/${woodStockpileTarget(n)} logs (any kind, planks count as 1/4)`,
     hint: 'gather with block=oak_log, or any other _log you can see.',
-  },
+  }, 'wood'),
   // The ladder sits between wood and stone: a bot has just been asked for logs,
   // which is what the first rungs need, and cobblestone below needs the pickaxe
   // this produces. Spread rather than bunched, so one long ladder does not
@@ -794,7 +822,7 @@ export const SUSTAINING = [
   // are STEPPED OVER -- rungOf's bypass: done, never `fulfilled` -- for a bot the town's mine crew has no turn for: the first
   // names an action the gate refuses it, the second walks it away from the town's work the steer then brings it back to.
   // MINECREW=off (no view on the bot): both exactly as before.
-  rungOf({
+  rungOf(kitStock({   // nostock-01show: kitStock inside, the crew's bypass outside (rungOf keeps kitStock's `fulfilled`)
     // Same defect as stockpile_wood: `cobblestone` alone, while COBBLE -- which
     // the ladder beside it uses -- also holds cobbled_deepslate, blackstone and
     // stone. A bot mining below y=0 gets deepslate and reads as having nothing.
@@ -803,7 +831,7 @@ export const SUSTAINING = [
     done: (b, n) => countAny(b, COBBLE) >= stockpileTarget(16, 8, n),
     progress: (b, n) => `${countAny(b, COBBLE)}/${stockpileTarget(16, 8, n)} stone-type blocks`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
-  }, b => !crewRungClosed(b)),
+  }, 'stone'), b => !crewRungClosed(b)),
   rungOf({
     id: 'patrol',
     describe: () => 'Scout terrain away from home and come back.',

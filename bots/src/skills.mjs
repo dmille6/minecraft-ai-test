@@ -71,7 +71,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
-import { setDepositColumns, columnBankable, logHalfSteps, IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
+import { setDepositColumns, columnBankable, logHalfSteps, IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, HARD_KEEP_RULES, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -104,6 +104,7 @@ import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownB
 import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCellAt, topDownRefusal, roofOverY, feetLevel, feetLevels } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
+import { isBuiltCell, builtRemedyPoint, builtRefusal, builtRowDetail, BUILT_WALK_MS, BUILT_WALKS } from './gatherbuilt.mjs'   // nostock-01show (c): built cells skipped at enumeration
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -2399,6 +2400,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   const key = q => `${q.x},${q.y},${q.z}`
   let townSkipped = 0   // town-ground candidates the enumeration skipped this round (the _town_ground row)
   let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
+  let builtSkipped = 0, builtCells = []   // nostock-01show (c): protected / built cells the enumeration skipped this round (in range)
+  let builtWalked = 0, builtTo = null     // nostock-01show (c): walks out past them this run, and the last point
   let roofSkipped = 0   // topdown-01: ground under a roof the enumeration skipped this round
   let roofSaid = false  // topdown-01: the run's `_gather_topdown` op=skip row
   let roofGaveUpSaid = false   // topdown-01: a given-up search is always written (review r4: K1 was invisible)
@@ -2484,6 +2487,15 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
+      // nostock-01show (c): a cell the gather profile prices at 100+ (the plan's cells, the zones, the wells, the workshop: the
+      // exclusionAreasBreak safeToBreak refuses) is skipped HERE, so the 32 nearest are cells the bot may take (gather-diag 11-20:
+      // the houses were the 32 nearest logs). In range only, as above: the matcher runs before mineflayer's distance test.
+      // AFTER keep-out (Claude r1 blocker): the gather profile prices a fire column 101 too (keepoutBreakPenalty), and keep-out must
+      // count its own cells (its cooldown and remedy), never this rule
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && isBuiltCell(bot.collectBlock?.movements ?? bot.pathfinder?.movements, b)) {
+        builtSkipped++; if (builtCells.length < 64) builtCells.push(b.position)
+        return false
+      }
       // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
       // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
@@ -2510,6 +2522,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       } finally { if (count) { roofSkipped += roofSearch; roofMade += roofMadeSearch } }
     }
     roofGaveUp = false
+    builtSkipped = 0; builtCells = []   // nostock-01show: this round's (a round that `continue`d earlier left its count: Claude r1)
     ko?.refresh?.()
     let positions = findGround(type.id)
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
@@ -2608,6 +2621,30 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         return { status: 'failed', failClass: 'no_safe_target',
                  detail: `no ${blockName} within ${maxDistance} blocks that may be taken: ${gatherZoneRemedy(gz, zoneExit ?? exits[0] ?? null)}` + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
       }
+    }
+    // nostock-01show (c): THE SEARCH EMPTIED BY BUILT CELLS ALONE (the block is here, but only in the town's buildings): the remedy
+    // is performed -- one bounded walk BUILT_OUT past them, away from the town (walkToGoal: arrival, not goto's first empty
+    // slice), and the search again from there. Not reached: the refusal names the reason and the point.
+    const builtSkippedNow = builtSkipped, builtCellsNow = builtCells; builtSkipped = 0; builtCells = []
+    if (positions.length === 0 && builtSkippedNow > 0 && !caveInBorder().length && collected === 0) {
+      const from = bot.entity?.position?.floored?.() ?? null
+      const to = builtRemedyPoint({ from, home: townHome(), cells: builtCellsNow })
+      if (to && builtWalked < BUILT_WALKS) {
+        builtWalked++; builtTo = to
+        const t0 = Date.now(); let walkErr = null
+        const goal = new goals.GoalNearXZ(to.x, to.z, 3)
+        const onAbort = () => haltPath(bot)
+        signal?.addEventListener('abort', onAbort, { once: true })
+        try { await withTimeout(walkToGoal(bot, goal, () => bot.pathfinder.setGoal(goal)), BUILT_WALK_MS, bot, { what: 'walking out of town past its buildings to gather' }) } catch (e) { if (e?.aborted) throw e; walkErr = e } finally { signal?.removeEventListener?.('abort', onAbort); if (bot.pathfinder?.goal === goal) haltPath(bot) }
+        check(signal)
+        const at = bot.entity?.position ?? null
+        const reached = !!at && Math.hypot(at.x - to.x, at.z - to.z) <= 6
+        try { logEvent({ kind: 'gather_built', status: reached ? 'success' : 'failed', snapshot: snapshot(bot), detail: builtRowDetail({ op: 'walk', block: blockName, skipped: builtSkippedNow, from, to, reached, ms: Date.now() - t0, err: walkErr }) }) } catch { /* telemetry */ }
+        continue
+      }
+      try { logEvent({ kind: 'gather_built', status: 'refused', snapshot: snapshot(bot), detail: builtRowDetail({ op: 'refused', block: blockName, skipped: builtSkippedNow, from, to: to ?? builtTo }) }) } catch { /* telemetry */ }
+      return { status: 'failed', failClass: 'no_safe_target',
+               detail: builtRefusal({ block: blockName, n: builtSkippedNow, point: to ?? builtTo, walked: builtWalked, maxDistance }) + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
     }
     if (positions.length === 0 && !caveInBorder().length) {
       return collected > 0
@@ -2859,7 +2896,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         // unknown, and the only proxy available from telemetry bounds it
         // between 3% and 97%. That is too wide to decide anything on.
         const why = { liquid: 0, falling: 0, entity: 0, both: 0, unknown: 0 }
-        for (const q of exposedOnes) why[breakVetoAt(bot, q) ?? 'unknown']++
+        // nostock-01show (c): `unknown` was the profile's exclusion price (a built / protected cell) -- named `built` now
+        const vm = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+        for (const q of exposedOnes) { const v = breakVetoAt(bot, q) ?? (isBuiltCell(vm, bot.blockAt(q)) ? 'built' : 'unknown'); why[v] = (why[v] ?? 0) + 1 }
         const named = Object.entries(why).filter(([, n]) => n > 0)
           .sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}:${n}`).join(' ')
         // THE MEASUREMENT, EMITTED SEPARATELY so the model-facing sentence below
@@ -2899,8 +2938,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         } catch { /* a measurement may never cost the skill its turn */ }
         return { status: 'failed', failClass: 'no_safe_target',
                  vetoCause: why,
-                 detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
-                         `under falling blocks — digging them would flood or bury this spot [${named}]` +
+                 detail: (why.built === rejectedUnsafe
+                   ? builtRefusal({ block: blockName, n: rejectedUnsafe, point: builtRemedyPoint({ from: bot.entity?.position, home: townHome(), cells: exposedOnes }), maxDistance }) + ` [${named}]`
+                   : `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
+                         `under falling blocks — digging them would flood or bury this spot [${named}]` + (why.built ? ` (${why.built} of them: protected / built)` : '')) +
                          // CAVEFALL-01 (Claude r2 P3-7): in a mixed round, say how many of them were floors over a drop instead
                          (exposedOnes.filter(caveSkip).length ? ` (${exposedOnes.filter(caveSkip).length} of them: floors over a drop into a cave)` : '') }
       }
@@ -22003,7 +22044,7 @@ function yardKeepsNow (bot) {
       if (!clearActive(BAGFIX) && whRoomNow(bot, name)?.room > 0) { out[name] = Infinity; continue }   // warehouse-01: its column has room -- it banks THERE, not on a pile (the lanes are second; the one-time clear piles as before)
       if (shares.has(name)) { out[name] = Infinity; continue }
       if (clearActive(BAGFIX)) { out[name] = 0; continue }   // bagclear: regardless of keeps (a build's drawn share aside)
-      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: keep[name] ?? 0, stack: copies[0].stackSize ?? 64, hard: why[name] === 'wanted' || why[name] === 'scaffold_reserve' })
+      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: keep[name] ?? 0, stack: copies[0].stackSize ?? 64, hard: HARD_KEEP_RULES.has(why[name]) })   // nostock-01show: the escape's dirt is hard here too (dirt is a lane kind)
     }
     // drawshort-01show (Codex r1): a ROOM TRIP's yard leg keeps the pick's own bill of the family (bot.roomYardKeep: roomPickKeepNow) --
     // cobblestone first, cobbled_deepslate for what the cobblestone cannot cover -- so the yard never takes the stone the build lays
