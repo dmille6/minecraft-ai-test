@@ -48,12 +48,13 @@ for (let lap = 1; lap <= Number(opt('--laps', 6)); lap++) {
   const pj = F.floatPassJobs(list, read, { aside: k => F.floatAsideNow(mem, k, T0), max: F.FC.passMax, part: slot.slot - 1, parts: F.FC.builders })
   if (!pj.take.length) { console.log(`lap ${lap}: nothing take-able (${JSON.stringify(pj.census)})`); break }
   const take = new Map(pj.take.map(q => [F.k3(q.at), q]))
+  const considered = new Set()
   const w0 = walks, a0 = arrived, t = Date.now()
   const r = await runVisit({ dir, key, me: 'R', home, stood: [], record: { v: 1, plot: F.FLOATCLEAN_PLOT, home, cells: [], clear: pj.take, segments: [], zones: [], structure_complete: false }, recordGen: 0, palette: {}, res: null, resFailed: false,
     slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: F.FC.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
     clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease: 'seg-clear-R', has: () => true },
-    clearOk: (q, rd) => F.floatClearOk(q, rd ?? read, { listed: k => take.has(k) }) }, e, { maxSteps: 200 })
-  const after = F.floatAsideAfter(mem, { offered: [...take.keys()], standing: k => F.sameBlock(read(...k.split(',').map(Number))?.name ?? '', take.get(k).name), complete: r.stop === 'complete', now: T0 })
+    clearOk: (q, rd) => { considered.add(F.k3(q.at)); return F.floatClearOk(q, rd ?? read, { listed: k => take.has(k) }) } }, e, { maxSteps: 200 })
+  const after = F.floatAsideAfter(mem, { offered: [...take.keys()], standing: k => F.sameBlock(read(...k.split(',').map(Number))?.name ?? '', take.get(k).name), considered: k => considered.has(k), now: T0 })
   mem = after.mem
   console.log(`lap ${lap}: offered ${take.size} dug ${r.cleared} aside ${after.aside.length} stop=${r.stop} walks=${walks - w0} arrived=${arrived - a0} feet=${feet().join(',')} ms=${Date.now() - t} census=${JSON.stringify(pj.census)}`)
   for (const a of after.aside) console.log(`  aside ${a.k}`)
