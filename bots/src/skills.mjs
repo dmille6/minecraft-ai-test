@@ -19259,8 +19259,9 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
     if (r.blueprint === STEPWELL_BLUEPRINT) return stepwellDamaged(stairRead(bot), r) != null
     // whsite-01: the storehouse's prepared ground is never DAMAGED (its stairs came down, grass grew on its fills: no cell to repair)
     if (r.blueprint === WHS_BLUEPRINT) return false
-    // pit-01show: the pit is never DAMAGED (a dug cell is its progress; the pond finish is a later piece)
-    if (r.blueprint === PIT_BLUEPRINT) return false
+    // pit-01show: the pit is never DAMAGED (a dug cell is its progress; the pond finish is a later piece) -- a dug pit's only visit is the
+    // UPKEEP of a bag that owes the town's chests its dug dirt (asked with `tidy`, as the farms' upkeep: Codex r6, the order's own completion)
+    if (r.blueprint === PIT_BLUEPRINT) return tidy && pitBankOwed(bot)
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
