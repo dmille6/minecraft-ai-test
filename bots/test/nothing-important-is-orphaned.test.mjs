@@ -37,6 +37,8 @@ const REQUIRED = [
   // buildfirst-01show (item 10, 11-18): idle bots go to a building first; a room refusal's well trip; the room hold
   'bots/src/buildfirst.mjs',
   'bots/test/drawshort.test.mjs',   // drawshort-01show
+  'bots/src/wellstand.mjs', 'bots/src/wellturn.mjs', 'bots/test/wellstand.test.mjs', 'bots/test/wellturn.test.mjs',   // wellfix-01show
+  'bots/scripts/wellstand-replay.mjs', 'bots/test/fixtures/wellstand-showcase-1118.json',   // wellfix-01show: the replay and its cells
   'bots/test/buildfirst.test.mjs',
   'bots/src/depositoffer.mjs', 'bots/test/depositoffer.test.mjs', 'bots/test/depfix.test.mjs',   // depfix-01show (DEPOSITOFFER-01 port + the named-deposit widening)
   'bots/src/minecrewio.mjs',

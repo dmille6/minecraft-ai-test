@@ -75,7 +75,7 @@ import { setDepositColumns, columnBankable, logHalfSteps, IRON_LADDER, LOGS, tow
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
-         wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
+         wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, ADMISSION_RADIUS, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
          disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, cobbleWellStacks, isWellCobble, COBBLE_WELL_RESERVE,
          aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit,
@@ -354,6 +354,8 @@ import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS_PER_ITEM } from './smelting.mjs'
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
+import { standCentreFor, nudgeToCentre } from './wellstand.mjs'   // wellfix-01show: the thrower is centred for the aim's window
+import { wellTurnOn, wellTurn, readTickets, touchTicket, dropTicket, wellTurnDetail, WELL_LEASE_TTL_MS, WELL_TICKET_TTL_MS, wellWaitMs, WELL_POLL_MS } from './wellturn.mjs'   // wellfix-01show: turns at the well
 // mats-01 (building tier section 3): the materials job's decisions
 import { GLASS, GLASS_PLOTS, SAND_PER_ORDER, SAND_R_MAX, GLAZE_PER_ORDER, inBridgeZone, windowsOf, sandWant, sandPlan, sandCellOk, glazePlan, paneRefs, glassDetail, glassMem, glassMemNote } from './glass.mjs'   // glass-01
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
@@ -10350,7 +10352,74 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 let _wsModeSaid = false   // wellstep-01: its licence row, once per spawn (the first walk that fails at the well)
+/** wellfix-01show: how long the thrower walks to step off the well when another bot is in line for it. */
+const WELL_STEP_OFF_MS = 8_000
+/**
+ * WELLFIX-01SHOW (wellturn.mjs): A TURN AT THE WELL -> { turn } | { refused, detail }. Waits HERE (bounded, WELL_WAIT_MS) for the
+ * lease on the cap, this bot's place at the head of the line, and the admission's 5 blocks to clear -- the remedy performed, not
+ * advised. Past the wait: the lease is given back, the ticket kept (its place for WELL_TICKET_TTL_MS), and the refusal is a free
+ * skip the order re-asks at its cooldown. WELLTURN=off: the base's one look (player_near).
+ */
+async function wellTurnWait (bot, cap, signal) {
+  const nearNow = () => wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
+  if (!wellTurnOn(process.env)) {
+    const near = nearNow()
+    return near ? { refused: 'player_near', detail: `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes` } : { turn: null }
+  }
+  const dir = townDir(), me = leaseHolder(bot), t0 = Date.now(), waitMs = wellWaitMs(process.env)
+  bot.wellTurnState = { dir, cap, me, held: null, waited: false }
+  let last = null
+  for (;;) {
+    touchTicket(dir, cap, me)
+    let turn = wellTurn({ lease: furnaceLeaseState(dir, cap), tickets: readTickets(dir, cap), me })
+    let near = null
+    if (turn.go && !bot.wellTurnState.held) {
+      const l = acquireFurnaceLease(dir, cap, me, { what: 'well', ttl: WELL_LEASE_TTL_MS })
+      if (l.ok) bot.wellTurnState.held = l
+      else turn = { go: false, why: 'busy', who: l.holder ?? '?', place: turn.place }
+    }
+    if (turn.go && bot.wellTurnState.held) {
+      near = nearNow()
+      if (!near) { dropTicket(dir, cap, me); return { turn: bot.wellTurnState.held } }
+    }
+    last = { ...turn, near }
+    if (Date.now() - t0 + WELL_POLL_MS > waitMs) break
+    bot.wellTurnState.waited = true
+    await sleep(WELL_POLL_MS, signal)
+  }
+  // not this bot's turn within the wait: the lease goes back (a holder that cannot throw blocks nobody), the place is kept
+  try { bot.wellTurnState.held?.release?.() } catch { /* expires by TTL */ }
+  bot.wellTurnState.held = null
+  const why = last.go && last.near ? 'player_near' : 'well_busy'
+  return { refused: why, detail: wellTurnDetail({ why: last.go ? 'near' : last.why, who: last.who, place: last.place, waitedMs: Date.now() - t0, near: last.near }) }
+}
+/** The turn's end (every way dispose_well ends): the lease back; out of line unless the wait timed out (its place is kept);
+ *  and when another bot is in line, the thrower steps beyond the admission's 5 blocks so the next one is admitted. */
+async function wellTurnEnd (bot, signal, refused) {
+  const st = bot.wellTurnState
+  bot.wellTurnState = null
+  if (!st) return
+  const held = !!st.held
+  try { st.held?.release?.() } catch { /* expires by TTL */ }
+  if (refused !== 'well_busy' && refused !== 'player_near') dropTicket(st.dir, st.cap, st.me)
+  if (!held || signal?.aborted) return
+  let waiting = false
+  try { waiting = readTickets(st.dir, st.cap).some(t => t.who !== st.me && Date.now() - Number(t.seen ?? t.at) < WELL_TICKET_TTL_MS) } catch { waiting = false }
+  if (!waiting || !bot.pathfinder || !goals?.GoalInvert) return
+  const c = st.cap, off = new goals.GoalInvert(new goals.GoalNear(c.x, c.y + 1, c.z, ADMISSION_RADIUS + 1.5))
+  try {
+    await withTimeout(walkToGoal(bot, off, () => bot.pathfinder.setGoal(off)), WELL_STEP_OFF_MS, bot, { what: 'stepping off the junk well for the next bot in line' })
+    try { logEvent({ kind: 'well_turn', status: 'success', snapshot: snapshot(bot), detail: `op=step_off cap=${c.x},${c.y},${c.z}` }) } catch { /* telemetry */ }
+  } catch (e) {
+    if (bot.pathfinder?.goal === off) { try { haltPath(bot) } catch { /* stopped */ } }
+    try { logEvent({ kind: 'well_turn', status: 'failed', snapshot: snapshot(bot), detail: `op=step_off cap=${c.x},${c.y},${c.z} err=${String(e?.name ?? e?.message ?? e).slice(0, 40)}` }) } catch { /* telemetry */ }
+  }
+}
 async function disposeWell (ctx, _args, signal) {
+  let r
+  try { r = await disposeWellRun(ctx, _args, signal); return r } finally { await wellTurnEnd(ctx.bot, signal, r?.stop ?? null) }
+}
+async function disposeWellRun (ctx, _args, signal) {
   // `_args.pruned` (name -> count): what THIS bot's prune_town just took out of a town chest (stocktarget design 3.5);
   // never the model's (chatOnly), and never more than the server-verified take
   const pruned = _args?.pruned && typeof _args.pruned === 'object' ? _args.pruned : null
@@ -10399,12 +10468,12 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.craftSync?.busy?.()) return skip('craft_busy', 'a craft is in flight; the well waits for the next town visit')
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the well waits for the next town visit')
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
-  const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
-  if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
   // buildfirst-01show: the room trip's own plan (the cobble family above the yard's keep, only what the room needs)
   const roomPlanOf = _args?.roomPlan && BUILDFIRST.on && !visit && !clerk && !pruned ? bag => { const w = roomWellPlanNow(bot, { freeSlots: 36 - bag.length, need: Number(_args.roomPlan.need) || BUILD_ROOM_SLOTS, plot: _args.roomPlan.plot ?? null }); return { stacks: w.stacks, stone: null, slots: bag.length, junkStacks: w.slots } } : null
   const entryPlan = roomPlanOf ? roomPlanOf(items()) : visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  // wellfix-01show: this bot's turn (the lease, its place in line, nobody within 5) -- waited for here, bounded
+  { const t = await wellTurnWait(bot, cap, signal); if (t.refused) return skip(t.refused, t.detail) }
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
@@ -10442,6 +10511,9 @@ async function disposeWell (ctx, _args, signal) {
       }
     }
     if (onStand() && !centredOn(bot, stand)) await centreOn(bot, stand, signal)
+    // WELLFIX-01SHOW (wellstand.mjs): centredOn's 0.3 a side is not the aim's window (0.8-1.15 from the cap's centre): a walk in
+    // along the throw's axis rests up to 0.2 short (LIVE 11-19..20: every visit at 1.20, refused) -- nudged into the window here
+    if (onStand() && !standCentreFor({ from: q(), cap, stand }).ok) await nudgeToCentre(bot, standCentreFor({ from: q(), cap, stand }).target, { tick, signal })
     if (!onStand()) return fail('well_unreachable', 'unreachable', `could not reach the junk well's standing cell at ${stand.x},${stand.y},${stand.z} (the bot is at ${q().x.toFixed(2)},${q().y.toFixed(2)},${q().z.toFixed(2)}); the next town visit tries again${wellStepRemedy(stepWhy)}`)
     const near2 = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
     if (near2) return skip('player_near', `wait for ${near2.who} to move off the town junk well (${near2.dist.toFixed(1)} blocks): it opens only with nobody within 5`)
@@ -19646,7 +19718,8 @@ async function roomWellVisit (ctx, args, signal) {
   if (then === 'build') { return buildShop(ctx, {}, signal, t0) }   // the room is there: the build, in the same visit
   // another bot at the well (it opens only with nobody within 5): no hold, the trip is asked again in a minute (the rate limit's
   // stamp moved back), never at once -- LIVE rig 11-18: three bots reached the well together and all three stood aside 10 minutes
-  if (stop === 'player_near') { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS; return { status: 'no_effect', stop: 'room_short', detail: `another bot was at the town well; the trip is asked again in ${Math.round(ROOM_WELL_NEAR_RETRY_MS / 1000)} s` } }
+  // wellfix-01show: `well_busy` (another bot's turn, wellturn.mjs) is the same short retry as a bot at the well
+  if (stop === 'player_near' || stop === 'well_busy') { bot.roomBankAt = Date.now() - ROOM_BANK_EVERY_MS + ROOM_WELL_NEAR_RETRY_MS; return { status: 'no_effect', stop: 'room_short', detail: `another bot was at the town well or ahead in its line (this bot keeps its place); the trip is asked again in ${Math.round(ROOM_WELL_NEAR_RETRY_MS / 1000)} s` } }
   if (plot) roomHoldNote(bot, plot)
   return { status: 'no_effect', stop: 'room_short', detail: `the well trip left ${36 - used()} free slot(s) of the build's ${need} (${stop}); ${plot ?? 'the pick'} waits ${Math.round(BUILDFIRST.holdMs / 60_000)} min for this bot and the order moves on` }
 }

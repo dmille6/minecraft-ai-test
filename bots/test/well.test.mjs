@@ -6,6 +6,8 @@
 // vanilla's drop ballistics (noise-free). The refusal CHAIN is driven through wellOrder -> skill -> wellOrderOutcome ->
 // wellOrder. Structural assertions only where behaviour cannot reach (the dispatch table, index.mjs's arrays), with
 // comments stripped, unique anchors, and a mutant each.
+// wellfix-01show: a bot within 5 of the well is now WAITED for (wellturn.mjs, 30 s live); this file's admission tests use a short clock
+process.env.WELLTURN_WAIT_MS ??= '1500'
 import assert from 'node:assert/strict'
 import fsMod, { readFileSync, writeFileSync, unlinkSync, mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -3374,6 +3376,113 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
       assert.ok(!ran.some(x => x.skill === 'dispose_well'), 'mutant inert')
       assert.equal(town.count('egg'), 16, 'the junk rides out of town again')
     } finally { try { unlinkSync(out) } catch {} }
+  })
+}
+
+// ---- WELLFIX-01SHOW: the thrower centred for the aim (wellstand.mjs) and turns at the well (wellturn.mjs) --------------------
+{
+  const SKP = new URL('../src/skills.mjs', import.meta.url)
+  const { readTickets: WT_read } = await import('../src/wellturn.mjs')
+  const { acquireFurnaceLease: FL_take } = await import('../src/furnacelease.mjs')
+  const STAND = W.standForFacing(CAP, 'north')
+  // a body that moves while `forward` is held, along mineflayer's yaw (look -> (-sin yaw, -cos yaw)); sneak ~0.04 a tick
+  const walker = town => {
+    const b = town.bot
+    b.controlState = { sneak: false, forward: false }
+    b.setControlState = (k, v) => { b.controlState[k] = v }
+    b.entity.yaw = b.entity.yaw ?? 0; b.entity.pitch = b.entity.pitch ?? 0
+    b.look = async (yaw, pitch) => { b.entity.yaw = yaw; b.entity.pitch = pitch }
+    const wt = b.waitForTicks
+    b.waitForTicks = async n => {
+      for (let i = 0; i < (n ?? 1); i++) {
+        if (b.controlState.forward) { const v = b.controlState.sneak ? 0.04 : 0.13, p = b.entity.position; b.entity.position = new Vec3(p.x - Math.sin(b.entity.yaw) * v, p.y, p.z - Math.cos(b.entity.yaw) * v) }
+        await wt(1)
+      }
+    }
+    // the step-off walk (GoalInvert of the admission radius): the fake walks 8 east and reports the goal reached
+    b.pathfinder.setGoal = g => { if (!g) return; const p = b.entity.position; b.entity.position = new Vec3(p.x + 8, p.y, p.z); setImmediate(() => b.emit('goal_reached', g)) }
+    return town
+  }
+  // the replay's rest (wellstand.test.mjs, real pathfinder + physics over the showcase cells): 0.06 W and 0.195 N of the stand's centre
+  const LIVE_REST = () => new Vec3(STAND.x + 0.44, STAND.y, STAND.z + 0.305)
+  const NUDGE_LINE = '    if (onStand() && !standCentreFor({ from: q(), cap, stand }).ok) await nudgeToCentre(bot, standCentreFor({ from: q(), cap, stand }).target, { tick, signal })\n'
+
+  await t('WELLFIX STAND: a bot resting where the live walk rests (1.20 from the centre) is nudged into the window and THROWS (n > 0)', async () => {
+    const town = walker(fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)], botAt: LIVE_REST() }))
+    assert.match(W.wellAim({ from: town.bot.entity.position, cap: CAP, facing: 'north' }).why ?? '', /^1\.20 from/, 'positive control: the start is the live fault')
+    const r = await run('dispose_well', town.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.match(r.detail, /^threw [1-9]\d* junk item/)
+    assert.equal(town.count('egg') + town.count('flint'), 0)
+    assert.equal(W.wellAim({ from: town.bot.entity.position, cap: CAP, facing: 'north' }).ok, true)
+    assert.equal(town.bot.controlState.forward || town.bot.controlState.sneak, false, 'controls released')
+  })
+  await t('WELLFIX STAND MUTANT: the nudge line removed -> the same bot is refused off_stand "1.20 from the well\'s centre" and throws nothing (the live fault)', async () => {
+    await withMutant(SKP, NUDGE_LINE, '', async M => {
+      const town = walker(fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)], botAt: LIVE_REST() }))
+      const r = await within(M.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+      assert.equal(r.status, 'failed'); assert.match(r.detail, /1\.20 from the well's centre \(must be 0\.8-1\.15\)/)
+      assert.equal(town.count('egg'), 16)
+    })
+  })
+
+  // TWO BOTS, ONE WELL: A throws; B, asking while A is at the well, WAITS (the lease is A's), then throws once A steps off.
+  const twoBots = () => {
+    const store = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+    const A = walker(fakeTown({ storeDir: store, wellAt: CAP, items: [S('egg', 16), ...filler(34)], botAt: new Vec3(STAND.x + 0.5, STAND.y, STAND.z + 0.5) }))
+    const B = walker(fakeTown({ storeDir: store, wellAt: CAP, items: [S('flint', 64), ...filler(34)], botAt: new Vec3(HOME.x + 0.5, HOME.y, HOME.z + 0.5) }))
+    B.bot.username = 'b-Bravo'
+    // B sees A's body wherever it is (the admission's 5 blocks)
+    B.bot.players['b-Alpha'] = { username: 'b-Alpha', get entity () { return { position: A.bot.entity.position } } }
+    return { store, A, B }
+  }
+  await t('WELLFIX TURNS: two bots -> one throws, the other WAITS (busy, in line), then throws; the first steps off for it', async () => {
+    const prev = process.env.WELLTURN_WAIT_MS; process.env.WELLTURN_WAIT_MS = '6000'
+    try {
+      const { store, A, B } = twoBots()
+      let bRun = null, bInLine = false
+      A.state.onClick = async () => {
+        if (bRun) return
+        bRun = run('dispose_well', B.bot)
+        for (let i = 0; i < 100 && !bInLine; i++) { await new Promise(r => setTimeout(r, 20)); bInLine = WT_read(store, CAP).some(x => /^b-Bravo:/.test(x.who)) }
+      }
+      const ra = await run('dispose_well', A.bot)
+      assert.equal(ra.status, 'success', ra.detail)
+      assert.ok(bRun, 'B asked during A\'s turn'); assert.equal(bInLine, true, 'B waited in line while A held the well')
+      const rb = await bRun
+      assert.equal(rb.status, 'success', rb.detail); assert.match(rb.detail, /^threw [1-9]/)
+      assert.equal(A.count('egg') + B.count('flint'), 0)
+      assert.ok((await rows('_well_turn')).some(x => /op=step_off/.test(x.skill.detail) && x.skill.status === 'success'), 'A stepped off for B')
+      assert.deepEqual(WT_read(store, CAP), [], 'both left the line')
+    } finally { process.env.WELLTURN_WAIT_MS = prev }
+  })
+  await t('WELLFIX TURNS MUTANT: the wait replaced by the base\'s one look -> B is refused player_near at once and throws nothing (the 186 refusals)', async () => {
+    const old = '  { const t = await wellTurnWait(bot, cap, signal); if (t.refused) return skip(t.refused, t.detail) }\n'
+    const neu = "  { const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username }); if (near) return skip('player_near', `wait for ${near.who}`) }\n"
+    await withMutant(SKP, old, neu, async M => {
+      const { A, B } = twoBots()
+      let rb = null
+      A.state.onClick = async () => { if (!rb) rb = await within(M.SKILLS.dispose_well.run({ bot: B.bot }, {}, { aborted: false }), 15000, 'B') }
+      await within(M.SKILLS.dispose_well.run({ bot: A.bot }, {}, { aborted: false }), 15000, 'A')
+      assert.equal(rb?.status, 'no_effect'); assert.match(rb.detail, /^wait for b-Alpha/)
+      assert.equal(B.count('flint'), 64)
+    })
+  })
+  await t('WELLFIX CHAIN (no dead end): a holder that never lets go -> B waits, is refused well_busy (a FREE skip, its place kept) -> the lease expires/frees -> B\'s next ask throws', async () => {
+    const { store, B } = twoBots()
+    B.bot.entity.position = new Vec3(STAND.x + 0.5, STAND.y, STAND.z + 0.5)
+    delete B.bot.players['b-Alpha']
+    const zed = FL_take(store, CAP, 'b-Zed:1', { what: 'well', ttl: 150_000 })
+    assert.equal(zed.ok, true)
+    const r1 = await run('dispose_well', B.bot)
+    assert.equal(r1.status, 'no_effect'); assert.match(r1.detail, /^wait for b-Zed:1 to finish its turn at the town junk well; waited \d+ s here\. This bot keeps place 1 in line/)
+    assert.match((await rows('_well_refused')).pop().skill.detail, /reason=well_busy/)
+    assert.ok(WT_read(store, CAP).some(x => /^b-Bravo:/.test(x.who)), 'its place is kept')
+    const st = W.wellOrderOutcome('dispose_well', r1.status, NOW, {})
+    assert.ok(!(st.disposeBackoffUntil > 0), 'no backoff: the order is asked again at its cooldown')
+    zed.release()
+    const r2 = await run('dispose_well', B.bot)
+    assert.equal(r2.status, 'success', r2.detail); assert.equal(B.count('flint'), 0)
   })
 }
 
