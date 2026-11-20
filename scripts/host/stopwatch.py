@@ -11,7 +11,8 @@ WHAT IT WATCHES. Every thing the bots do that the logs name:
   skill:<name>    a skill run (a row whose kind does not start with `_`). It WORKED when status is success and FAILED when
                   status is failed / timeout / error / rejected. Every other status is NEITHER (Claude review r1): no_effect
                   is the code's "correctly declined to act" (nothing to bank, already full), aborted an interrupt, unknown
-                  a result nobody could tell -- they are runs (the thing still happens) but never tries.
+                  a result nobody could tell -- they are runs (the thing still happens) but never tries. A skill in
+                  MOVED (dispose_well) WORKED only when its success names a moved amount above zero ("threw <n>").
   order:<skill>   a scheduler work order (`_work_order`, its first word); it only has a count
 Two windows: CUR, the last CUR_H (2) hours, and BASE, the BASE_H (24) hours before it.
 
@@ -80,6 +81,12 @@ MIN_ROW_SHARE = 0.25    # CUR rows per hour against BASE's, below which the host
 FAIL = frozenset({'failed', 'timeout', 'error', 'rejected'})
 # never judged: a run of these is not work that can "stop working" (a chat, a probe, a pause)
 SKIP = frozenset({'status', 'chat', 'wait', 'idle', 'look'})
+# A SUCCESS THAT MOVED NOTHING IS NOT "IT WORKS" (LIVE showcase 11-20 ~05:20Z: the dispose_well page from 11-19 16:20Z was
+# released by a success that threw nothing, while the well took no throw at all). For these skills a success counts as
+# worked only when its detail names a moved amount above zero; a success without one is a run, never a try.
+# dispose_well's success detail: "threw <n> junk item(s) down the town well (...)" (skills.mjs); its other success,
+# "found the town junk well open and closed it", throws nothing.
+MOVED = {'dispose_well': re.compile(r'\bthrew (\d+) ')}
 
 
 def norm_reason(detail):
@@ -98,7 +105,11 @@ def keys_of(row):
     if name.startswith('_') or name in SKIP:
         return []
     st = row.get('status')
-    return [('skill:' + name, True if st == 'success' else False if st in FAIL else None)]
+    ok = True if st == 'success' else False if st in FAIL else None
+    if ok is True and name in MOVED:
+        m = MOVED[name].search(str(row.get('detail') or ''))
+        ok = True if m and int(m.group(1)) > 0 else None
+    return [('skill:' + name, ok)]
 
 
 def _blank():

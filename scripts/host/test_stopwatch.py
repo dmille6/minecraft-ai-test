@@ -24,7 +24,11 @@ BOTS = ['showcase-%s' % n for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 
 WELL_FAIL = "could not reach the junk well's standing cell at 12,74,6 (the bot is at 12.48,68.00,6.50); the next town visit tries again"
 W = 'stopped:skill:dispose_well'
 
+THREW = 'threw 128 junk item(s) down the town well (36 -> 34 slots)'
 def row(t, name, status='success', detail='', bot=0):
+    # a dispose_well success says what it threw (skills.mjs); the rows built here say so too (stopwatch-wellthrow)
+    if name == 'dispose_well' and status == 'success' and not detail:
+        detail = THREW
     return {'t': t, 'name': name, 'status': status, 'detail': detail, 'bot': BOTS[bot % len(BOTS)]}
 def spread(lo, hi, n, name, status='success', detail='', bots=10, start=0):
     """n rows of one kind spread evenly over [lo, hi), cycling the bots."""
@@ -40,6 +44,11 @@ def verdicts(rows, now=NOW, latched=None):
 # ---- keys and statuses ----
 check(SW.keys_of(row(NOW, 'dispose_well', 'failed')) == [('skill:dispose_well', False)], 'a failed skill row is a failed try')
 check(SW.keys_of(row(NOW, 'dispose_well')) == [('skill:dispose_well', True)], 'a success is a success')
+# stopwatch-wellthrow (LIVE 11-20 ~05:20Z: a success that threw nothing released the dispose_well page)
+check(SW.keys_of(row(NOW, 'dispose_well', 'success', 'found the town junk well open and closed it')) == [('skill:dispose_well', None)], 'wellthrow: a dispose_well success that threw nothing is a run, never "it works"')
+check(SW.keys_of(row(NOW, 'dispose_well', 'success', 'threw 0 junk item(s) down the town well (36 -> 36 slots)')) == [('skill:dispose_well', None)], 'wellthrow: "threw 0" is not a success')
+check(SW.keys_of(row(NOW, 'dispose_well', 'success', 'threw 1 junk item(s) down the town well (27 -> 26 slots)')) == [('skill:dispose_well', True)], 'wellthrow: POSITIVE CONTROL: "threw 1" is')
+check(SW.keys_of(row(NOW, 'town_deposit', 'success', 'found nothing')) == [('skill:town_deposit', True)], 'wellthrow: other skills are judged by status as before')
 for st in ('no_effect', 'aborted', 'unknown', None):
     check(SW.keys_of(row(NOW, 'town_deposit', st)) == [('skill:town_deposit', None)], f'review r1: status {st} is a run, never a try')
 check(SW.keys_of(row(NOW, '_work_order', 'success', 'deep_mine {"y":-40} — because')) == [('order:deep_mine', None)], 'a work order is keyed by its first word')
@@ -312,4 +321,12 @@ killed('without the bot floor a stopped host is judged', set(mutant("    if len(
 killed('without the row floor a thin host is judged', set(mutant("if base_n and (cur_n / cur_h) < MIN_ROW_SHARE * (base_n / base_h):", "if False:")(thin)) != {'blind:activity'})
 killed('without the habit rule a rare skill is called vanished', 'vanished:skill:rare' in mutant("return bool(b) and len(b['hours']) >= VANISH_HOURS and b['runs'] / base_h >= VANISH_PER_H", "return bool(b)")(filler() + spread(BASE0, CUR0, 80, 'rare')))
 killed('without the collapse floor sixteen tries are a collapse', 'collapsed:skill:craft' in mutant("worked and c_tries >= COLLAPSE_TRIES and c['ok'] > 0", "worked and c['ok'] > 0")(few))
+# stopwatch-wellthrow: THE 11-20 FOOLING, end to end -- a latched dispose_well page is NOT released by a success that threw
+# nothing, and IS released by one that threw; the mutant (status alone) releases it on the empty one.
+empty_ok = [row(NOW - dt.timedelta(minutes=5), 'dispose_well', 'success', 'found the town junk well open and closed it')]
+held = {'skill:dispose_well': {'since': '2026-11-13T19:20:00Z', 'after': '2026-11-13T19:30:00Z', 'line': 'x'}}
+fooled = filler() + base_well + spread(CUR0, NOW - 10 * dt.timedelta(minutes=1), 36, 'dispose_well', 'failed', WELL_FAIL) + empty_ok
+check(W in verdicts(fooled, latched=dict(held)), 'wellthrow: a latched page stays up through a success that threw nothing')
+check(W not in verdicts(filler() + base_well + spread(CUR0, NOW - 10 * dt.timedelta(minutes=1), 36, 'dispose_well', 'failed', WELL_FAIL) + [row(NOW - dt.timedelta(minutes=5), 'dispose_well')], latched=dict(held)), 'wellthrow: POSITIVE CONTROL: a success that threw releases it')
+killed('without the moved-amount rule a success that threw nothing releases the well page', W not in mutant("        ok = True if m and int(m.group(1)) > 0 else None\n", "        ok = True\n")(fooled, dict(held)))
 sys.exit(1 if fails else 0)
