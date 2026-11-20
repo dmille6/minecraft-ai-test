@@ -17,6 +17,8 @@ import { prodserveOn } from './prodserve.mjs'   // prodserve-01: the service tie
 import { canefarmOn, CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANEFARM_BUILDERS } from './canefarm.mjs'   // canefarm-01
 export { whSiteNow } from './whsitefile.mjs'   // (with a `from`: the tests' mutant copies of this file rewrite `from './x.mjs'` only, and a bare import broke 28 of them) whsite-01 rc2: the site of this process (the environment's, else the town's site file) is set before the list below is built
 import { WHSITE, WHS_PLOT, WHS_BLUEPRINT, WHS_BUILDERS } from './whsite.mjs'   // whsite-01: the new storehouse's ground
+export { pitSiteNow } from './pitsitefile.mjs'   // pit-01show: the pit's site (the environment's, else the town's site file), set before the list
+import { PITSITE, PIT_PLOT, PIT_BLUEPRINT, PIT_BUILDERS } from './pit.mjs'   // pit-01show: the town's dirt borrow pit
 import { pensOn, PENS_PLOT, PENS_BLUEPRINT, PENS_BUILDERS } from './pens.mjs'   // pens-01
 import { stepwellOn, STEPWELL_PLOT, STEPWELL_BLUEPRINT, STEPWELL_BUILDERS } from './stepwell.mjs'   // stepwell-01
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
@@ -237,6 +239,9 @@ export const PROJECTS = Object.freeze([
   // whsite-01 (OWNER 11-17): the new storehouse, at the site the switch names (WAREHOUSE_SITE; unset: not in the order). Its first
   // generation is the ground (fell, level); it follows the standing hall, which stays the store until the new one is complete
   ...(WHSITE.on ? [WHS_PROJECT] : []),   // no site named: not a project at all (the list, the order and every read of the town's records as release 2)
+  // pit-01show (OWNER 11-19): the dirt borrow pit at the site the switch names (PIT_SITE / town-site.json `pit`; none: not a project). It
+  // WAITS while the town is not short of dirt for a named consumer (skills.mjs pitDemandNow: never stock for its own sake)
+  ...(PITSITE.on ? [Object.freeze({ plot: PIT_PLOT, blueprint: PIT_BLUEPRINT, builders: PIT_BUILDERS })] : []),
   Object.freeze({ plot: WALLEXT_PLOT, blueprint: WALLEXT_BLUEPRINT, after: HUB_PLOT, builders: WALL_BUILDERS }),   // wallext-01: round the standing hall
   Object.freeze({ plot: WALLDEMO_PLOT, blueprint: WALLDEMO_BLUEPRINT, after: WALLEXT_PLOT, builders: WALLDEMO_BUILDERS }),   // wallext-02: the old line comes down
   Object.freeze({ plot: ENCHANT_PLOT, blueprint: ENCHANT_BLUEPRINT, after: HUB_PLOT, builders: ENCHANT_BUILDERS }),   // enchantshop-01: on the extension's hall-size plot (WAITS until it is sited)
