@@ -202,7 +202,7 @@ import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, c
 import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { WHSITE, WHS_PLOT, WHS_BLUEPRINT, WHS_BUILDERS, WHS_PREP, WHS_PALETTE, whSiteBase, whSiteAdd, whSiteCanopy, whPhase, whFellView, whLevelView, whStandDone, whQuadFor, whClearPart, whSiteDetail, whSiteModeDetail, whSurveyPublish, WHS_FILLS } from './whsite.mjs'   // whsite-01: the new storehouse's ground
 import { fellCanopy as whFellCanopy } from './fellcanopy.mjs'   // whsite-01: the leaves round a log no stand sees
-import { PITSITE, PIT, PIT_PLOT, PIT_BLUEPRINT, PIT_BUILDERS, PIT_HALVES, pitPlan, pitRecord, pitDigNow, pitView, pitClearPart, pitClearOk, pitMissed, pitMissKeys, pitDemand, pitDigCap, pitBankOrder, pitBankDue, pitBankSteps, pitDetail, pitModeDetail, pitFillSplit } from './pit.mjs'   // pit-01show: the town's dirt borrow pit
+import { PITSITE, PIT, PIT_PLOT, PIT_BLUEPRINT, PIT_BUILDERS, PIT_HALVES, pitPlan, pitRecord, pitDigNow, pitView, pitClearPart, pitClearOk, pitMissed, pitMissKeys, pitDemand, pitWanted, pitDigCap, pitBankOrder, pitBankDue, pitBankSteps, pitDetail, pitModeDetail, pitFillSplit } from './pit.mjs'   // pit-01show: the town's dirt borrow pit
 import { WAREHOUSE, whHallLayout, whRows, whChestKinds, whHomes, whSectionOf, whTakes, whDepositOrder, whRoom, whPlace, whKindOf, whRecord, warehouseModeDetail, whFullFor, whFailUpdate, whEligible, whLabel, whAllFailed, whTryResult, whCargoRoutes } from './warehouse.mjs'   // warehouse-01: the columns per kind
 import { hubChestsOf, HALL_LAYOUT, hubSectionOf } from './storehub.mjs'   // warehouse-01: the old hall as a layout
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
@@ -18615,9 +18615,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
         // forest-01: an unsited forest whose siting found no site WAITS town-wide (siteWaitUntil), never the keeper's every order
         if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // pit-01show: the pit WAITS while the town is not short of dirt for a named consumer (pitDemandNow): a sited pit then reads
-        // complete (out of every pick), an unsited one waits (never offered) -- it is never dug for stock of its own
-        if (p.plot === PIT_PLOT && !rec?.structure_complete && !pitDemandNow(b, now).dig) return rec ? { plot: p.plot, exists: true, complete: true, damaged: false, due: false, dueFirst: false, waiting: true } : { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // pit-01show: the pit WAITS while the town is not short of dirt for a named consumer and this bag owes the chests nothing (pitWanted):
+        // a sited pit then reads complete (out of every pick), an unsited one waits (never offered) -- never dug for stock of its own
+        if (p.plot === PIT_PLOT && !rec?.structure_complete && !pitWanted(pitDemandNow(b, now), b ? countItem(b, 'dirt') : 0)) return rec ? { plot: p.plot, exists: true, complete: true, damaged: false, due: false, dueFirst: false, waiting: true } : { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
@@ -32911,10 +32911,14 @@ async function pitBank (ctx, signal, deadline, { final = false } = {}) {
   for (const k of order) {
     if (banked >= n || deadline - Date.now() < 8_000) break
     check(signal)
-    const tb = bot.blockAt?.(keyVec(k))
-    if (!tb || !isTownContainer(bot, tb)) { skip.set(k, Date.now() + 30 * 60_000); to.push(`${k}:gone`); continue }
-    try { await chestWalk(bot, new goals.GoalNear(tb.position.x, tb.position.y, tb.position.z, 2), Math.max(1000, Math.min(PIT_WALK_MS, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    // the walk goes to the INDEX's place first: from the pit the town's chunks may not be loaded, and an unloaded block is not a gone
+    // chest (Codex r3 BLOCKER: every chest read gone from the pit and was skipped, so no bank ever walked)
+    const at = keyVec(k)
+    try { await chestWalk(bot, new goals.GoalNear(at.x, at.y, at.z, 2), Math.max(1000, Math.min(PIT_WALK_MS, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
+    const tb = bot.blockAt?.(at)
+    if (!tb) { to.push(`${k}:unloaded`); skip.set(k, Date.now() + 10 * 60_000); continue }
+    if (!isTownContainer(bot, tb)) { skip.set(k, Date.now() + 30 * 60_000); to.push(`${k}:gone`); continue }
     if (!(eyeToBlock(bot.entity.position, tb.position) <= OPEN_REACH)) { to.push(`${k}:unreachable`); skip.set(k, Date.now() + 10 * 60_000); continue }
     const want = n - banked
     const p = await sortPut(bot, tb, { dirt: want }, deadline, signal, { dirt: PIT.keep }, bag => pitBankSteps(bag, want, PIT.keep), 'pit_bank')   // whole stacks, then halves (Codex r1)
@@ -32959,7 +32963,9 @@ async function buildPit (ctx, args, signal) {
   if (pitBankDue(countItem(bot, 'dirt')) > 0) {
     const bk = await pitBank(ctx, signal, t0 + budget - 5_000)
     pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+') || '-', consumer: dem.consumer, short: dem.short, why: bk.why }, bk.banked ? 'success' : 'no_effect')
-    return out(bk.banked ? 'success' : 'no_effect', bk.banked ? 'banked' : 'bank_failed', `banked ${bk.banked} dirt for ${dem.consumer} (${bk.why}: ${bk.to.join(' ') || '-'})`, { stop: bk.banked ? 'banked' : 'bank_failed' })
+    if (bk.banked) return out('success', 'banked', `banked ${bk.banked} dirt for ${dem.consumer} (${bk.why}: ${bk.to.join(' ') || '-'})`, { stop: 'banked' })
+    // NO CHEST TOOK IT (full, unreachable, none known): the visit DIGS on (Codex r3 BLOCKER: a bank that kept failing stopped the pit for
+    // good); the dig's cap is the short, which counts the bag -- and the failed chests are skipped for their back-off, the next bank tries others
   }
   const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
   // THE WALK: the site is outside the town -- the visit walks there before it plans or digs (the remedy for `unread`, taken here)

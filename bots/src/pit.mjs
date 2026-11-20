@@ -379,13 +379,18 @@ export const pitClearOk = (c, read, T = PIT) => pitGuard(read, c.at, T, { perche
  */
 export function pitDemand ({ needs = {}, stock = null, bag = 0 } = {}) {
   const named = Object.entries(needs).filter(([, v]) => Number.isFinite(v) && v >= 0)
-  if (!named.length) return { dig: false, short: 0, need: null, stock, consumer: null, why: 'demand_unread' }
+  if (!named.length) return { dig: false, short: 0, chest: 0, need: null, stock, consumer: null, why: 'demand_unread' }
   const need = named.reduce((s, [, v]) => s + v, 0)
-  const have = (Number.isFinite(stock) ? Math.max(0, stock) : 0) + Math.max(0, Number(bag) || 0)
-  const short = Math.max(0, need - have)
+  const inTown = Number.isFinite(stock) ? Math.max(0, stock) : 0
+  const short = Math.max(0, need - inTown - Math.max(0, Number(bag) || 0))
   const top = named.filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])[0]
-  return { dig: short > 0, short, need, stock: Number.isFinite(stock) ? stock : null, consumer: top ? top[0] : null, why: short > 0 ? 'short' : need > 0 ? 'stocked' : 'no_need' }
+  // `chest`: what the town's CHESTS lack (the bag not counted): while it is above 0 a bag's dug dirt is owed to them -- the pit stays
+  // offered for the BANK even when the bag already covers the dig (Codex r3 BLOCKER: the carried surplus hid the pit, nothing banked)
+  return { dig: short > 0, short, chest: Math.max(0, need - inTown), need, stock: Number.isFinite(stock) ? stock : null, consumer: top ? top[0] : null, why: short > 0 ? 'short' : need > 0 ? 'stocked' : 'no_need' }
 }
+/** Is the pit wanted now (the order's state) -> bool. Pure: a dig the town is short of, or a bank the chests are short of and this bag
+ *  holds (`bagDirt`: its whole dirt count; pitBankDue takes the keep off). */
+export const pitWanted = (dem, bagDirt = 0, T = PIT) => !!dem && (dem.dig || ((dem.chest ?? 0) > 0 && pitBankDue(bagDirt, { T }) > 0))
 /** How many cells one visit may dig -> n. Pure: never past what the town is short of, never past the visit's bound. */
 export const pitDigCap = (short, T = PIT) => Math.max(0, Math.min(T.visitMax, Math.ceil(Number(short) || 0)))
 /**
