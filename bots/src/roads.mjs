@@ -55,7 +55,9 @@ export const ROADS = Object.freeze({
   ahead: 22,          // the router's goal: the line point this far (along the line) past the start's nearest point
   half: 2,            // the paved half-width: tread -1..1, edges +-2
   verge: 3,           // the verge's offset
-  fillMax: 2,         // a paved column's ground at most this below L (a hole 3 deep has no stand for its bottom cell: sinkfix-02)
+  fillMax: 4,         // a paved column's ground at most this below L (roadsite-01show: was 2 -- "a hole 3 deep has no stand for its bottom
+                      // cell", sinkfix-02 -- but the showcase's lines cross the bots' pits 3-4 deep everywhere; the proof decides what a stand
+                      // reaches and leaves an unreachable bottom fill out: ROADS.dropFill, the road's surface on its neighbours' sides)
   cutMax: 2,          // natural ground dug above a paved column's surface
   litterMax: 8,       // ... and a pillar of the bots' own cobble on it (their scaffold: the road takes it down)
   vergeFill: 3,       // a verge raised by at most this (to L - 1)
@@ -203,6 +205,72 @@ export function treadTag (style, t, w) {
   return 'tr'
 }
 
+// ---- roadsite-01show: the columns the road SHARES with another record -----------------------------------------------------------------
+// LIVE 11-20 14:48Z: every route no_site -- `path` (village-taiga-6_1 blocked_path 7, warehouse no_start path112) was every OTHER
+// record's cell column, and most of those were the countryside's grading (country@1: its fills and cuts) and the paths' own walk.
+// A road CROSSES them on terms that leave both records true (neither ever undoes the other's block):
+//   PATHS (`path` cells: done by PATH_PALETTE, stone bricks and cobblestone among it) -- the road's surface there IS the path's cell:
+//     the road's level equal to the path cell's y, its block the tread (stone bricks / cobblestone: never a kerb stone, an accent or a
+//     slab, which the path would dig out as foreign). The path keeps a walkable cell, one that happens to be the road.
+//   A GRADING RECORD (tidy@1 / country@1: its fills `earth`/`core` are done by ANY full solid, its cuts and clears by the listed
+//     block gone) -- the road takes the grade: every fill at or under the road's surface (a fill above it would bury the road), every
+//     cut and clear at or above it (a cut under it would dig the road's ground away); a cut AT the surface only when it was listed
+//     for a name the road never lays (grass, dirt, stone: the road's block there reads it dug -- never cobblestone, which a road lays
+//     and the grading would then dig again). The road there grades the column itself (its own
+//     cut and fill within ROADS.cutMax / fillMax), so where the land plan and the road meet, both read done. A cell of any other role
+//     (topsoil, an access stair, a light, a planting) is the record's own and refuses.
+//   ANY OTHER RECORD (a building, a wall, the yard, a tower...): its columns refuse, as before.
+// A slab never lands on a shared column (not a full solid, not in the path's palette): roadInstance refuses the layout, siteRoad2
+// routes again round that column.
+/** The grading records' roles a road's block (any full solid) finishes (tidy.mjs TIDY_PALETTE: the roles that list '*solid'). */
+export const GRADE_SOLID_ROLES = Object.freeze(['earth', 'core'])
+export const GRADE_PLOTS = Object.freeze(['tidy', 'country'])
+export const PATHS_PLOT_R = 'paths'
+/** Every name a road's surface may lay (its treads, accents, kerbs and their fallbacks: EDGE_STONES, ACCENT_STONES, SLABS). */
+const ROAD_LAYS = /^(stone_bricks|cobblestone|cobbled_deepslate|deepslate_bricks|polished_andesite|mossy_cobblestone|mossy_stone_bricks|andesite|tuff|stone_brick_slab|cobblestone_slab)$/
+/**
+ * THE SHARED COLUMNS of the other records -> Map "x,z" -> { other } | { eq, lo, hi, path }. Pure. `recs` [{ plot, rec }] (the road's
+ * own record, the land plan's and the site prep's reservations are the caller's to leave out). A column two records hold merges (both
+ * terms; `other` wins).
+ */
+export function roadShares (recs = []) {
+  const m = new Map()
+  const get = (x, z) => { const k = k2(x, z); let o = m.get(k); if (!o) { o = { other: false, eq: null, lo: -Infinity, hi: Infinity, path: false }; m.set(k, o) } return o }
+  for (const { plot, rec } of recs) {
+    if (!rec) continue
+    const grade = GRADE_PLOTS.includes(plot)
+    for (const c of rec.cells ?? []) {
+      if (!Array.isArray(c?.at)) continue
+      const o = get(c.at[0], c.at[2]), y = c.at[1]
+      if (plot === PATHS_PLOT_R && c.role === 'path') { if (o.eq != null && o.eq !== y) o.other = true; o.eq = y; o.path = true }
+      else if (plot === PATHS_PLOT_R && c.role === 'fill') { /* under the path's cell: done by any solid, the road keeps it */ }
+      else if (grade && GRADE_SOLID_ROLES.includes(c.role)) o.lo = Math.max(o.lo, y)
+      else o.other = true
+    }
+    if (grade) for (const q of [...(rec.cut ?? []), ...(rec.clear ?? [])]) if (Array.isArray(q?.at)) { const o = get(q.at[0], q.at[2]); o.hi = Math.min(o.hi, ROAD_LAYS.test(String(q.name ?? '')) ? q.at[1] - 1 : q.at[1]) }
+  }
+  return m
+}
+/** The road's surface at level L on a column holding `o` (an own(x, z) answer: falsy nobody's, `true` another record's, or a
+ *  roadShares entry) -> null (it may) | the refusal: 'path' (another record's column), 'path_level' (a path cell not at L),
+ *  'grade_fill' (a fill above L), 'grade_cut' (a cut or clear under L, or at L listed for a block the road lays). Pure. */
+export function shareOk (o, L) {
+  if (!o) return null
+  if (o === true || o.other) return 'path'
+  if (o.eq != null && o.eq !== L) return 'path_level'
+  if (L < o.lo) return 'grade_fill'
+  if (L > o.hi) return 'grade_cut'
+  return null
+}
+
+/** May the road's surface at L on a column holding `o` be a SLAB? Not on a path's cell (no path block), not on a grading record's
+ *  fill at L (a slab is no full solid: the fill would read open); a cut or clear at L, a fill under it, nobody's column: yes. Pure. */
+export function slabOk (o, L) {
+  if (!o) return true
+  if (o === true || o.other || o.path) return false
+  return !(o.lo >= L)
+}
+
 // ---- the local router ----------------------------------------------------------------------------------------------------------------
 /**
  * THE CROSS-SECTION AT A NODE -> { ok, cost, why, cols: [{ x, z, w, g, gr }] } at level L, direction d. Pure (memoised by the caller's
@@ -218,9 +286,15 @@ export function crossSection (read, col, guard, x, z, L, d, own = () => false) {
     const cx = x + px * w, cz = z + pz * w
     const gr = col(cx, cz)
     const paved = Math.abs(w) <= ROADS.half
+    // roadsite-01show: a VERGE is beside the road, never on it -- a verge column that is someone's work (a wall's or a building's
+    // block on it: `built`, a stem: `tree`; another record's cell column) is left as it stands (roadInstance gives it no fill, no
+    // clear, no lamp); water and an unread column still refuse (never a guess, never a road beside a spring)
+    if (!paved && (gr.why === 'built' || gr.why === 'tree')) { if (wetAround(read, cx, L, cz) || wetAround(read, cx, L + 1, cz)) return { ok: false, why: 'liquid' }; continue }
     if (gr.why) return { ok: false, why: gr.why }
-    // another record's own cell column (`own`: the paths' columns -- their zones are open to a road, their cells never)
-    if (own(cx, cz)) return { ok: false, why: 'path' }
+    // another record's cell column (`own`): a paved column only on its TERMS (roadsite-01show shareOk: the paths' cell at the road's
+    // level -- the road becomes the path there --, a grading record's fills at or under it and its cuts at or over it); a building's
+    // cells, a wall's, the yard's piles never
+    if (paved) { const sw = shareOk(own(cx, cz), L); if (sw) return { ok: false, why: sw } }
     const g = gr.g
     const why = guard(cx, cz, Math.min(g, L) - 1, L + 4)
     if (why) return { ok: false, why: 'reserved' }
@@ -228,7 +302,10 @@ export function crossSection (read, col, guard, x, z, L, d, own = () => false) {
       if (L - g > ROADS.fillMax) return { ok: false, why: 'fill' }
       // a cut: natural ground at most cutMax deep, a stack of the bots' blocks on it (a pillar) at most litterMax more
       let natural = 0, stack = 0
-      for (let y = g; y > L; y--) { const n = nm(read(cx, y, cz)); if (LITTER.test(n) && n !== 'dirt' && n !== 'gravel' && n !== 'sand') stack++; else if (n !== 'air' && n !== 'cave_air') natural++ }
+      // roadsite-01show: a block with open cells on all four sides is a PILLAR (the bots' pillar-jumps, dirt included: no natural
+      // ground stands 1x1 -- the showcase's village line has a 4-high one at 40,69..72,-1), counted as the bots' stack
+      const pillar = y => DIRS.every(([dx, dz]) => { const b = read(cx + dx, y, cz + dz); return !!b && (nm(b) === 'air' || nm(b) === 'cave_air' || (isPassable(b) && !wet(b))) })
+      for (let y = g; y > L; y--) { const n = nm(read(cx, y, cz)); if ((LITTER.test(n) && n !== 'dirt' && n !== 'gravel' && n !== 'sand') || (n !== 'air' && n !== 'cave_air' && pillar(y))) stack++; else if (n !== 'air' && n !== 'cave_air') natural++ }
       if (natural > ROADS.cutMax || stack > ROADS.litterMax) return { ok: false, why: 'cut' }
       // (the bots' ground is hollow in places -- 1-high tunnels under the turf: an air cell in the cut is nothing to dig)
       for (let y = g; y > L; y--) { const b = read(cx, y, cz); if (!b) return { ok: false, why: 'unknown' }; const n = nm(b); if (n !== 'air' && n !== 'cave_air' && !replaceableCell(b) && !roadCut(n)) return { ok: false, why: 'cut_kind' } }
@@ -283,7 +360,7 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
     if (!a.ok || !b.ok) return false
     for (const sx of [-2, 2]) for (const sz of [-2, 2]) {
       const gr = col(x + sx, z + sz)
-      if (gr.why || own(x + sx, z + sz) || L - gr.g > ROADS.fillMax || gr.g - L > ROADS.cutMax + ROADS.litterMax || guard(x + sx, z + sz, Math.min(gr.g, L) - 1, L + 4)) return false
+      if (gr.why || shareOk(own(x + sx, z + sz), L) || L - gr.g > ROADS.fillMax || gr.g - L > ROADS.cutMax + ROADS.litterMax || guard(x + sx, z + sz, Math.min(gr.g, L) - 1, L + 4)) return false
     }
     return true
   }
@@ -315,6 +392,9 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
         const L = s.L + dL
         const cs = cross(x, z, L, d)
         if (!cs.ok) continue
+        // roadsite-01show: a level change makes a SLAB row (gradeOf: up, the new row; down, the row before it) -- never on a shared
+        // column that takes no slab (slabOk: a path cell, a grading fill at that level)
+        if (dL && !(dL > 0 ? cs : cross(s.x, s.z, s.L, s.d)).cols.every(q => Math.abs(q.w) > ROADS.half || slabOk(own(q.x, q.z), dL > 0 ? L : s.L))) continue
         if (turn && !corner(s.x, s.z, s.L, s.d, d)) continue
         const n = { x, z, L, d, s: dL ? 1 : Math.min(ROADS.turnFlat + 1, s.s + 1), t: turn ? 0 : Math.min(ROADS.turnFlat, s.t + 1) }
         const nc = c + 1 + cs.cost + ROADS.offLine * bd + (turn ? ROADS.turnCost : 0) + (dL ? 0.5 : 0)
@@ -333,9 +413,17 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
     // an unread column is no answer: the stretch stops there unblocked (the next siting, with the chunk loaded, goes on)
     if (blocked === 'unknown') blocked = null
   }
-  const path = []
+  let path = []
   for (let s = end; s && s !== s0; s = prev.get(key(s))) path.push(s)
   path.reverse()
+  // roadsite-01show: NEVER A ROAD THAT TOUCHES ITSELF. The search's states carry a direction and the run counters, so the cheapest
+  // way on may loop back over its own columns (the showcase's village line: east 7, south 6, west 4, north 4, east again ACROSS its own
+  // first stretch -- the 5x5 corners make a sidestep dear). The route ends before the first node within 2 of a node more than 4 back
+  // (closer than two cross-sections may lie), and a road that cannot reach its goal then ends where it came NEAREST it (the first such
+  // node: never a hook out and back)
+  const touch = path.findIndex((q, i) => path.slice(0, Math.max(0, i - 4)).some(o => Math.max(Math.abs(o.x - q.x), Math.abs(o.z - q.z)) <= 2))
+  if (touch >= 0) { path = path.slice(0, touch); blocked ??= 'loop' }
+  if (blocked && path.length) { let bi = 0; path.forEach((q, i) => { if (gd(q) < gd(path[bi])) bi = i }); path = path.slice(0, bi + 1) }
   // a stretch of at most ROADS.len nodes -- all of it when only a few more would be left for a next instance
   const nodes = path.length <= ROADS.len + ROADS.tailMerge ? path.slice() : path.slice(0, ROADS.len)
   if (blocked && nodes.length < path.length) blocked = null   // the farthest reach is beyond this instance: the next one goes on
@@ -405,6 +493,9 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
   const paved = pavedColumns(nodes, chain0)
   const gr = gradeOf(paved, tail, land)
   if (!gr.ok) return { ok: false, why: 'grade', bad: gr.bad }
+  // roadsite-01show: a slab is no full solid and no path block -- never on a path's cell nor on a grading record's fill (siteRoad2
+  // routes round that column)
+  for (const k of gr.slab) { const c = paved.get(k); if (c && !slabOk(own(c.x, c.z), c.L)) return { ok: false, why: 'shared_slab', bad: [c.x, c.L, c.z] } }
   const roles = {}
   const role = (tag, names) => { const r = `${id}-${tag}`; roles[r] ??= names; return r }
   const rTread = role('tr', uniq([style.tread, 'cobblestone']))
@@ -423,7 +514,8 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
     const seg = segOf(c.t)
     for (let y = g.g + 1; y < c.L; y++) { cells.push({ at: [c.x, y, c.z], role: rCore, seg }); taken.add(k3(c.x, y, c.z)) }
     const slab = gr.slab.has(k)
-    const tag = c.w === 2 ? rEdge : treadTag(style, c.t, c.w) === 'acc' ? rAcc : rTread
+    // roadsite-01show: on a path's column the road's block is the TREAD (stone bricks / cobblestone: the path's palette reads it done)
+    const tag = own(c.x, c.z)?.path ? rTread : c.w === 2 ? rEdge : treadTag(style, c.t, c.w) === 'acc' ? rAcc : rTread
     cells.push({ at: [c.x, c.L, c.z], role: slab ? rSlab : tag, seg, ...(slab ? { ws: { type: 'bottom' } } : {}) })
     taken.add(k3(c.x, c.L, c.z))
     for (let y = g.g; y > c.L; y--) addClear(c.x, y, c.z, 'cut')
@@ -555,7 +647,9 @@ export function routeStarts (read, route, { ring = null, guard = () => null, hy 
     if (![1, 2].every(dy => { const b = read(lx, L + dy, lz); return !!b && isPassable(b) && !wet(b) })) { tried.land_head = (tried.land_head ?? 0) + 1; continue }
     const cs = crossSection(read, (a, b) => roadColumn(read, a, b, yHi, yLo), guard, x, z, L, d, own)
     if (!cs.ok) { tried[cs.why] = (tried[cs.why] ?? 0) + 1; continue }
-    found.push({ start: { x, z, L, d, s: ROADS.turnFlat + 1, t: ROADS.turnFlat }, land: { x: lx, z: lz, L } })
+    // roadsite-01show: the start row is paved (siteRoad2) and the road keeps the landing's level for its first rows (s 1: a level
+    // change only after ROADS.runMin rows, a turn after ROADS.turnFlat) -- out of the ring straight, joined flat
+    found.push({ start: { x, z, L, d, s: 1, t: ROADS.turnFlat }, land: { x: lx, z: lz, L } })
     if (found.length >= max) break
   }
   if (found.length) return { ok: true, starts: found }
@@ -604,7 +698,11 @@ export function siteRoad2 (read, ctx = {}) {
     for (let a = 0; a <= ROADS.proofRetries; a++) {
       r = routeRoad(read, { line: route.line, start, guard: g2, hy: home.y, forbid, own })
       if (!r.ok || !r.nodes.length) break
-      inst = roadInstance(id, r.nodes, { prevEnd: last ? last.end : null, tail: last?.tail ?? [], land, col, style, lamp, read, chain0, guard: g2, own })
+      // roadsite-01show: a route's FIRST instance paves its start row too (the router's path begins after it: the row between the
+      // landing and the road was left natural ground -- the join was never the flat or half step gradeOf checks against `land`)
+      inst = roadInstance(id, last ? r.nodes : [start, ...r.nodes], { prevEnd: last ? last.end : null, tail: last?.tail ?? [], land, col, style, lamp, read, chain0, guard: g2, own })
+      // roadsite-01show: a slab row on a shared column -- that column is routed round (one more retry), as a proof's failed cell is
+      if (!inst.ok && inst.why === 'shared_slab' && Array.isArray(inst.bad)) { bad.add(k2(inst.bad[0], inst.bad[2])); continue }
       if (!inst.ok) break
       // the proof: the town walk (the road's slab rows floors) reaches the approach; every cell has a step, segment by segment
       const floors = new Set([...roadFloors(rec), ...inst.cells.filter(c => c.ws?.type === 'bottom').map(c => kOf(c.at))])
@@ -644,7 +742,7 @@ export function siteRoad2 (read, ctx = {}) {
     const design = { kind: 'road2', route: route.id, k: done.length, style }
     const meta = {
       id, n, kind: 'road', route: route.id, k: done.length, seed, design, summary: `${route.id.slice(0, 20)}/k${done.length}/${style.pattern}/${style.tread}/${style.edge}${lamp ? '/lamps' : ''}`,
-      box: inst.box, zones: inst.zones, end: inst.end, tail: inst.tail, path: r.nodes.map(q => [q.x, q.z, q.L]), approach: inst.approach, len: inst.len, slabs: inst.slabs, lamps: inst.lamps.length,
+      box: inst.box, zones: inst.zones, end: inst.end, tail: inst.tail, path: (last ? r.nodes : [start, ...r.nodes]).map(q => [q.x, q.z, q.L]), approach: inst.approach, len: inst.len, slabs: inst.slabs, lamps: inst.lamps.length,
       ...(land ? { front: [[land.x, land.z]], land } : {}), ...(ended ? { ended } : {}), trips: route.trips,
     }
     return { ok: true, inst, meta, tried, proofs }
