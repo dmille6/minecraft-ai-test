@@ -280,6 +280,8 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.ok(body.includes('clearKeepOrder: true, clearNoFloor: pj.floor,'), 'top down, never a stand on a listed cell')
   assert.ok(/clearOk: \(q, rd\) => floatClearOk\(q, rd \?\? rd0, \{ listed: k => take\.has\(k\)/.test(body), 'the dig-time check')
   assert.ok(body.includes("row('aside', 'no_effect', { at: a.k, why: 'unreached'"), 'a set-aside cell gets its row')
+  assert.strictEqual(body.split('releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)').length, 2, 'the slot released once, in the finally, at its latest generation')
+  assert.ok(/\} finally \{\n\s+releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/.test(body), 'in the finally')
   assert.ok(body.includes('const guard = floatGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
   assert.ok(/clearOk: \(q, rd\) => floatClearOk\(q, rd \?\? rd0, \{ listed: k => take\.has\(k\), cells: cellsNow, zone, under: bodyFloorKeys\(bot\), floating: k => pj\.floor\.has\(k\) \}\)/.test(body), 'the guard read again at the dig, the body')
   const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function bodyFloorKeys'))
