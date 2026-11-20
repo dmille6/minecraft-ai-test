@@ -30177,6 +30177,37 @@ function floatListNow (pool, dir) {
   return floatListNewer(fcDocs.get(pool), c.d)
 }
 export const floatcleanDue = (mem, now = Date.now()) => FC_ON && now >= (Number(mem?.fcNextAt) || 0)
+/** floatclean-01show (Codex r1 BLOCKER 2): THE LAP'S GUARD -> (k) -> bool | null. Every guarded project's record read STRICTLY (one
+ *  unreadable or with a rejected generation: null, no lap) -- every [x,y,z] its record lists anywhere (its cells AND its clears, cuts,
+ *  replants, trees: the survey's own rule, floatclean-survey.mjs), the bridges' planned cells, and every town plan plot's columns. */
+function floatGuardStrict (bot) {
+  try {
+    const dir = townDir()
+    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : []), STEPWELL_PLOT, UPKEEP_PLOT])]
+    const out = new Set()
+    const tri = a => Array.isArray(a) && a.length === 3 && a.every(Number.isInteger)
+    for (const pl of plots) {
+      const h = recordHead(dir, projKeyOf(pl))
+      if (!h.ok || (h.rejected?.length ?? 0) > 0) return null
+      for (const v of Object.values(h.head?.rec ?? {})) if (Array.isArray(v)) for (const q of v) { const at = q?.at ?? q?.cell; if (tri(at)) out.add(at.join(',')) }
+    }
+    const bs = exBridgeSitesStrict()
+    if (bs == null) return null
+    for (const k of bridgeCellKeys(bs)) out.add(k)
+    const ph = townPlanHead(bot)
+    if (!ph.ok || !ph.head) return null
+    const boxes = (ph.head.rec?.plots ?? []).map(p => p?.box).filter(b => Array.isArray(b) && b.length === 4)
+    return k => { if (out.has(k)) return true; const [x, , z] = k.split(',').map(Number); return boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }
+  } catch { return null }
+}
+/** The cells under this bot's body (its feet's floor, every column its 0.6-wide box stands over) -> ['x,y,z']. Never throws. */
+function bodyFloorKeys (bot) {
+  try {
+    const p = bot.entity.position, y = Math.floor(p.y + 1e-6) - 1, out = []
+    for (const x of new Set([Math.floor(p.x - 0.3), Math.floor(p.x + 0.3)])) for (const z of new Set([Math.floor(p.z - 0.3), Math.floor(p.z + 0.3)])) out.push(`${x},${y},${z}`)
+    return out
+  } catch { return [] }
+}
 /** One lap -> { tried, status, why, cleared, stop }. `tried` false: nothing walked to or dug (no list, nothing take-able now). */
 async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs } = {}) {
   const { bot } = ctx
@@ -30188,12 +30219,15 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
   if (deadline - t0 < FC.passMinMs) return no('late')
   const c = shopCtx(bot)
   if (!c.zonesKnown) return no('zones_unknown')
-  const guard = bw3GuardStrict()   // every guarded project's cells, read strictly: one unreadable record, no lap
+  const guard = floatGuardStrict(bot)   // every guarded project's cells and clears and the plan's plots, read strictly: one unreadable, no lap
   const row = (op, status, d) => { try { logEvent({ kind: 'floatclean', status, snapshot: snapshot(bot), detail: floatDetail({ op, ...d }) }) } catch { /* telemetry */ } }
   if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }
   const zb = (c.zones ?? []).map(z => z?.box).filter(b => Array.isArray(b) && b.length === 6)
   const zone = (x, y, z) => zb.some(b => x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5])
-  const cells = k => guard.has(k)
+  const cells = k => guard(k)
+  // at the dig the guard is read again (at most every 2 s; an unreadable one guards every cell)
+  let gAt = Date.now(), gLast = guard
+  const cellsNow = k => { if (Date.now() - gAt >= 2_000) { gLast = floatGuardStrict(bot); gAt = Date.now() } return !gLast || gLast(k) }
   const mem = (procMem(bot).floatclean ??= { tries: {}, until: {}, rows: {} })
   const rowDueFor = (k, now = Date.now()) => { if (now - (Number(mem.rows[k]) || 0) < FC.rowMs) return false; mem.rows[k] = now; return true }
   const key = projKeyOf(FLOATCLEAN_PLOT)
@@ -30229,7 +30263,7 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.fcStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
       domain: () => true, walkR: FC.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
       clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
-      clearOk: (q, rd) => floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: k => { const g = bw3GuardStrict(); return !g || g.has(k) }, zone }) },
+      clearOk: (q, rd) => floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k) }) },
     effects, { deadline: Math.min(deadline, t0 + FC.passMs), maxSteps: 200 })
     cleared = r.cleared ?? 0
     // set aside: a cell this lap offered, considered to the end of the list, and left standing (no stand, no arrival) -- per bot
