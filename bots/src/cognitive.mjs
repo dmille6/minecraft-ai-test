@@ -48,6 +48,7 @@ import { ironPickNeed } from './toolkit.mjs'
 import { tripTarget as crewTripTarget, obsKit as crewObsKit, obsidianWant as crewObsWant } from './deepmine.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
+import { depositOfferConfig, offeredSkills, tallyLine as depositOfferTallyLine, TALLY_MS as DEPOSIT_OFFER_TALLY_MS } from './depositoffer.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
@@ -439,6 +440,11 @@ export class CognitiveLoop {
     this.pipeEpoch = 0         // bumped by notify() for every non-idle tick it starts: a decision waiting on a prefetch is stale
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
+    // DEPOSITOFFER-01 (depositoffer.mjs; ported to the showcase by DEPFIX-01): a model call whose UNNAMED deposit the gate would
+    // refuse is not offered `deposit` -- the per-call enum the grammar compiles. DEPOSITOFFER=0 (or DEPOSITRUNG=0) is the old schema.
+    this.depositOffer = depositOfferConfig(process.env)
+    this.schemaNoDeposit = skillSchema(SKILL_NAMES.filter(n => n !== 'deposit'))
+    this.doTally = null        // one depositoffer_tally row per 10 min (depositoffer.mjs tallyLine)
     this.system = buildSystemPrompt(SKILL_NAMES)
     this.running = false
     this.stopped = false
@@ -1073,10 +1079,18 @@ export class CognitiveLoop {
    * out that is backing off (roomState) or that the gate's memory would refuse (AdmissionControl.memoryRefuses: cooldown,
    * learned failures, a full repeat window) -- so the next remedy, or the model, takes the turn instead of a refused order.
    */
-  /** The model's prompt for `milestone` (buildUserPrompt): the tick's and a PIPELINE-01 prefetch's. */
+  /** The model's prompt for `milestone` (DEPOSITOFFER-01's offer, then buildUserPrompt): the tick's and a PIPELINE-01 prefetch's. */
   #composePrompt({ milestone, ready, room, trigger, lastOutcome, sentinel }) {
+    // DEPOSITOFFER-01: the gate's own deposit reader, item = null, BEFORE the prompt (the CARRYING line goes with the option)
+    let depOffer = { skills: SKILL_NAMES, suppressed: null, why: null }
+    if (this.depositOffer.on) {
+      try {
+        depOffer = offeredSkills({ cfg: this.depositOffer, names: SKILL_NAMES,
+                                   verdict: this.admission.depositRunnable(this.bot, null, this.#wantedItems(milestone), milestone?.id ?? null) })
+      } catch { depOffer = { skills: SKILL_NAMES, suppressed: null, why: null, readFailed: true } }
+    }
     const built = buildUserPrompt({
-      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
+      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone), depositOffered: !depOffer.suppressed,
       lastOutcome, trigger, sentinel,
       noRoom: ready?.noRoom ? { item: ready.noRoom.item, short: ready.noRoom.short, text: room?.text ?? null } : null,
       mineCrew: this.bot.mineCrewView ?? null,   // minecrew-01: the MINING line, and no ore named to a bot with no turn
@@ -1089,7 +1103,7 @@ export class CognitiveLoop {
         ...(this.worldFacts?.promptLines(this.bot.entity?.position) ?? []),
       ],
     })
-    return { ...built, depOffer: { suppressed: null } }   // the showcase has no DEPOSITOFFER-01: always the full schema
+    return { ...built, depOffer }
   }
 
   #roomRemedy(noRoom) {
@@ -1620,7 +1634,9 @@ export class CognitiveLoop {
     const ready = readyFor(this.bot, milestone, { wearFailedRecently: Date.now() - (this.roomWearFailAt?.[milestone?.wants] ?? -Infinity) < ROOM_WEAR_TRUST_MS })
     const room = ready.noRoom ? this.#roomRemedy(ready.noRoom) : null
     // the prompt: one composer (#composePrompt), so a PIPELINE-01 prefetch asks the model exactly as a tick does
-    const { user, tokens, dropped, affordance } = this.#composePrompt({ milestone, ready, room, trigger, lastOutcome: this.lastOutcome, sentinel })
+    const composed = this.#composePrompt({ milestone, ready, room, trigger, lastOutcome: this.lastOutcome, sentinel })
+    const depOffer = composed.depOffer
+    const { user, tokens, dropped, affordance } = composed
 
     const snap = snapshot(this.bot)
     if (snap.game) snap.game.biome = biomeAt(this.bot)
@@ -2145,8 +2161,12 @@ export class CognitiveLoop {
     const res = order
       ? { schemaValid: true, latencyMs: 0, raw: null,
           proposal: { skill: order.skill, args: order.args, reason: order.why } }
-      : pipeTake?.res ?? await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
+      : pipeTake?.res ?? await this.llm.decide({ system: this.system, user, sentinel, schema: depOffer.suppressed ? this.schemaNoDeposit : this.schema })
     if (pipeTake) this.#pipeRow(pipeTake, res)
+    // DEPOSITOFFER-01's tally: one MODEL call's counts, written together (below) so a row never splits a decision. A used prefetch
+    // was asked with its own offer (#pipeLaunch); the tick's offer is what is counted here.
+    const doKeys = order ? null : ['model_calls', depOffer.suppressed ? 'suppressed' : 'offered', ...(depOffer.readFailed ? ['read_failed'] : []),
+      ...(depOffer.suppressed ? [`sup_${depOffer.why}`, `pick_${String(res.proposal?.skill ?? 'none').replace(/[^a-z_]/g, '').slice(0, 24) || 'none'}`] : [])]
     this.decisions++
     this.lastDecisionAt = Date.now()
 
@@ -2186,6 +2206,9 @@ export class CognitiveLoop {
       if (MINECREW.on) this.bot.mineCrewPending = null
       if (check.ok) admitted = check
       else rejection = check
+      if (doKeys && !check.ok) doKeys.push('model_refused', ...(res.proposal?.skill === 'deposit' ? ['deposit_refused'] : []))
+      // DEPFIX-01: a named deposit the gate widened to the offered (unnamed) one -- the canary read's own count
+      if (doKeys && check.ok && check.skill === 'deposit' && this.admission.lastDepositWidened) doKeys.push('deposit_widened')
       if (rejection?.reason === 'mine_crew') this.#crewRefused(rejection, res.proposal, order)
       // a steer order the gate refused never ran: its rhythm is given back (steerAfter notRun)
       if (!check.ok && order?.crewSteer && this.crew) this.crew.steer = steerAfter(this.crew.steer, { kind: order.crewSteer, climb: order.crewClimb === true, notRun: true })
@@ -2209,6 +2232,7 @@ export class CognitiveLoop {
       }
     }
 
+    if (doKeys) this.#doCount(...doKeys)
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
     let runFailClass = null
@@ -2224,6 +2248,7 @@ export class CognitiveLoop {
       // window would refuse the fifth as a repeat loop (the steer bounds itself: its rhythm, its tries, its back-offs)
       if (order?.crewSteer && admitted.kind === 'normal') this.admission.forgetLastAdmitted(AdmissionControl.key(admitted.skill, admitted.args))
       const crewBefore = MINECREW.on ? this.#crewPos() : null
+      this.#doCount('skills_run')
       const pipeSource = order ? (order.continuation ? 'continue' : 'order') : 'model'
       const pipeRun = this.#pipeAtRunStart({ source: pipeSource, admitted, milestone })
       const runT0 = Date.now()
@@ -2633,6 +2658,18 @@ export class CognitiveLoop {
 
   // ---------------------------------------------------------------- PIPELINE-01 (pipeline.mjs)
 
+  /** DEPOSITOFFER-01: one depositoffer_tally row per bot per 10 min -- offers suppressed and why, refusals per model call, the
+   *  named deposits widened (DEPFIX-01), model calls per minute, skills run per bot-hour (depositoffer.mjs tallyLine). */
+  #doCount (...whats) {
+    const now = Date.now()
+    this.doTally ??= { t0: now, c: {} }
+    for (const what of whats) this.doTally.c[what] = (this.doTally.c[what] ?? 0) + 1
+    if (now - this.doTally.t0 >= DEPOSIT_OFFER_TALLY_MS) {
+      try { logEvent({ kind: 'depositoffer_tally', status: 'success', detail: depositOfferTallyLine({ secs: (now - this.doTally.t0) / 1000, c: this.doTally.c }), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+      this.doTally = { t0: now, c: {} }
+    }
+  }
+
   /** One pipeline_tally row per bot per 10 min: prefetches, uses, drops by reason, arms, no-wait ticks. */
   #pipeCount (what) {
     if (!this.pipe?.active) return
@@ -2670,7 +2707,7 @@ export class CognitiveLoop {
                    user: cp.user, tokens: cp.tokens, dropped: cp.dropped }
       // never rejects: a failed call is a result with no proposal (llm.decide does not throw for the model's misbehaviour)
       pf.promise = Promise.resolve()
-        .then(() => this.llm.decide({ system: this.system, user: cp.user, sentinel, schema: this.schema }))
+        .then(() => this.llm.decide({ system: this.system, user: cp.user, sentinel, schema: cp.depOffer.suppressed ? this.schemaNoDeposit : this.schema }))
         .then(res => { pf.res = res }, e => { pf.res = { schemaValid: false, proposal: null, error: String(e?.message ?? e).slice(0, 120) } })
         .finally(() => { pf.done = true; pf.doneAt = Date.now() })
       if (this.prefetch) this.#pipeDrop('replaced')

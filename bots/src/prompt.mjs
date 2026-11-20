@@ -753,7 +753,7 @@ export function atlasLine (bot, milestone = null, wanted = null) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, mineCrew = null }) {
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, mineCrew = null, depositOffered = true }) {
   const p = bot.entity.position
   // minecrew-01: the bot's view of the crew (cognitive.mjs; null or off: the prompt exactly as before) -- an ore whose material
   // the bot may not gather now (minecrew.mjs crewOreHidden over the view's `allowed`) is named in neither scan
@@ -774,7 +774,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     `INVENTORY: ${invStr}`,
     craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
     smeltableNow(bot),
-    depositSituation(bot, memory),
+    depositOffered ? depositSituation(bot, memory) : '',   // DEPOSITOFFER-01: no CARRYING line when deposit is not offered
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants, mineCrew }).join(', ') || 'nothing notable'}`,
     actionable.line,
     waterSituation(bot),
