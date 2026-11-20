@@ -124,6 +124,23 @@ await ta('(b) ONE reserve: other tower blocks count toward it (3 cobblestone -> 
   assert.equal(TD.townKeeps({ dirt: 5 }).keep.dirt, 5, 'never below the reserve: a deposit or visit never deepens it')
   assert.equal(TD.townKeeps({ dirt: 40 }, { wanted: ['dirt'] }).keep.dirt, 40, 'a job that wants dirt keeps it up to a stack, as before')
 })
+// Codex r2 blocker: a full bag (30 slots) whose only tower blocks are 8 dirt, the warehouse's dirt column with room -- the deposit's
+// column and room layers lower a soft keep to free a slot; the escape's dirt is a HARD keep there, as the scaffold reserve is
+const FULLBAG = [{ name: 'dirt', count: 8, slot: 9, stackSize: 64 }, ...['spruce_sapling', 'wheat_seeds', 'sugar_cane', 'clay', 'gravel', 'poppy', 'dandelion', 'apple', 'egg', 'lantern', 'torch', 'bone_meal', 'string',
+  'spruce_stairs', 'chest', 'furnace', 'crafting_table', 'composter', 'shears', 'bucket', 'stone_hoe', 'iron_axe', 'stone_pickaxe', 'iron_pickaxe', 'flint', 'stick', 'oak_sapling', 'birch_sapling', 'wheat']
+  .map((name, i) => ({ name, count: 5, slot: 10 + i, stackSize: 64 }))]
+const dirtBanked = (T, o) => T.townDepositPlan(FULLBAG, o).steps.filter(st => st.name === 'dirt').reduce((t, st) => t + st.count, 0)
+await ta('(b) the escape\'s dirt is a HARD keep for the deposit: a full bag never banks its last 8 dirt to a column or a room bank (Codex r2)', async () => {
+  assert.equal(FULLBAG.length, 30); assert.equal(TD.townKeeps({ dirt: 8, stick: 5 }).why.dirt, 'escape_reserve')
+  assert.equal(dirtBanked(TD, { columns: () => true }), 0, 'the column layer')
+  assert.equal(dirtBanked(TD, { columns: () => true, room: true }), 0, 'a room visit')
+  assert.ok(dirtBanked(TD, { columns: () => true }) === 0 && TD.townDepositPlan([{ name: 'dirt', count: 64, slot: 8, stackSize: 64 }, ...FULLBAG], { columns: () => true }).steps.filter(st => st.name === 'dirt').reduce((t, st) => t + st.count, 0) === 8, 'positive control: with 72 held, a whole slot (the 8) is banked and 64 stay')
+})
+await ta('MUTANT KILLED (b): the column layer without the escape keep banks all 8', async () => {
+  await withMutant(TD_URL, "const hardKeep = n => ['wanted', 'scaffold_reserve', 'escape_reserve'].includes(why[n])", "const hardKeep = n => ['wanted', 'scaffold_reserve'].includes(why[n])", async T => {
+    assert.equal(dirtBanked(T, { columns: () => true }), 8)
+  })
+})
 await ta('MUTANT KILLED (b): the stock keep left on keeps 16', async () => {
   await withMutant(TD_URL, "for (const [n, t] of Object.entries(heldTargetsFor(noStock))) floor(n, t, 'gather_rung')", "for (const [n, t] of Object.entries(HELD_TARGETS)) floor(n, t, 'gather_rung')", async T => {
     assert.equal(T.townKeeps({ dirt: 40 }).keep.dirt, 16)

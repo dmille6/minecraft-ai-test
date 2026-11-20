@@ -392,7 +392,8 @@ export function townDepositPlan (items = [], { columns = columnsHook, wanted = [
       (!IRON_LADDER.includes(n) || trimBankable(n)) && !STANDING_TARGETS.has(n) && !DEPOSIT_ALWAYS.includes(n) && !(roomExclude?.has?.(n)) &&
       !(groupOf(n) && !(targetOf(groupOf(n)) > 0))
     // bagfix-01 C: the goal's want and the scaffold reserve are HARD keeps (the partial-slot rule never lowers them)
-    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: n => why[n] === 'wanted' || why[n] === 'scaffold_reserve', stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
+    for (const st of roomBankSteps(list, { eligible, keep, taken, hard: n => ['wanted', 'scaffold_reserve', 'escape_reserve'].includes(why[n]),   // nostock-01show (Codex r2): the escape's dirt too
+      stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
       steps.push({ slot: st.slot, name: st.name, count: st.count, room: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count
       why[st.name] = 'room'
@@ -404,7 +405,7 @@ export function townDepositPlan (items = [], { columns = columnsHook, wanted = [
     const taken = new Set(steps.map(st => st.slot))
     const shared = roomExclude instanceof Set ? roomExclude : new Set()
     const eligible = n => { try { return columnBankable(n) && !CAP_COBBLE.includes(n) && !((holds[n] ?? 0) > 0) && !shared.has(n) && !!columns(n) } catch { return false } }
-    const hardKeep = n => ['wanted', 'scaffold_reserve'].includes(why[n])   // the goal's want and the scaffold reserve, as the room layer's
+    const hardKeep = n => ['wanted', 'scaffold_reserve', 'escape_reserve'].includes(why[n])   // the goal's want and the scaffold reserve, as the room layer's
     for (const st of roomBankSteps(list, { eligible, keep, taken, hard: hardKeep, stackOf: n => list.find(it => it.name === n)?.stackSize ?? 64 })) {
       steps.push({ slot: st.slot, name: st.name, count: st.count, column: true })
       banked[st.name] = (banked[st.name] ?? 0) + st.count
