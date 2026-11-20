@@ -652,7 +652,9 @@ const turnOf = j => {
   const plots = {}
   for (const [plot, e] of Object.entries(j.plots)) {
     if (!e || typeof e !== 'object') continue
-    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), rn: Math.max(0, Math.floor(Number(e.rn) || 0)), rnoAt: turnNum(e.rnoAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null }
+    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), rn: Math.max(0, Math.floor(Number(e.rn) || 0)), rnoAt: turnNum(e.rnoAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null,
+      // stepwell-03show (Codex r2 BLOCKER 1): the code version an entry was written under survives the file (projturn.mjs codeOf)
+      ...(typeof e.code === 'string' ? { code: e.code } : {}) }
   }
   return { holder: j.holder, at: Number(j.at) || 0, plots }
 }
