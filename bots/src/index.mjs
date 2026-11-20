@@ -65,7 +65,7 @@ import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   /
 import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { performance } from 'node:perf_hooks'   // scaftown-01: the search clock
 import { scafTownRecords } from './skills.mjs'   // scaftown-01: the town's records, for the wall rings
-import { SCAF_TOWN, scafTownOn, scafAreaOf, wallRingsOf, makeScafTownPrice, installScafTownPrice, installScafTownSearch, chosenScafTown, scafTownHitsDetail, scafTownSnap, scafTownModeDetail } from './scaftown.mjs'   // scaftown-01: no dirt towers where the town has a way
+import { SCAF_TOWN, scafTownOn, scafWildOn, scafProfileFlags, scafAreaOf, wallRingsOf, makeScafTownPrice, installScafTownPrice, installScafTownSearch, chosenScafTown, scafTownHitsDetail, scafTownSnap, scafTownModeDetail } from './scaftown.mjs'   // scaftown-01: no dirt towers where the town has a way
 import { CLEAN_ZONE, cleanZoneOn, cleanZoneOf, makeCleanZone, installCleanZoneFilter, installCleanZoneSearch, cleanZoneHitsDetail, cleanZoneSnap, cleanZoneModeDetail } from './cleanzone.mjs'   // cleanzone-01: no route places a block in the town or its margin
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
@@ -702,7 +702,8 @@ function connect() {
       try { rings = wallRingsOf(scafTownRecords()) } catch { rings = [] }
       try { scafArea = scafAreaOf({ home: configuredHome(config.world), rings }) } catch { scafArea = null }
     }
-    const scafPrice = makeScafTownPrice({ area: () => scafArea, on: SCAF_ON, now: () => performance.now() })
+    // scaffold-01show: + the wild price outside the town's area (SCAFWILD=off -> 0), and gather priced (scafProfileFlags below)
+    const scafPrice = makeScafTownPrice({ area: () => scafArea, on: SCAF_ON, wild: scafWildOn(process.env), now: () => performance.now() })
     bot.scafTownPrice = scafPrice
     if (SCAF_ON) {
       refreshScafArea()
@@ -794,7 +795,9 @@ function connect() {
     // one thing the observer cannot log, because a bot that dies mid-walk
     // never reaches the log line.
     gatherMoves.dontCreateFlow = true
-    gatherMoves.scafTown = false       // scaftown-01: gather's approach admission is a capped search (digapproach): exempt in piece 1
+    // scaffold-01show: gather is PRICED, its capped searches too (scaftown.mjs scafProfileFlags; a priced capped noPath restarts at
+    // the base's costs with its cap). It was exempt in scaftown-01 piece 1, and 492 of the walks' 1,910 pillar blocks were gather's.
+    Object.assign(gatherMoves, scafProfileFlags('gather'))
     // KEEPOUT-01: the dig-capable approach (and the ore tunnel built from it) never breaks a cell in a fire column while a
     // keep-out scope holds the body -- its OWN array (a copy), so the walk, ascent, descent and water profiles never see it
     gatherMoves.exclusionAreasBreak = [...moves.exclusionAreasBreak, (block) => keepoutBreakPenalty(block)]
@@ -803,6 +806,7 @@ function connect() {
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
     bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: configuredHome(config.world) ?? { x: config.world.homeX, z: config.world.homeZ } })
     bot.tunnelMovements.noBridge = false   // nobridge-01: the ore tunnel is not a walk
+    Object.assign(bot.tunnelMovements, scafProfileFlags('tunnel'))   // scaffold-01show: built from gatherMoves, so never priced: its own flags
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }

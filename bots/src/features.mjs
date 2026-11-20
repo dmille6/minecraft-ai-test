@@ -179,13 +179,37 @@ export function installPoolPrune (bot, { dir = poolStateDir(config.memory.pool),
 /** takeback-01: the walk's take-back (takeback.mjs; TAKEBACK=off -> not installed) -> its handle | null. Its receipts are the place
  *  audit's placements, so with PLACEAUDIT=off nothing is noted and nothing is taken back (its mode row still says what it is).
  *  Kept out of installFeatures' body: test/cobble-rule reads that function's first 4,000 characters for the cap's licence row. */
+/** scaffold-01show: the take-back's CARRIED list on disk (takeback.mjs header 2): `scafleft-<bot>.json` in the pool's state directory,
+ *  one writer (this bot), written whole through a temp file renamed into place, read once at install. The pillar list's intake
+ *  (pillars-01show's pillarclean.json, a host merge) reads the same files. -> { load, save } | null. */
+export function scafLeftIo (dir, holder) {
+  if (!dir || !holder) return null
+  const file = path.join(dir, `scafleft-${String(holder).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`)
+  let writing = null, again = null
+  const write = async entries => {
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`
+    try {
+      await fs.promises.mkdir(dir, { recursive: true })
+      await fs.promises.writeFile(tmp, JSON.stringify({ v: 1, holder, at: Date.now(), entries }), { flag: 'wx' })
+      await fs.promises.rename(tmp, file)
+    } catch { try { await fs.promises.unlink(tmp) } catch { /* never made, or renamed */ } }
+  }
+  const save = entries => {
+    if (writing) { again = entries; return }                     // one write at a time; the newest list wins
+    writing = write(entries).finally(() => { writing = null; if (again) { const e = again; again = null; save(e) } })
+  }
+  const load = () => { try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return Array.isArray(j?.entries) ? j.entries : [] } catch { return [] } }
+  return { load, save, file }
+}
 function takebackFor (bot) {
   try {
     const emit = (kind, status, detail) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } }
     // litter-01: this bot's hand-off file beside the town's records (litter.mjs; LITTER=off -> no sink, nothing written)
     let lit = null
     try { lit = litterSink({ dir: poolStateDir(config.memory.pool), holder: bot.username ?? 'bot', io: { read: litterReadOwn, write: litterWrite }, emit }) } catch { lit = null }
-    const tb = installTakeback(bot, { emit, onLeft: lit ? (r, why) => lit.left(r, why) : null })
+    let io = null
+    try { io = scafLeftIo(poolStateDir(config.memory.pool), bot.username ?? null) } catch { io = null }   // scaffold-01show
+    const tb = installTakeback(bot, { emit, onLeft: lit ? (r, why) => lit.left(r, why) : null, io })
     if (tb) bot.once?.('end', () => { try { tb.final() } catch { /* telemetry */ } })
     if (tb && lit) bot.once?.('end', () => { try { lit.final() } catch { /* telemetry */ } })
     return tb

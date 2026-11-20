@@ -198,7 +198,7 @@ await t('never throws into the walk: a disk that fails is counted and asked agai
   // takeback's own row survives a hook that throws
   const f = walker({ onLeft: () => { throw new Error('boom') } })
   f.place([1, 64, 0]); f.clock.t += f.TT.ttlMs + 1; f.place([9, 64, 9])
-  assert.deepStrictEqual(f.out(), ['left:expired'])
+  assert.deepStrictEqual(f.out(), ['carried:expired'])   // scaffold-01show: carried (still the bot's to take back), and handed on as before
 })
 await t('LITTER=off: no sink, so nothing is written (the mode row says on=0)', async () => {
   const dir = tmp('off'), rows = []
@@ -436,7 +436,7 @@ const chain = async (M = TB, { LM = LT, TM = T, after = null, tidyOk = true, vis
   assert.deepStrictEqual(f.out(), [], 'the receipt is open')
   f.clock.t = clock += f.TT.ttlMs + 1
   f.place([40, 64, 40], { zone: null })                  // a later placement, far away: the take-back prunes
-  assert.deepStrictEqual(f.out(), ['left:expired'])
+  assert.deepStrictEqual(f.out(), ['carried:expired'])   // scaffold-01show: carried (still the bot's to take back), and handed on as before
   await sink.flush()
   // the keeper's refresh: every bot's file, the inside surveyed again, merged into the head inside the publish
   const litter = PJ.litterRead(dir, { since: clock - LT.LITTER.keepMs })
@@ -482,7 +482,7 @@ await t('a step the walk left behind is in the bot\'s file, on the record\'s cut
   assert.strictEqual(c.srv.read(6, G + 1, 3).name, 'stone', 'the rise beside it stands')
 })
 await t('mutant (takeback.mjs): without the hand-off nothing reaches the file, the record or the visit', async () => {
-  await withMutant(P('takeback.mjs'), "    if (outcome === 'left' && onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } }\n", '', async M => {
+  await withMutant(P('takeback.mjs'), "  const handOff = (r, why) => { if (onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } } }\n", '  const handOff = () => {}\n', async M => {
     const c = await chain(M)
     assert.deepStrictEqual(c.litter, []); assert.deepStrictEqual(litterFiles(c.dir), [])
     assert.ok(!c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP)))
@@ -718,7 +718,7 @@ await t('installFeatures hands a spawned bot\'s expired receipt to its file in t
   const F = await import('../src/features.mjs')
   const rows = await spawnAndLeave(F, 'LitBot')
   assert.ok(rows.some(r => kindOf(r) === 'litter_mode' && /on=1/.test(detailOf(r))), `the mode row (${[...new Set(rows.map(kindOf))].join(',')})`)
-  assert.ok(rows.some(r => kindOf(r) === 'takeback' && /outcome=left why=expired pos=3,64,3 /.test(detailOf(r))), 'control: the take-back left it')
+  assert.ok(rows.some(r => kindOf(r) === 'takeback' && /outcome=carried why=expired pos=3,64,3 /.test(detailOf(r))), 'control: the take-back left it')
   const mine = PJ.litterRead(POOL).filter(e => e.by === 'LitBot')
   assert.deepStrictEqual(mine.map(e => [e.at, e.block]), [[[3, 64, 3], 'dirt']], JSON.stringify([PJ.litterRead(POOL), [...new Set(rows.map(kindOf))], rows.filter(r => /takeback|litter|place/.test(kindOf(r))).map(detailOf)]))
   // the switch
@@ -726,14 +726,14 @@ await t('installFeatures hands a spawned bot\'s expired receipt to its file in t
   try {
     const off = await spawnAndLeave(F, 'OffBot')
     assert.ok(off.some(r => kindOf(r) === 'litter_mode' && /on=0/.test(detailOf(r))))
-    assert.ok(off.some(r => kindOf(r) === 'takeback' && /outcome=left why=expired/.test(detailOf(r))), 'control: the same walk, the same expiry')
+    assert.ok(off.some(r => kindOf(r) === 'takeback' && /outcome=carried why=expired/.test(detailOf(r))), 'control: the same walk, the same expiry')
     assert.deepStrictEqual(PJ.litterRead(POOL).filter(e => e.by === 'OffBot'), [])
     assert.ok(!fs.existsSync(path.join(POOL, 'litter-OffBot.json')))
   } finally { delete process.env.LITTER }
   // the mutant: the take-back installed without the sink
   await withMutant(P('features.mjs'), 'onLeft: lit ? (r, why) => lit.left(r, why) : null', 'onLeft: null', async M => {
     const mut = await spawnAndLeave(M, 'MutBot')
-    assert.ok(mut.some(r => kindOf(r) === 'takeback' && /outcome=left why=expired/.test(detailOf(r))), 'control')
+    assert.ok(mut.some(r => kindOf(r) === 'takeback' && /outcome=carried why=expired/.test(detailOf(r))), 'control')
     assert.deepStrictEqual(PJ.litterRead(POOL).filter(e => e.by === 'MutBot'), [])
   })
 })

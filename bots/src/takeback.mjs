@@ -47,6 +47,32 @@
 // cleanup crew with their cells. Nothing here changes what is dug.
 // ROWS: `_takeback_mode` at install; `_takeback` per receipt closed; `_takeback_sum` every 10 minutes when anything happened.
 // SWITCH: TAKEBACK=off|0|false|no -> not installed (the mode row says on=0).
+//
+// SCAFFOLD-01show (owner 11-20: "yes, fix it, fix the movement code and remove all the pillars natural and unnatural"). Measured on
+// the showcase's 11-19 logs (15 bots, the live file to 18:18Z): 5,899 receipts noted, 2,217 dug, 1,943 LEFT `expired` (33%: the
+// receipt ran out after 5 minutes with the block standing; at that moment the bot was within 8 blocks of it 253 times and within
+// 32 another 479), and ~490 never closed at all (prune ran only when the next block was placed, and nothing closed the receipts a
+// bot still held when it disconnected: no row, no hand-off). In pillars-01show's CoreProtect join those are the 481 `expired` and
+// the 326 with no row. Four changes, none of them a new refusal:
+//   1. CARRIED, NOT GIVEN UP. A receipt past ttlMs, or past the open bound, is CARRIED (`_takeback outcome=carried`) instead of
+//      closed: it stays in the list for carryMs (3 h, litter.mjs keepMs's reasoning: a cell's name is believed only while the claim
+//      is fresh), at most maxCarry, and any later walk of this bot that passes it in reach takes it back exactly as a fresh one
+//      (`dug why=later`). The town's and the margin's are handed to litter at that moment, as before (onLeft why=expired). A
+//      carried receipt older than carryMs closes `left why=old`.
+//   2. KEPT ACROSS A RESTART, AND HANDED ON. The carried list is this bot's file (`io.save`/`io.load`: features.mjs writes
+//      scafleft-<bot>.json in the pool's state directory) -- the pillar list's intake (pillars-01show's pillarclean.json, a host
+//      merge) reads it; the bot itself loads it at install and takes them back as it passes. final() carries every open receipt
+//      (`carried why=ended`) instead of dropping it.
+//   3. PRUNED ON A CLOCK (pruneMs): expiry is judged on time, not only when the next block is placed.
+//   4. A WALK THAT STARTS ON ITS OWN TOWER COMES DOWN IT (ownTowerUnder, descentWanted): before the library walks, a fenced walk
+//      whose bot stands on a FREE-STANDING tower of its own open receipts (no side of the top block a ledge, a wall or a rim: a
+//      tower out of a hole or up a cliff is never dug from under the bot) and whose goal is not up there beside it digs the tower
+//      from under its feet, one block a fall, onto the dry solid floor under it (`dug why=descend`), then takes back what is ripe
+//      in reach (`pre`), then walks. The gather tower beside a felled trunk is the case (pillars-01show: Lumen 11-11 17:35Z).
+// ROW PER WALK: `_takeback_walk placed= taken= later= descend= left= halts= capped= pre= fenced= profile= ms= end=` for every goto
+// that placed or took back a block (left: this walk's blocks still standing at its end).
+// What stays as it was: the escapes' walks and profiles (survival first: ascend, descend, deck, water and every walk a reflex
+// issues keep their blocks), the halt bounds, the reuse bound, the verdicts.
 import { Vec3 } from 'vec3'
 import { haltPath } from './pathhalt.mjs'
 import { withDigScope, currentDigScope } from './digtown.mjs'
@@ -55,6 +81,9 @@ export const TAKEBACK = Object.freeze({
   reach: 4.5, eye: 1.62, tickMs: 200, unusedMs: 8_000, ttlMs: 5 * 60_000, maxOpen: 64,
   haltsPerGoto: 4, haltsPerMin: 12, budgetMs: 6_000, digMsMax: 3_000, tries: 2, reuseMs: 120_000, minHealth: 10,
   sumMs: 600_000,
+  // scaffold-01show: carried receipts (3 h, at most 256), the clock prune, the descent of a walk's own tower
+  carryMs: 3 * 60 * 60_000, maxCarry: 256, pruneMs: 10_000, saveMs: 30_000,
+  descendMin: 2, descendMax: 24, descendMs: 12_000, descendNearR: 4, landMs: 1_500,
   // the profiles whose scaffold is a WALK's (index.mjs): the escapes' profiles (ascend, descend, deck, water) keep theirs (piece 3)
   profiles: ['walk', 'composter_walk', 'gather', 'town_deposit_walk'],
 })
@@ -86,6 +115,64 @@ export function holdsLiquid (b) {
 /** Eye to the block's centre within reach. Pure. */
 export function inReach (cell, pos, T = TAKEBACK) {
   return Math.hypot(cell[0] + 0.5 - pos.x, cell[1] + 0.5 - (pos.y + T.eye), cell[2] + 0.5 - pos.z) <= T.reach
+}
+/** The four sides of a column. */
+export const SIDES = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]])
+/**
+ * scaffold-01show: THE BOT'S OWN TOWER UNDER ITS FEET -> { cells: [[x, y, z], ...] top first, why }. Pure over `own(c)` (an open
+ * receipt of this bot holds its block there), `solid(c)` (a block a body stands on) and `liquid(c)`. cells is empty unless:
+ *   the block under the feet is the bot's own (why=not_own);
+ *   NO side of that top block is solid (why=ledge): nothing to step onto at this height -- a tower out of a hole has the rim beside
+ *     its top, one up a cliff has the cliff, a bridge has its next block; those are never dug from under the bot;
+ *   the run of own blocks straight down is at least descendMin (why=short: from the ground the take-back reaches it anyway) and at
+ *     most descendMax (why=tall: not started);
+ *   the cell under the run is solid and dry (why=no_floor): the bot lands on it, one block a fall.
+ */
+export function ownTowerUnder (feet, { own = () => false, solid = () => false, liquid = () => false } = {}, T = TAKEBACK) {
+  if (!Array.isArray(feet) || feet.length !== 3 || !feet.every(Number.isFinite)) return { cells: [], why: 'unread' }
+  const top = [feet[0], feet[1] - 1, feet[2]]
+  if (!own(top)) return { cells: [], why: 'not_own' }
+  for (const [dx, dz] of SIDES) if (solid([top[0] + dx, top[1], top[2] + dz])) return { cells: [], why: 'ledge' }
+  const cells = []
+  let c = top
+  while (own(c) && cells.length <= T.descendMax) { cells.push(c); c = [c[0], c[1] - 1, c[2]] }
+  if (cells.length > T.descendMax) return { cells: [], why: 'tall' }
+  if (!solid(c) || liquid(c)) return { cells: [], why: 'no_floor' }
+  if (cells.length < T.descendMin) return { cells: [], why: 'short' }
+  return { cells, why: 'tower' }
+}
+/** A goal's position -> { x, y, z } | null (y null when the goal names none: GoalNearXZ). Pure. */
+export function goalPos (goal) {
+  if (!goal || typeof goal !== 'object') return null
+  const at = (goal.pos && typeof goal.pos === 'object') ? goal.pos : goal
+  const x = Number(at.x), y = Number(at.y), z = Number(at.z)
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null
+  return { x, y: Number.isFinite(y) ? y : null, z }
+}
+/**
+ * scaffold-01show: DOES A WALK FROM THE TOP OF ITS OWN TOWER COME DOWN IT FIRST? -> bool. Pure. Not when the goal is unknown, nor
+ * when it is up here beside the tower (within descendNearR, and at or above the top block, or with no height): the next log of the
+ * same tree, a goal the walk would tower straight back up to (the reuse bound would keep that block anyway).
+ */
+export function descentWanted (goal, feet, T = TAKEBACK) {
+  const g = goalPos(goal)
+  if (!g || !Array.isArray(feet)) return false
+  const near = Math.max(Math.abs(Math.floor(g.x) - feet[0]), Math.abs(Math.floor(g.z) - feet[2])) <= T.descendNearR
+  if (near && (g.y == null || Math.floor(g.y) >= feet[1] - 1)) return false
+  return true
+}
+/** The `_takeback_walk` row's detail. Pure. a: the walk's account; left: its blocks still open at its end. */
+export function walkDetail (a, { left = 0, halts = 0, capped = false, pre = false, fenced = false, profile = '-', ms = 0, end = 'ok' } = {}) {
+  return `placed=${a?.placed ?? 0} taken=${a?.taken ?? 0} later=${a?.later ?? 0} descend=${a?.descend ?? 0} left=${left} ` +
+         `halts=${halts} capped=${capped ? 1 : 0} pre=${pre ? 1 : 0} fenced=${fenced ? 1 : 0} profile=${profile} ms=${Math.round(ms)} end=${end}`
+}
+/** A carried receipt -> its file entry. Pure. */
+export const carryEntry = r => ({ at: r.cell.slice(0, 3), block: r.block, t: r.t, shape: String(r.shape ?? '-'), zone: r.zone ?? null })
+/** A file entry -> a carried receipt, or null (malformed, or older than carryMs). Pure. */
+export function carriedFrom (e, now, T = TAKEBACK) {
+  if (!e || !Array.isArray(e.at) || e.at.length !== 3 || !e.at.every(Number.isInteger) || typeof e.block !== 'string' || !e.block || e.block === '?' || !Number.isFinite(e.t)) return null
+  if (!(now - e.t <= T.carryMs)) return null
+  return { cell: e.at.slice(0, 3), block: e.block, shape: String(e.shape ?? '-'), zone: e.zone ?? null, t: e.t, used: true, tries: 0, closed: false, carried: true }
 }
 /** IS A PLACEMENT ONE THIS PIECE TAKES BACK? -> bool. Pure. `rec` placeaudit's record of a placement that LANDED. */
 export function receiptFor (rec, T = TAKEBACK) {
@@ -154,31 +241,64 @@ const gotoError = name => Object.assign(new Error(name === 'PathStopped' ? 'Path
  *   onLeft(receipt, why)         litter-01: called for every receipt that closes `left` (expired, unseen, overflow, slow, no_tool)
  * `note(rec)` is placeaudit's `onPlaced`: a placement that landed.
  */
-export function installTakeback (bot, { emit = () => {}, now = () => Date.now(), env = process.env, T = TAKEBACK, timers = true, onLeft = null } = {}) {
+export function installTakeback (bot, { emit = () => {}, now = () => Date.now(), env = process.env, T = TAKEBACK, timers = true, onLeft = null, io = null } = {}) {
   const on = takebackOn(env)
   try { emit('takeback_mode', 'success', `phase=mode v=1 on=${on ? 1 : 0} reach=${T.reach} unused_ms=${T.unusedMs} halts=${T.haltsPerGoto}/${T.haltsPerMin} budget_ms=${T.budgetMs} reuse_ms=${T.reuseMs}`) } catch { /* telemetry */ }
   const pf = bot?.pathfinder
   if (!on || !pf || typeof pf.goto !== 'function' || pf.goto.__takeback) return null
-  const st = { open: [], busy: false, digger: null, owner: null, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false }
+  const st = { open: [], busy: false, digger: null, owner: null, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false, dirty: false }
   const row = (r, outcome, why, ms = null) => {
     r.closed = true
+    if (r.carried) st.dirty = true                                  // scaffold-01show: the carried file changes
+    // scaffold-01show: the walk that took it (st.digger during a take-back) counts it on its `_takeback_walk` row
+    if (outcome === 'dug' && st.digger?.acct) { st.digger.acct.taken++; if (r.carried || r.call !== st.digger) st.digger.acct.later++; if (why === 'descend') st.digger.acct.descend++ }
     st.sum.by[outcome] = (st.sum.by[outcome] ?? 0) + 1
     try { emit('takeback', outcome === 'dug' ? 'success' : outcome === 'failed' ? 'failed' : 'no_effect', takebackDetail({ outcome, why, cell: r.cell, block: r.block, shape: r.shape, zone: r.zone, age: now() - r.t, ms })) } catch { /* telemetry */ }
     // litter-01 (`onLeft`): a receipt that closes `left` is handed on with its cell and its block (litter.mjs: the cleanup crew's)
-    if (outcome === 'left' && onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } }
+    if (outcome === 'left') handOff(r, why)
+  }
+  // ONE hand-off for a receipt closed `left` and for one carried (scaffold-01show): litter takes the town's and the margin's
+  const handOff = (r, why) => { if (onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } } }
+  // scaffold-01show: CARRIED, NOT GIVEN UP (header 1). The receipt stays open for any later walk in reach; the town's and the
+  // margin's go to litter as they did at `left why=expired`; the row says so, the file keeps it.
+  const carry = (r, why) => {
+    if (r.closed || r.carried) return
+    r.carried = true; r.used = true; st.dirty = true
+    st.sum.by.carried = (st.sum.by.carried ?? 0) + 1
+    try { emit('takeback', 'no_effect', takebackDetail({ outcome: 'carried', why, cell: r.cell, block: r.block, shape: r.shape, zone: r.zone, age: now() - r.t })) } catch { /* telemetry */ }
+    handOff(r, 'expired')
   }
   const prune = () => {
     const t = now()
-    for (const r of st.open) if (!r.closed && t - r.t > T.ttlMs) row(r, 'left', 'expired')
+    for (const r of st.open) {
+      if (r.closed) continue
+      if (!r.carried && t - r.t > T.ttlMs) carry(r, 'expired')
+      else if (r.carried && t - r.t > T.carryMs) row(r, 'left', 'old')
+    }
     st.open = st.open.filter(r => !r.closed)
-    while (st.open.length > T.maxOpen) row(st.open.shift(), 'left', 'overflow')
+    const fresh = st.open.filter(r => !r.carried)
+    while (fresh.length > T.maxOpen) carry(fresh.shift(), 'overflow')
+    const kept = st.open.filter(r => r.carried)
+    while (kept.length > T.maxCarry) row(kept.shift(), 'left', 'overflow')
+    st.open = st.open.filter(r => !r.closed)
     for (const [k, at] of st.taken) if (t - at > T.reuseMs) st.taken.delete(k)
+  }
+  const persist = () => {
+    if (!st.dirty || !io || typeof io.save !== 'function') return
+    st.dirty = false
+    try { io.save(st.open.filter(r => r.carried && !r.closed).map(carryEntry)) } catch { st.dirty = true }
+  }
+  // scaffold-01show: what this bot carried before a restart comes back (header 2)
+  if (io && typeof io.load === 'function') {
+    try { for (const e of io.load() ?? []) { const r = carriedFrom(e, now(), T); if (r && !st.open.some(o => K(o.cell) === K(r.cell))) st.open.push(r) } } catch { /* an unreadable file carries nothing */ }
+    prune()
   }
   const note = rec => {
     try {
       if (st.closed || !receiptFor(rec, T)) return
       const r = { cell: rec.cell.slice(), block: rec.block, shape: rec.shape ?? '-', zone: rec.zone ?? null, t: now(), used: false, tries: 0, closed: false }
       st.sum.noted++
+      if (st.owner?.acct) { r.call = st.owner; st.owner.acct.placed++ }   // scaffold-01show: the walk that placed it (its row)
       // placed again where it was just taken back: this walk needs it there (the loop's bound)
       if (st.taken.has(K(r.cell))) { st.taken.delete(K(r.cell)); row(r, 'kept', 'reuse'); return }
       st.open = st.open.filter(o => K(o.cell) !== K(r.cell))
@@ -229,7 +349,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     try {
       await withDigScope(bot, { purpose: 'takeback', by: 'takeback' }, () => bot.dig(b))
       const after = blockAt(r.cell)
-      if (after && AIRY(after.name)) { st.taken.set(K(r.cell), now()); row(r, 'dug', 'ripe', now() - t0) } else { r.tries++; if (r.tries > T.tries) row(r, 'failed', 'still_there', now() - t0) }
+      if (after && AIRY(after.name)) { st.taken.set(K(r.cell), now()); row(r, 'dug', r.carried ? 'later' : 'ripe', now() - t0) } else { r.tries++; if (r.tries > T.tries) row(r, 'failed', 'still_there', now() - t0) }
     } catch (e) {
       r.tries++
       if (!ext() && r.tries > T.tries) row(r, 'failed', String(e?.message ?? e).replace(/\s+/g, '_').slice(0, 40), now() - t0)
@@ -253,6 +373,69 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
       st.busy = false; st.digger = null; st.sum.ms += now() - t0
       prune()
     }
+  }
+  /** scaffold-01show (header 4): dig the bot's own free-standing tower from under its feet, top first, one block a fall. -> blocks dug. */
+  const solidAt = c => { const b = blockAt(c); return !!b && b.boundingBox === 'block' && !holdsLiquid(b) }
+  const ownAt = c => { const b = blockAt(c); return !!b && st.open.some(r => !r.closed && r.cell[0] === c[0] && r.cell[1] === c[1] && r.cell[2] === c[2] && r.block === b.name) }
+  const descend = async (call, cells) => {
+    const t0 = now()
+    let n = 0
+    st.busy = true; st.digger = call
+    try {
+      for (const c of cells) {
+        if (call.gone || st.owner !== call || held() || now() - t0 > T.descendMs || !((bot.health ?? 20) >= T.minHealth)) break
+        const h = here()
+        if (!h || !h.onGround || h.inWater || h.feet[1] !== c[1] + 1 || !overlapsColumn(c, h.pos)) break   // still standing on this one
+        const r = st.open.find(o => !o.closed && K(o.cell) === K(c))
+        const b = blockAt(c)
+        if (!r || !b || b.name !== r.block || priced(b) || wet(c) || bodyOn(c)) break
+        try { const tool = pf.bestHarvestTool?.(b) ?? null; if (tool) await bot.equip(tool, 'hand') } catch { /* by hand */ }
+        let digMs = 0, harvest = true
+        try { digMs = Number(bot.digTime?.(b)) || 0 } catch { digMs = 0 }
+        try { if (typeof b.canHarvest === 'function') harvest = !!b.canHarvest(bot.heldItem ? bot.heldItem.type : null) } catch { harvest = true }
+        if (!harvest || !(digMs <= T.digMsMax)) break
+        await withDigScope(bot, { purpose: 'takeback', by: 'takeback' }, () => bot.dig(b))
+        const after = blockAt(c)
+        if (!after || !AIRY(after.name)) break
+        st.taken.set(K(c), now()); row(r, 'dug', 'descend'); n++
+        // landed one block lower before the next (a body still falling is never dug under)
+        const l0 = now()
+        for (;;) {
+          const q = here()
+          if (q && q.onGround && q.feet[1] === c[1]) break
+          if (now() - l0 > T.landMs) return n
+          await new Promise(res => setTimeout(res, 25))
+        }
+      }
+    } catch { /* a descent never breaks a walk */ } finally { st.busy = false; st.digger = null; st.sum.ms += now() - t0 }
+    return n
+  }
+  /** scaffold-01show: BEFORE THE LIBRARY WALKS (a fenced walk, nobody else's path under way): come down its own tower, then take back
+   *  what is ripe in reach. Same guards as a halt (mayHalt: building, mining, survival, health, the halt bounds count it as one). */
+  const preWanted = () => {
+    try {
+      const p = bot.entity?.position
+      if (!p) return false
+      for (const r of st.open) if (!r.closed && Math.hypot(r.cell[0] + 0.5 - p.x, r.cell[1] + 0.5 - p.y, r.cell[2] + 0.5 - p.z) <= T.reach + 2) return true
+    } catch { /* no pass */ }
+    return false
+  }
+  const preWalk = async (call, goal) => {
+    if (!call.fenced || call.gone || st.owner !== call || st.busy || call.escape) return
+    if (!T.profiles.includes(String(bot.movementProfile ?? 'walk'))) return
+    if (pf.goal != null || pf.isMoving?.()) return
+    const survival = currentDigScope()?.purpose === 'survival'
+    if (!mayHalt({ halts: call.n, recent: st.recent, now: now(), building: !!pf.isBuilding?.(), mining: !!pf.isMining?.(), survival: held() || survival, health: bot.health ?? 20 }, T)) return
+    const h = here()
+    if (!h || !h.onGround || h.inWater) return
+    let did = false
+    if (descentWanted(goal, h.feet, T)) {
+      const tw = ownTowerUnder(h.feet, { own: ownAt, solid: solidAt, liquid: c => holdsLiquid(blockAt(c)) }, T)
+      if (tw.cells.length) { did = true; await descend(call, tw.cells) }
+    }
+    const h2 = here()
+    if (h2 && !call.gone && st.owner === call && ripeNow(h2).length) { did = true; await takeBack(call) }
+    if (did) { call.pre = true; call.n++; st.sum.halts++; st.recent = [...st.recent.filter(t => now() - t < 60_000), now()] }
   }
   const watch = (call, goal) => {
     const survival = call.escape || currentDigScope()?.purpose === 'survival'
@@ -286,27 +469,42 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     }
     const onStop = () => call.giveUp('PathStopped')                 // never ours: pathhalt never stops, so this is a stop() of someone else's
     bot.on('goal_updated', onGoal); bot.on('path_stop', onStop)
+    let end = 'ok'
     try {
+      // scaffold-01show: withTimeout fences the promise just after goto returns it; one turn later the pre-walk pass may run. Only
+      // when one of this bot's blocks is near (preWanted): every other goto reaches the library synchronously, exactly as before.
+      if (preWanted()) {
+        await null
+        try { await preWalk(call, goal) } catch { /* the pass never breaks a walk */ }
+        if (call.gone) throw gotoError(call.gone)
+      }
       for (;;) {
         call.due = false
         const stop = watch(call, goal)
         let err = null, res
-        try { res = await orig.call(self, goal, ...rest) } catch (e) { err = e } finally { stop() }
-        if (!call.due) { if (err) throw err; return res }
+        try { res = await orig.call(self, goal, ...rest) } catch (e) { err = e; end = String(e?.name ?? 'error') } finally { stop() }
+        if (!call.due) { if (err) throw err; end = 'ok'; return res }
         call.due = false
         await takeBack(call)
         if (!err) return res                                        // it arrived as the halt landed: nothing to walk on to
         if (call.gone) throw gotoError(call.gone)                   // the caller ended the walk meanwhile: its own error
         if (st.owner !== call) throw gotoError('GoalChanged')       // a newer goto owns the body
       }
-    } finally {
+    } catch (e) { end = String(e?.name ?? 'error'); throw e } finally {
       bot.removeListener('goal_updated', onGoal); bot.removeListener('path_stop', onStop)
       if (st.owner === call) st.owner = null
+      // scaffold-01show: ONE ROW PER WALK that placed or took back a block
+      try {
+        if (call.acct.placed || call.acct.taken) {
+          const left = st.open.filter(r => r.call === call && !r.closed).length
+          emit('takeback_walk', 'success', walkDetail(call.acct, { left, halts: call.n, capped: call.n >= T.haltsPerGoto, pre: !!call.pre, fenced: !!call.fenced, profile: String(bot.movementProfile ?? '-'), ms: now() - call.t0, end }))
+        }
+      } catch { /* telemetry */ }
     }
   }
   const wrapped = function (goal, ...rest) {
     if (st.closed) return orig.call(this, goal, ...rest)
-    const call = { n: 0, due: false, own: 0, gone: null, fenced: false, escape: false }
+    const call = { n: 0, due: false, own: 0, gone: null, fenced: false, escape: false, pre: false, t0: now(), acct: { placed: 0, taken: 0, later: 0, descend: 0 } }
     // THE CALLER GAVE UP (skills.mjs withTimeout's timer; the listeners above): never walked again, a dig under way is stopped
     call.giveUp = why => { call.gone ??= (why === 'PathStopped' ? 'PathStopped' : 'GoalChanged'); try { if (st.busy && st.digger === call) bot.stopDigging?.() } catch { /* not digging */ } }
     try { call.escape = issuedByEscape(String(new Error().stack ?? '').split('\n').slice(1, 8)) } catch { /* unknown: a walk */ }
@@ -322,8 +520,18 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     try { emit('takeback_sum', 'success', sumDetail(st.sum, Math.round((now() - st.winStart) / 1000), st.open.length)) } catch { /* telemetry */ }
     st.sum = emptySum(); st.winStart = now()
   }
-  let timer = null
-  if (timers) { timer = setInterval(flush, T.sumMs); timer.unref?.() }
-  const final = () => { if (st.closed) return; flush(); st.closed = true; if (timer) clearInterval(timer) }
-  return { note, state: st, flush, final, takeBack }
+  let timer = null, pruner = null, lastSave = now()
+  if (timers) {
+    timer = setInterval(flush, T.sumMs); timer.unref?.()
+    // scaffold-01show (header 3): expiry on the clock, and the carried file written at most every saveMs
+    pruner = setInterval(() => { try { if (!st.busy) prune(); if (now() - lastSave >= T.saveMs) { lastSave = now(); persist() } } catch { /* a tick never breaks a bot */ } }, T.pruneMs)
+    pruner.unref?.()
+  }
+  // scaffold-01show: a bot that ends carries what it still holds (`carried why=ended`), into its file, instead of dropping it
+  const final = () => {
+    if (st.closed) return
+    try { for (const r of st.open) if (!r.closed && !r.carried) carry(r, 'ended'); prune(); persist() } catch { /* telemetry */ }
+    flush(); st.closed = true; if (timer) clearInterval(timer); if (pruner) clearInterval(pruner)
+  }
+  return { note, state: st, flush, final, takeBack, prune, persist }
 }
