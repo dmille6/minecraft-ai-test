@@ -25,7 +25,8 @@
 //      neighbourhood's median, the column is level with the ground round it: nothing natural is ever dug.
 //   A cell already gone CLOSES; one that holds something, has a liquid against it, or became a record's or a zone's cell is HELD
 //   and named; one no stand reached in PL.asideTries laps is SET ASIDE for PL.asideMs (floatclean's memory) -- never waived.
-// PROGRESS: pillars cleared (every listed cell of the pillar gone) out of the list's pillars, on every `_pillarclean op=pass` row.
+// PROGRESS: pillars cleared (every listed cell of the pillar gone) out of the list's pillars, on every `_pillarclean op=pass` row --
+//   the two lists apart (owner 11-20): `proven=n/1440` and `other=n/N` (the wider set: pillarListsMerged).
 // ROWS: `_pillarclean op=survey` (the list's census as read now), `op=dig` (cell, block, CoreProtect's placer, pillar), `op=aside`,
 //   `op=pass` (cleared, pillars_done/pillars, stop, ms).
 // SWITCH: PILLARCLEAN=off|0|false|no -> no lap.
@@ -139,8 +140,17 @@ export function pillarVerdict (job, read, { listed = () => false, cells = () => 
   if (ns.some(n => !n)) return 'unread'
   if (ns.some(isLiquid)) return 'wet'
   const over = read(x, y + 1, z)
-  if (!isAir(over)) return listed(k3([x, y + 1, z])) && isSolid(over) ? 'above' : 'holds'
-  for (const [dx, , dz] of N4) { const s = read(x + dx, y, z + dz); if (!isAir(s) && !isSolid(s)) return 'holds' }
+  // the wider set (owner 11-20): a tuft of grass, a flower or a snow layer on its top goes with it; beside it, cover stands on the
+  // neighbour's ground and hangs on nothing
+  const cover = b => !!b && b.boundingBox !== 'block' && COVER.test(nm(b))
+  if (!isAir(over) && !cover(over)) return listed(k3([x, y + 1, z])) && isSolid(over) ? 'above' : 'holds'
+  for (const [dx, , dz] of N4) { const s = read(x + dx, y, z + dz); if (!isAir(s) && !isSolid(s) && !cover(s) && !isLiquid(s)) return 'holds' }
+  // a column of the wider set (`lone`: not CoreProtect-proven) is taken only while it is still a lone column of the ground's own
+  // blocks: open on all four sides (columnGuard's rule, read again at the dig)
+  if (job.lone) {
+    if (!OTHER_BLOCKS.test(nm(b))) return 'material'
+    for (const [dx, , dz] of N4) { const s = read(x + dx, y, z + dz); if (isSolid(s)) return 'not_lone' }
+  }
   return 'take'
 }
 export const CLOSES = Object.freeze(['gone'])
@@ -177,6 +187,15 @@ export function pillarListOk (doc, pool) {
   return { ...doc, pillars }
 }
 export const pillarListNewer = (a, b) => (!a ? b : !b ? a : (Number(b.surveyedAt) || 0) > (Number(a.surveyedAt) || 0) ? b : a)
+/** THE TWO LISTS AS ONE -> list | null. Pure. The proven list's pillars and the wider set's (owner 11-20; every one `kind: 'other'`,
+ *  `lone`-judged at the dig), each counted apart (pillarPassJobs census proven / other). A pillar id is never shared (the wider set's
+ *  ids start at 100000). */
+export function pillarListsMerged (proven, other) {
+  if (!proven && !other) return null
+  const o = (other?.pillars ?? []).map(p => ({ ...p, kind: 'other' }))
+  const ids = new Set((proven?.pillars ?? []).map(p => p.id))
+  return { ...(proven ?? other), pillars: [...(proven?.pillars ?? []), ...o.filter(p => !ids.has(p.id))], surveyedAt: Math.max(Number(proven?.surveyedAt) || 0, Number(other?.surveyedAt) || 0) }
+}
 
 /**
  * THE LAP'S JOBS NOW -> { take: [clear], held: [{ job, why }], census, floor, pillars }. Pure over `read`.
@@ -190,13 +209,14 @@ export const pillarListNewer = (a, b) => (!a ? b : !b ? a : (Number(b.surveyedAt
  */
 export function pillarPassJobs (list, read, { pos = null, aside = () => false, cells = () => false, zone = () => false, max = PL.passMax, part = null, parts = 1 } = {}) {
   const ps = list?.pillars ?? []
-  const census = { pillars: ps.length, done: 0, unread: 0, standing: 0, take: 0, aside: 0, why: {} }
+  const census = { pillars: ps.length, done: 0, unread: 0, standing: 0, take: 0, aside: 0, why: {}, proven: 0, proven_done: 0, other: 0, other_done: 0 }
+  for (const p of ps) census[p.kind === 'other' ? 'other' : 'proven']++
   const standing = new Set()
   const left = []
   for (const p of ps) {
     let n = 0, unread = false
     for (const t of p.take) { const b = read(t[0], t[1], t[2]); if (!b) { unread = true; continue } if (sameBlock(nm(b), t[3])) { standing.add(k3(t)); n++ } }
-    if (!n && !unread) { census.done++; continue }
+    if (!n && !unread) { census.done++; census[p.kind === 'other' ? 'other_done' : 'proven_done']++; continue }
     if (unread && !n) { census.unread++; continue }
     left.push({ p, n })
   }
@@ -208,12 +228,12 @@ export function pillarPassJobs (list, read, { pos = null, aside = () => false, c
   for (const { p } of left) {
     const cs = []
     for (const t of [...p.take].sort((a, b) => b[1] - a[1])) {
-      const job = { at: t.slice(0, 3), name: t[3], placer: t[4] ?? '-' }
+      const job = { at: t.slice(0, 3), name: t[3], placer: t[4] ?? '-', ...(p.kind === 'other' ? { lone: true } : {}) }
       const k = k3(job.at)
       if (!standing.has(k)) continue
       if (aside(k)) { census.aside++; continue }
       const v = pillarVerdict(job, read, { listed: q => standing.has(q), cells, zone })
-      if (v === 'take' || v === 'above') { cs.push({ at: job.at, kind: 'pillar', name: nm(read(...job.at)), placer: job.placer, pillar: p.id ?? -1 }); continue }
+      if (v === 'take' || v === 'above') { cs.push({ at: job.at, kind: 'pillar', name: nm(read(...job.at)), placer: job.placer, pillar: p.id ?? -1, ...(job.lone ? { lone: true } : {}) }); continue }
       if (v === 'unread') continue
       census.why[v] = (census.why[v] ?? 0) + 1
       held.push({ job: { ...job, pillar: p.id }, why: v })
@@ -232,8 +252,10 @@ export function pillarPassJobs (list, read, { pos = null, aside = () => false, c
  * judged: it must read `take` NOW. Never a block under this bot or under another body (floatclean's rules, rig 11-20), never while
  * this bot stands on a listed block or on a floor with liquid under it (`noFloor(k)`: the lap's floor set).
  */
-export function pillarClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], noFloor = () => false, others = [] } = {}) {
+export function pillarClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], noFloor = () => false, others = [], inWater = false } = {}) {
   if (c?.kind !== 'pillar') return true
+  // rig 11-20 (6db0cb11, Delta at 89,60,-63): never a dig while the bot is in water at all, its floor a liquid -- it gets out first
+  if (inWater || under.some(k => { const b = read(...k.split(',').map(Number)); return !b || isLiquid(b) })) return false
   if (others.includes(k3(c.at))) return false
   if (under.includes(k3(c.at)) || under.some(k => noFloor(k))) return false
   return pillarVerdict(c, read, { listed: k => listed(k) && isSolid(read(...k.split(',').map(Number))), cells, zone }) === 'take'
@@ -278,6 +300,47 @@ export function pillarAsideAfter (mem0, { offered = [], standing = () => true, c
   return { mem, aside }
 }
 export const pillarAsideNow = (mem, k, now = Date.now()) => (Number(mem?.until?.[k]) || 0) > now
+
+// ---- THE WIDER SET (owner 11-20: "remove all the pillars natural and unnatural"; control session's guards) -----------------------
+/** What a column of the wider set may be made of: the ground's own blocks and a bot's spoil. Never a structure's (planks, bricks,
+ *  walls, glass), a plant, ice, a tree. */
+export const OTHER_BLOCKS = /^(dirt|coarse_dirt|grass_block|rooted_dirt|podzol|mycelium|stone|andesite|diorite|granite|tuff|deepslate|calcite|cobblestone|mossy_cobblestone|cobbled_deepslate|gravel|sand|red_sand|sandstone|red_sandstone|clay|netherrack|terracotta|[a-z_]+_terracotta|mud|packed_mud)$/
+const PLANT = /(sugar_cane|bamboo|cactus|kelp|vine|dripstone|seagrass|lily_pad|cocoa|sweet_berry|glow_lichen|moss_carpet|azalea|mangrove_roots|_mushroom_block|chorus)/
+const ICE = /^(ice|packed_ice|blue_ice|frosted_ice|snow_block|powder_snow)$/
+const TREE = /(_log|_wood|_stem|_hyphae|_leaves)$/
+/** Ground cover that is not a block: grass tufts, ferns, flowers, a snow layer, a dead bush. It goes with the column it stands on and
+ *  never makes a column part of a slope. */
+export const COVER = /^(short_grass|grass|tall_grass|fern|large_fern|dead_bush|snow|dandelion|poppy|blue_orchid|allium|azure_bluet|[a-z_]*tulip|oxeye_daisy|cornflower|lily_of_the_valley|sunflower|lilac|rose_bush|peony|pink_petals|brown_mushroom|red_mushroom|torchflower)$/
+const OPEN = n => AIR.test(n) || /^(water|bubble_column)$/.test(n) || COVER.test(n)
+/**
+ * A COLUMN OF THE WIDER SET -> 'ok' | why it is never touched. Pure over `read`. `c` { x, z, med, top, body: [[y, name]] } (the
+ * column scan's candidate: every non-air block from med + 1 to its top). In this order, the first that holds:
+ *   tree      a log, wood or leaves in the column, on its sides or just over its top
+ *   plant     a growable in the column or on its sides (cane, bamboo, cactus, kelp, vines, dripstone...)
+ *   ice       an ice or snow block in the column (ice spikes, icebergs, packed or blue ice)
+ *   material  a block that is not the ground's own (OTHER_BLOCKS): a structure's planks, bricks, walls, glass...
+ *   holds     anything but air (or water) over its top: something rests on it
+ *   not_lone  a cell of the column with anything but air or water on one of its four sides: the edge of a slope, a cliff, a
+ *             hillside, a wall -- not a lone column (the control session's rule: one block wide, open on all four sides, its whole
+ *             height)
+ *   unread    a cell the copy does not hold
+ */
+export function columnGuard (read, c) {
+  const at = (x, y, z) => { const b = read(x, y, z); return b ? nm(b) : null }
+  const ys = c.body.map(b => b[0])
+  const names = c.body.map(b => String(b[1]).replace(/\[.*\]$/, ''))
+  const sides = []
+  for (const y of ys) for (const [dx, , dz] of N4) sides.push(at(c.x + dx, y, c.z + dz))
+  const over = at(c.x, c.top + 1, c.z)
+  if (sides.some(n => n == null) || over == null) return 'unread'
+  if ([...names, ...sides, over].some(n => TREE.test(n))) return 'tree'
+  if ([...names, ...sides, over].some(n => PLANT.test(n))) return 'plant'
+  if (names.some(n => ICE.test(n))) return 'ice'
+  if (names.some(n => !OTHER_BLOCKS.test(n))) return 'material'
+  if (!OPEN(over)) return 'holds'
+  if (sides.some(n => !OPEN(n))) return 'not_lone'
+  return 'ok'
+}
 
 /** One `_pillarclean` row's detail. Pure. */
 export const pillarDetail = f => Object.entries(f).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : typeof v === 'object' ? Object.entries(v).map(([a, b]) => `${a}:${b}`).join(',') : v).replace(/\s+/g, '_').slice(0, 160)}`).join(' ')
