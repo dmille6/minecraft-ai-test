@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# SANDBOX-ONLY (roadsite-01show rig) on the worlds host, under the caller's sandbox3 lock (sandbox/sbxlock.sh). The swrigworld.sh /
+# crrigworld.sh recipe: load a COPY of a world (never a live one: here the showcase's nightly backup copy on this host, itself a
+# copy), snap its town regions, restore the world that was there.
+#   rsrigworld.sh load <src world dir> <tag> | snap <out dir> | restore <tag>
+set -euo pipefail
+S=/srv/block2/sandbox3; U=block2-sandbox3
+R() { python3 /home/mike/t11rcon.py sandbox3 "$@"; }
+up() { for i in $(seq 1 90); do if R list >/dev/null 2>&1; then return 0; fi; sleep 2; done; echo "sandbox3 RCON not up" >&2; return 1; }
+case "$1" in
+  load)
+    src="$2"; [[ -d "$src" ]] || { echo "no $src" >&2; exit 2; }
+    sudo systemctl stop $U
+    ts=$(date -u +%Y%m%dT%H%MZ)
+    sudo mv "$S/world" "$S/world.pre-$3-$ts"
+    sudo cp -a "$src" "$S/world"; sudo chown -R sandbox:sandbox "$S/world"
+    sudo systemctl start $U; up; echo "loaded copy of $src; previous world at world.pre-$3-$ts" ;;
+  snap)
+    R "save-all flush" >/dev/null; sleep 5; mkdir -p "$2"
+    for f in r.-1.-1.mca r.0.-1.mca r.-1.0.mca r.0.0.mca; do sudo cat "$S/world/region/$f" > "$2/$f"; done; ls -la "$2" ;;
+  restore)
+    pre=$(ls -d "$S"/world.pre-"$2"-* | tail -1); [[ -d "$pre" ]] || { echo "no world.pre-$2-*" >&2; exit 2; }
+    sudo systemctl stop $U
+    sudo mv "$S/world" "$S/world.$2-$(date -u +%Y%m%dT%H%MZ)"
+    sudo mv "$pre" "$S/world"
+    sudo systemctl start $U; up; echo "restored $pre" ;;
+  *) echo "usage: rsrigworld.sh load|snap|restore ..." >&2; exit 2 ;;
+esac
