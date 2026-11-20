@@ -338,7 +338,7 @@ import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-onl
 import { ornamentKind } from './sinks.mjs'   // fences-01: dress, decor and wood spend their own supply, never the stone
 import { zoneReason, zonedInstance, dropInstance } from './sinks.mjs'   // zonesite-01show: a sink never stands in a protected zone
 import { cellZone } from './buildbot.mjs'   // zonesite-01show: the zone guard's own answer for a build's placement at a cell
-import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes, roadShares } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
+import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes, roadShares, roadLanternDraw, roadOpenZone } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
 import { fnv1a as decorHash } from './zigdesign.mjs'   // decorator-01: a pot's plant by its cell
@@ -27491,13 +27491,16 @@ function sinkNextNow (plot) { try { return !!activeMem?.states?.find(s => s.plot
  * road corridors), an unsited copper hall's pad and the expedition markers; the ziggurat's +8 apron (`z0`) unless `noZ0` (a shrine
  * belongs to the ziggurat: its record zone, box + 3, still holds). Throws on an unreadable record (the visit stops).
  */
-function sinkGuardFor (c, plan, { noZ0 = false, kind = null, prepExcept = null } = {}) {
+function sinkGuardFor (c, plan, { noZ0 = false, kind = null, prepExcept = null, open = null } = {}) {
   const others = guardRecords(projectHeads().map(x => x.head.rec).filter(Boolean), kind)
   // siteprep-01: only the ONE request being claimed (or graded and verified by the keeper) ignores its own zone -- never a kind
   // roads-01 (ROADS2): the land plan's ROAD corridors are the road's own (reserved for a road: the road may take them), and the paths'
   // zones are open to it (it continues a path laid outside the wall: roads.mjs crossSection refuses the paths' own cell columns)
   const roadOwn = kind === 'road' && roads2On()
-  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept)).filter(z => !(roadOwn && /^(land:road|project:paths)/.test(String(z?.why ?? '')))), ...hallPadZones(plan), ...townMarkerZones()]
+  // roadsite-01show: `open` (roads.mjs roadOpenZone: a road route's destination project's own zone, the warehouse's) -- for a road only,
+  // a RECORD's zone of exactly that why; the protected zones (c.zones) never
+  const opened = z => roadOwn && open != null && String(z?.why ?? '') === open
+  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept)).filter(z => !(roadOwn && /^(land:road|project:paths)/.test(String(z?.why ?? '')))).filter(z => !opened(z)), ...hallPadZones(plan), ...townMarkerZones()]
   const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
   // zonesite-01show: a zone box that holds the column ALWAYS refuses (sinks.mjs zoneReason) -- a protected zone carries no `why`,
   // and the old `find(...)?.why ?? null` read its hit as free ground (LIVE 11-15: tower T6 sited inside village-taiga-6_1)
@@ -28338,7 +28341,15 @@ async function roadKit (ctx, rec, palette, signal) {
     }
     check(signal)
     if (nd.lantern > 0) {
-      const lacking = Math.min(ROAD_KIT_MAX, nd.lantern)
+      // roadsite-01show: THE TOWN'S OWN LANTERNS FIRST (live 11-20: the showcase's chests held 179 lanterns while every road lamp
+      // owed one and the kit only ever crafted -- from iron ingots above ROAD_IRON_KEEP 32, with 18 in town: never -- so every post
+      // took the torch fallback or stood dark); what the chests cannot give is crafted as before
+      const spareLanterns = Math.max(0, (Number(t.lantern) || 0) - (Number(R0?.lantern) || 0))
+      const fromTown = roadLanternDraw(Math.min(ROAD_KIT_MAX, nd.lantern), spareLanterns)
+      const held0 = countItem(bot, 'lantern')
+      if (fromTown > 0) { await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown })); check(signal) }
+      const drawn = Math.max(0, countItem(bot, 'lantern') - held0)
+      const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - countItem(bot, 'lantern'))
       const ironCap = Math.max(0, (Number(t.iron_ingot) || 0) - ROAD_IRON_KEEP)
       const iron = Math.min(ironCap, Math.max(0, Math.ceil((lacking * 8 - countItem(bot, 'iron_nugget')) / 9) - countItem(bot, 'iron_ingot')))
       const torch = Math.min(Math.max(0, (Number(t.torch) || 0) - (Number(R0?.torch) || 32)), Math.max(0, lacking - countItem(bot, 'torch')))
@@ -28348,6 +28359,7 @@ async function roadKit (ctx, rec, palette, signal) {
       const before = Number(heldMap(bot).lantern) || 0
       if (k > 0) await craft(ctx, { item: 'lantern', count: k }, signal)
       made.lantern = Math.max(0, (Number(heldMap(bot).lantern) || 0) - before)
+      if (drawn > 0) made.drawn = drawn
     }
   } catch (err) { if (err?.aborted || signal?.aborted) throw err }
   const n = Object.values(made).reduce((a, b) => a + b, 0)
@@ -28398,14 +28410,15 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
     // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
     const pe = prep?.id ?? null
     return siteSink(read ?? planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...wood, ...(prep ? { prep } : {}), ...(kind === 'road' && roads2On() ? { roads2: roads2Sited() } : {}) })
+      guard: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...wood, ...(prep ? { prep } : {}), ...(kind === 'road' && roads2On() ? { roads2: roads2Sited(why => sinkGuardFor(c, plan, { kind, prepExcept: pe, open: why })) } : {}) })
   }
 }
 /** roads-01: the road2 siting's inputs (roads2Ctx) shaped for roads.mjs siteRoad2 (`ring` per route), or none (the spokes, as before). */
-function roads2Sited () {
+// roadsite-01show: `guardFor(why)` the cell guard with that one record zone opened (roads.mjs roadOpenZone: the warehouse's, for its route)
+function roads2Sited (guardFor = null) {
   const c = roads2Ctx()
   if (!c) return undefined
-  return { routes: c.routes.map(r => ({ ...r })), ring: null, ringFor: c.ringFor, townBoxes: c.townBoxes, landOk: c.landOk, own: c.own, lamp: true }
+  return { routes: c.routes.map(r => ({ ...r })), ring: null, ringFor: c.ringFor, townBoxes: c.townBoxes, landOk: c.landOk, own: c.own, lamp: true, ...(guardFor ? { guardFor } : {}) }
 }
 /** sinkwaive-01 (Codex r1 BLOCKER): each holder's LIFETIME tally of the sink cells its visits deferred (never aged: the stuck files are)
  *  -> the merged counts of every holder's tally and the stuck files, after this holder's own tally took `deferred`. Never throws. */

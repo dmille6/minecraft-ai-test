@@ -380,7 +380,7 @@ await t('MUTANT KILLED: a dress lamp without the lamps2 roles keeps its torch', 
 
 await t('STRUCTURE: skills.mjs hands the road siting its routes, kits a road visit, gives runVisit the slab floors, and lets the road take the land plan\'s corridors', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/\.\.\.\(kind === 'road' && roads2On\(\) \? \{ roads2: roads2Sited\(\) \} : \{\}\)/.test(src), 'the siting ctx carries roads2')
+  assert.ok(/\.\.\.\(kind === 'road' && roads2On\(\) \? \{ roads2: roads2Sited\(why => sinkGuardFor\(c, plan, \{ kind, prepExcept: pe, open: why \}\)\) \} : \{\}\)/.test(src), 'the siting ctx carries roads2 (and the guard that opens a destination\'s zone)')
   const kitAt = src.indexOf("if (kind === 'road' || (kind === 'dress' && lampsOn(process.env, config.memory.pool))) {")
   assert.ok(kitAt > 0, 'the kit runs on a road visit')
   // the kit crafts BEFORE the visit's bag accounting (bag0 = held0): a craft inside it is unexplained loss to shopread G8
@@ -622,6 +622,80 @@ await t('roadsite: STRUCTURE -- skills.mjs roads2Ctx hands the siting the shared
   assert.ok(/const shares = roadShares\(recs\)/.test(body), 'roadShares builds the terms')
   assert.ok(/recs\.push\(\{ plot: COUNTRY_PLOT, rec: cr \}\)/.test(body), 'the country head is among them')
   assert.ok(/own: \(x, z\) => shares\.get\(`\$\{x\},\$\{z\}`\) \?\? null/.test(body), 'own answers the terms')
+})
+
+// ---- roadsite-01show r3 (OWNER 11-20 "Let roads enter warehouse area"; "paths and lamps") ----------------------------------------
+/** The warehouse corner in small: a warehouse growth zone and its box north-east of the ring, a tower's zone hard by, another route
+ *  whose line crosses the warehouse's zone. The guard answers zones by why (the opened guard drops exactly one). */
+const WH_BOX = [24, -40, 40, -24]
+const WH_ZONE = { box: [16, -50, 50, -15], why: 'project:warehouse' }
+const T3_ZONE = { box: [17, -8, 30, 0], why: 'project:tower:T3' }
+const zoneGuard = (zones, open = null) => (x, z) => zones.find(q => q.why !== open && x >= q.box[0] && x <= q.box[2] && z >= q.box[1] && z <= q.box[3])?.why ?? null
+const whRoutes = () => [
+  route({ id: 'warehouse', to: 'warehouse', kind: 'project', trips: 900, start: [13, -12], line: [[13, -12], [20, -14], [28, -22], [33, -30], [35, -35]], box: WH_BOX }),
+  route({ id: 'work-x', to: 'work', kind: 'work', trips: 500, start: [13, 4], line: [[13, 4], [26, 0], [34, -14], [44, -40]], box: [44, -44, 50, -40] }),
+]
+const inZone = (c, q) => c.at[0] >= q.box[0] && c.at[0] <= q.box[2] && c.at[2] >= q.box[1] && c.at[2] <= q.box[3]
+function siteWh (M = RD, max = 6) {
+  const zones = [WH_ZONE, T3_ZONE]
+  let rec = null
+  const out = []
+  for (let i = 0; i < max; i++) {
+    const n = S.instancesOf(rec).length + 1
+    const r = M.siteRoad2(world(), { id: `R${n}`, n, home: HOME, pool: 'test', avail: { stone_bricks: 2000 }, guard: zoneGuard(zones), guardFor: why => zoneGuard(zones, why), rec, stood: [], routes: whRoutes(), ring: RING, townBoxes: [RING], lamp: true })
+    if (!r.ok) { out.push({ fail: r }); break }
+    rec = S.completeInstance(S.appendInstance(rec, { kind: 'road', home: HOME, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } }))
+    out.push(r)
+  }
+  const cellsOf = id => (rec?.cells ?? []).filter(c => (rec.instances ?? []).some(i => i.route === id && String(c.seg ?? '').startsWith(`${i.id}-`)))
+  return { rec, out, cellsOf }
+}
+
+await t('roadsite r3: roadOpenZone -- only a PROJECT route whose destination is the warehouse opens a zone, and only the warehouse\'s', () => {
+  assert.strictEqual(RD.roadOpenZone({ id: 'warehouse', to: 'warehouse', kind: 'project' }), 'project:warehouse')
+  for (const r of [{ to: 'village', kind: 'village' }, { to: 'work', kind: 'work' }, { to: 'warehouse', kind: 'work' }, { to: 'tower', kind: 'project' }, { to: 'toString', kind: 'project' }, null]) assert.strictEqual(RD.roadOpenZone(r), null, JSON.stringify(r))
+})
+
+await t('roadsite r3: COMPOSED -- the warehouse route enters the warehouse\'s own zone and stops at its box; no other route enters that zone; no route enters the tower\'s', () => {
+  const { rec, out, cellsOf } = siteWh()
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  const wh = cellsOf('warehouse'), other = cellsOf('work-x')
+  assert.ok(wh.some(c => inZone(c, WH_ZONE)), `the warehouse road reached into its zone: ${JSON.stringify(out.map(r => r.tried ?? r.fail?.tried))}`)
+  assert.ok(!wh.some(c => inZone(c, { box: WH_BOX })), 'a warehouse road cell inside the warehouse\'s box')
+  assert.ok(other.length > 0, 'positive control: the other route sited')
+  assert.ok(!other.some(c => inZone(c, WH_ZONE)), 'another route entered the warehouse\'s zone')
+  assert.ok(!rec.cells.some(c => inZone(c, T3_ZONE)), 'a road cell in the tower\'s zone')
+})
+
+await t('roadsite r3: MUTANT KILLED -- a zone opened for every route lets the other route into the warehouse\'s zone', async () => {
+  await withMutant(ROADS_PATH, "export const roadOpenZone = route => (route?.kind === 'project' && Object.hasOwn(ROAD_DEST_ZONES, String(route?.to)) ? ROAD_DEST_ZONES[route.to] : null)", "export const roadOpenZone = route => 'project:warehouse'", async M => {
+    const { cellsOf } = siteWh(M)
+    assert.ok(cellsOf('work-x').some(c => inZone(c, WH_ZONE)), 'the mutant should let work-x into the warehouse zone')
+  })
+})
+
+await t('roadsite r3: MUTANT KILLED -- without the box refusal the warehouse road is laid into the warehouse\'s own footprint', async () => {
+  await withMutant(ROADS_PATH, "(db && x >= db[0] && x <= db[2] && z >= db[1] && z <= db[3] ? `dest:${route.to}` : gOpen(x, z, y0, y1))", "gOpen(x, z, y0, y1)", async M => {
+    const { cellsOf } = siteWh(M)
+    assert.ok(cellsOf('warehouse').some(c => inZone(c, { box: WH_BOX })), 'the mutant should pave inside the box')
+  })
+})
+
+await t('roadsite r3: roadLanternDraw -- the town\'s spare lanterns first, never more than owed, none when unread', () => {
+  assert.strictEqual(RD.roadLanternDraw(3, 179), 3); assert.strictEqual(RD.roadLanternDraw(5, 2), 2); assert.strictEqual(RD.roadLanternDraw(0, 9), 0)
+  assert.strictEqual(RD.roadLanternDraw(4, 0), 0); assert.strictEqual(RD.roadLanternDraw(4, undefined), 0); assert.strictEqual(RD.roadLanternDraw(4, -3), 0)
+})
+
+await t('roadsite r3: STRUCTURE -- the road kit draws the town\'s lanterns BEFORE it crafts (its iron and torches only for what the chests cannot give); the siting opens a zone only for a road, record zones only', () => {
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const kit = src.slice(src.indexOf('async function roadKit'), src.indexOf('\nfunction ', src.indexOf('async function roadKit')))
+  const draw = kit.indexOf("await matsWithdraw(ctx, { lantern: fromTown }, signal, 20_000, R0, decorAllow({ lantern: fromTown }))")
+  const lack = kit.indexOf("const lacking = Math.max(0, Math.min(ROAD_KIT_MAX, nd.lantern) - countItem(bot, 'lantern'))")
+  const craftAt = kit.indexOf("await craft(ctx, { item: 'lantern', count: k }, signal)")
+  assert.ok(draw > 0 && lack > draw && craftAt > lack, `draw ${draw} lacking ${lack} craft ${craftAt}`)
+  assert.ok(/const fromTown = roadLanternDraw\(Math\.min\(ROAD_KIT_MAX, nd\.lantern\), spareLanterns\)/.test(kit))
+  assert.ok(/const opened = z => roadOwn && open != null && String\(z\?\.why \?\? ''\) === open/.test(src), 'the opened zone is a road\'s only')
+  assert.ok(/const zs = \[\.\.\.c\.zones, \.\.\.recordZones\(others\)[^\n]*\.filter\(z => !opened\(z\)\)/.test(src), 'only record zones are opened (c.zones -- the protected zones -- never)')
 })
 
 console.log(`\nroads: ${pass} passed, ${fail} failed`)
