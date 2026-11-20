@@ -105,6 +105,7 @@ import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import { isBuiltCell, builtRemedyPoint, builtRefusal, builtRowDetail, BUILT_WALK_MS, BUILT_WALKS } from './gatherbuilt.mjs'   // nostock-01show (c): built cells skipped at enumeration
+import { walkOutDue, walkTargetFor, walkMsFor, missIsGone, walkSpentRemedy, walkRowDetail, ATLAS_WALK_MAX } from './gatherbuilt.mjs'   // logwalk-01show: the walk-out past built cells AND cave floors, to known wood
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -2405,6 +2406,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
   let builtSkipped = 0, builtCells = []   // nostock-01show (c): protected / built cells the enumeration skipped this round (in range)
   let builtWalked = 0, builtTo = null     // nostock-01show (c): walks out past them this run, and the last point
+  let walkPending = null                  // logwalk-01show: the last walk, its `_gather_walk` row written with the next search's count
   let roofSkipped = 0   // topdown-01: ground under a roof the enumeration skipped this round
   let roofSaid = false  // topdown-01: the run's `_gather_topdown` op=skip row
   let roofGaveUpSaid = false   // topdown-01: a given-up search is always written (review r4: K1 was invisible)
@@ -2568,6 +2570,13 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // over a drop is NOT "nothing found": it goes on to the round's count (its skip row, the base-ranked front) and the
     // all-floors refusal below, with every later round's shape -- so this early return is only for a search with no such skip
     const caveInBorder = () => cave.skipped().filter(v => horizontalDistanceFromSpawn(v.at) <= config.world.borderRadius)
+    // logwalk-01show: THE LAST WALK'S ROW, with what this search found from where it ended (one `_gather_walk` row a try). An atlas
+    // walk that arrived and finds nothing takeable is a MISS: its find is marked gone for every bot (atlas.mjs gone)
+    if (walkPending) {
+      const w = walkPending; walkPending = null
+      const gone = missIsGone({ via: w.via, arrived: w.arrived, found: positions.length, capped: w.capped }) && !!w.find && bot.atlas?.gone?.(w.find) === true
+      try { logEvent({ kind: 'gather_walk', status: positions.length ? 'success' : 'failed', snapshot: snapshot(bot), detail: walkRowDetail({ ...w, found: positions.length, gone }) }) } catch { /* telemetry */ }
+    }
     // CLEANZONE-02: THE REMEDY IS PERFORMED. The clean zone emptied this search (it skipped ground and nothing else was in
     // range): walk to the nearest exit beyond the zone and search again from there -- at most GATHER_ZONE.exits walks a run.
     // Only when no exit is reached does the run fail, naming the exit a `goto` can be given.
@@ -2629,22 +2638,47 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // is performed -- one bounded walk BUILT_OUT past them, away from the town (walkToGoal: arrival, not goto's first empty
     // slice), and the search again from there. Not reached: the refusal names the reason and the point.
     const builtSkippedNow = builtSkipped, builtCellsNow = builtCells; builtSkipped = 0; builtCells = []
-    if (positions.length === 0 && builtSkippedNow > 0 && !caveInBorder().length && collected === 0) {
+    // logwalk-01show: THE WALK-OUT FIRES WHERE BUILT CELLS AND/OR CAVE FLOORS EMPTIED THE SEARCH (the nostock guard
+    // `!caveInBorder().length` refused it wherever one cave floor was in range: in town, every log gather -- 117 of 117 failures
+    // 11-20). It aims at the nearest live wood the bots' map knows (outside town ground, the zones and the plan's cells), at most
+    // ATLAS_WALK_MAX blocks; with none known, the nostock step BUILT_OUT past the cells. The cave refusal below comes only once
+    // the run's walks are spent.
+    const caveNow = caveInBorder()
+    if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, collected, walked: builtWalked })) {
       const from = bot.entity?.position?.floored?.() ?? null
-      const to = builtRemedyPoint({ from, home: townHome(), cells: builtCellsNow })
-      if (to && builtWalked < BUILT_WALKS) {
+      let finds = []
+      try { finds = bot.atlas?.view?.()?.finds ?? [] } catch { finds = [] }
+      const vm = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+      let zonesNow = []
+      try { zonesNow = townPlanZones(bot)?.zones ?? [] } catch { zonesNow = [] }
+      const home0 = townHome()
+      // a find the bot may take: not town ground (the box, grown by its margin), not a zone, not a plan / built cell
+      const atlasOk = f => {
+        const p = new Vec3(f.x, f.y, f.z)
+        return !inTownBox(p, home0, { margin: 4 }) && !zoneHit(zonesNow, f.x, f.z, undefined, { surfaceY: f.y }) &&
+          !isBuiltCell(vm, { position: p, name: f.kind, type: bot.registry?.blocksByName?.[f.kind]?.id })
+      }
+      const cells = builtCellsNow.length ? builtCellsNow : caveNow.map(v => v.at).filter(Boolean)
+      const tgt = from ? walkTargetFor({ from, home: home0, cells, finds, kind: blockName, ok: atlasOk, minDist: maxDistance, cap: ATLAS_WALK_MAX }) : null
+      if (tgt) {
+        const to = { x: tgt.x, z: tgt.z }
         builtWalked++; builtTo = to
         const t0 = Date.now(); let walkErr = null
         const goal = new goals.GoalNearXZ(to.x, to.z, 3)
         const onAbort = () => haltPath(bot)
         signal?.addEventListener('abort', onAbort, { once: true })
-        try { await withTimeout(walkToGoal(bot, goal, () => bot.pathfinder.setGoal(goal)), BUILT_WALK_MS, bot, { what: 'walking out of town past its buildings to gather' }) } catch (e) { if (e?.aborted) throw e; walkErr = e } finally { signal?.removeEventListener?.('abort', onAbort); if (bot.pathfinder?.goal === goal) haltPath(bot) }
+        try { await withTimeout(walkToGoal(bot, goal, () => bot.pathfinder.setGoal(goal)), walkMsFor(tgt.dist), bot, { what: tgt.via === 'atlas' ? 'walking out of town to known wood to gather' : 'walking out of town past its buildings to gather' }) } catch (e) { if (e?.aborted) throw e; walkErr = e } finally { signal?.removeEventListener?.('abort', onAbort); if (bot.pathfinder?.goal === goal) haltPath(bot) }
         check(signal)
         const at = bot.entity?.position ?? null
         const reached = !!at && Math.hypot(at.x - to.x, at.z - to.z) <= 6
         try { logEvent({ kind: 'gather_built', status: reached ? 'success' : 'failed', snapshot: snapshot(bot), detail: builtRowDetail({ op: 'walk', block: blockName, skipped: builtSkippedNow, from, to, reached, ms: Date.now() - t0, err: walkErr }) }) } catch { /* telemetry */ }
+        walkPending = { via: tgt.via, block: blockName, from, to, dist: tgt.dist, arrived: reached, ms: Date.now() - t0, built: builtSkippedNow, cave: caveNow.length, find: tgt.find ?? null, capped: tgt.capped === true, err: walkErr }
         continue
       }
+    }
+    if (positions.length === 0 && builtSkippedNow > 0 && !caveNow.length && collected === 0) {
+      const from = bot.entity?.position?.floored?.() ?? null
+      const to = builtRemedyPoint({ from, home: townHome(), cells: builtCellsNow })
       try { logEvent({ kind: 'gather_built', status: 'refused', snapshot: snapshot(bot), detail: builtRowDetail({ op: 'refused', block: blockName, skipped: builtSkippedNow, from, to: to ?? builtTo }) }) } catch { /* telemetry */ }
       return { status: 'failed', failClass: 'no_safe_target',
                detail: builtRefusal({ block: blockName, n: builtSkippedNow, point: to ?? builtTo, walked: builtWalked, maxDistance }) + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
@@ -2887,6 +2921,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       if (caveSkipped.length && (cave.allSkipped() || positions.length === 0)) {
         return { status: 'failed', failClass: 'no_safe_target',
                  detail: allFloorsMessage({ name: blockName, n: caveSkipped.length, verdicts: caveSkipped.slice(0, 8) }) +
+                   // logwalk-01show: the walks spent, the refusal names where they went and a point further out (a `goto`)
+                   walkSpentRemedy({ block: blockName, walked: builtWalked, to: builtTo, next: builtWalked ? builtRemedyPoint({ from: bot.entity?.position, home: townHome(), cells: [] }) : null }) +
                    (skippedNow ? ` (the town's ground, ${TOWN_GROUND_HALF} blocks around home, is kept too)` : '') + belowGroundHint(bot) }
       }
       if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {

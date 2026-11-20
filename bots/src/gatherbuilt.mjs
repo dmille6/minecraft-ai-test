@@ -57,3 +57,82 @@ export const builtRowDetail = ({ op, block, skipped = 0, from = null, to = null,
   `op=${op} block=${block} skipped=${skipped}${from ? ` from=${from.x},${from.y},${from.z}` : ''}${to ? ` to=${to.x},${to.z}` : ''}` +
   `${reached == null ? '' : ` reached=${reached ? 1 : 0}`}${found == null ? '' : ` found=${found}`}${ms == null ? '' : ` ms=${ms}`}` +
   `${err ? ` err=${String(err?.message ?? err).replace(/\s+/g, '_').slice(0, 60)}` : ''}`
+
+// LOGWALK-01show: THE WALK-OUT FIRES WHERE THE TOWN'S LOGS ARE BUILT CELLS OR CAVE FLOORS, AND IT WALKS TO KNOWN WOOD.
+//
+// Showcase 11-20 (ES, nostock live): 0 log gathers succeeded after 13Z; all 117 failures were "spruce_log found but all N
+// candidate(s) are floors over a drop into a cave", under 1.4 s each, 99 of them within ~12 blocks of the town centre. The
+// built-cell walk above was guarded by `!caveInBorder().length`, and in town the few logs that are not in a building are always
+// cave floors -- two correct guards composed into a dead end (0 `_gather_built` rows for logs). So:
+//   1. a search emptied by built cells and/or cave floors walks out (walkOutDue); the cave refusal comes only once the walks are
+//      spent, and then it names a point further out (walkSpentRemedy);
+//   2. the walk aims at the nearest live wood find of the bots' shared map (atlas.mjs: not gone, outside town ground, the zones
+//      and the plan's cells; `ok` is the caller's test), at most ATLAS_WALK_MAX blocks toward it; with no find known, the
+//      nostock step (builtRemedyPoint, BUILT_OUT past the cells);
+//   3. one `_gather_walk` row a try (from, to, dist, arrived, found); an atlas walk that arrived and found no log marks its find
+//      gone (missIsGone), so the next bot is not sent there.
+
+/** The farthest one walk goes toward a find (blocks); a find beyond it is walked toward, this far. */
+export const ATLAS_WALK_MAX = 96
+/** The walk's bound for its length (ms): BUILT_WALK_MS at least, ~0.6 s a block, at most WALK_MS_MAX (gather's contract is 180 s). */
+export const WALK_MS_PER_BLOCK = 600
+export const WALK_MS_MAX = 75_000
+export const walkMsFor = dist => Math.min(WALK_MS_MAX, Math.max(BUILT_WALK_MS, Math.round((Number(dist) || 0) * WALK_MS_PER_BLOCK)))
+
+/** IS THE WALK-OUT DUE? Pure. The search emptied (nothing takeable), nothing collected yet this run, something WAS here but every
+ *  one was a built cell or a floor over a drop, and the run has a walk left. */
+export function walkOutDue ({ positions = 0, built = 0, cave = 0, collected = 0, walked = 0, walks = BUILT_WALKS } = {}) {
+  return positions === 0 && collected === 0 && (built > 0 || cave > 0) && walked < walks
+}
+
+const fin = p => p && Number.isFinite(p.x) && Number.isFinite(p.z)
+
+/**
+ * THE NEAREST KNOWN WOOD -> { x, z, dist, find, capped } | null. Pure. `finds`: the atlas view's live finds; only `kind`, only
+ * those `ok` passes, only beyond `minDist` (a find inside the search just made was searched and refused). Within `cap`: the find's
+ * own column; beyond it: `cap` blocks along the bearing to it.
+ */
+export function atlasWalkTarget ({ from, finds = [], kind, ok = () => true, minDist = 0, cap = ATLAS_WALK_MAX } = {}) {
+  if (!fin(from) || !kind) return null
+  let best = null
+  for (const f of Array.isArray(finds) ? finds : []) {
+    if (!f || f.kind !== kind || !fin(f)) continue
+    let pass = false
+    try { pass = !!ok(f) } catch { pass = false }
+    if (!pass) continue
+    const d = Math.hypot(f.x - from.x, f.z - from.z)
+    if (d <= minDist) continue
+    if (!best || d < best.d) best = { f, d }
+  }
+  if (!best) return null
+  const { f, d } = best
+  if (d <= cap) return { x: Math.round(f.x), z: Math.round(f.z), dist: Math.round(d), find: f, capped: false }
+  const k = cap / d
+  return { x: Math.round(from.x + (f.x - from.x) * k), z: Math.round(from.z + (f.z - from.z) * k), dist: cap, find: f, capped: true }
+}
+
+/** THE WALK'S TARGET -> { x, z, dist, via: 'atlas' | 'step', find? } | null. Pure. Known wood first, else the nostock step. */
+export function walkTargetFor ({ from, home = null, cells = [], finds = [], kind, ok, minDist = 0, cap = ATLAS_WALK_MAX } = {}) {
+  const a = atlasWalkTarget({ from, finds, kind, ok, minDist, cap })
+  if (a) return { ...a, via: 'atlas' }
+  const p = builtRemedyPoint({ from, home, cells })
+  return p ? { x: p.x, z: p.z, dist: Math.round(Math.hypot(p.x - from.x, p.z - from.z)), via: 'step' } : null
+}
+
+/** A MISS: an atlas walk that arrived AT THE FIND (not a capped point short of it: Codex + Claude r1 BLOCKER) and whose search found
+ *  nothing takeable. Its find is marked gone. Pure. */
+export const missIsGone = ({ via, arrived, found, capped = false } = {}) => via === 'atlas' && arrived === true && capped !== true && Number(found) === 0
+
+/** What the cave refusal adds once the walks are spent: the walk made and a point further out (a `goto` the bot can make). Pure. */
+export function walkSpentRemedy ({ block, walked = 0, to = null, next = null } = {}) {
+  if (!walked) return ''
+  return ` -- walked out ${walked} time(s)${to ? ` (to ${to.x},${to.z})` : ''} and found none there either: ` +
+    (next ? `goto x=${next.x} z=${next.z} (${BUILT_OUT} blocks further out) and gather ${block} there, or explore` : `explore, then gather ${block}`)
+}
+
+/** The `_gather_walk` row (one a try). Pure. */
+export const walkRowDetail = ({ via, block, from = null, to = null, dist = null, arrived = null, found = null, ms = null, built = 0, cave = 0, find = null, gone = false, err = null }) =>
+  `via=${via} block=${block}${from ? ` from=${from.x},${from.y},${from.z}` : ''}${to ? ` to=${to.x},${to.z}` : ''}${dist == null ? '' : ` dist=${dist}`}` +
+  `${arrived == null ? '' : ` arrived=${arrived ? 1 : 0}`}${found == null ? '' : ` found=${found}`} built=${built} cave=${cave}` +
+  `${find ? ` find=${find.x},${find.y},${find.z}` : ''}${gone ? ' gone=1' : ''}${ms == null ? '' : ` ms=${ms}`}` +
+  `${err ? ` err=${String(err?.message ?? err).replace(/\s+/g, '_').slice(0, 60)}` : ''}`
