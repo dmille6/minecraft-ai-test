@@ -18574,6 +18574,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // pit-01show: the pit WAITS while the town is not short of dirt for a named consumer and this bag owes the chests nothing (pitWanted):
         // a sited pit then reads complete (out of every pick), an unsited one waits (never offered) -- never dug for stock of its own
+        if (p.plot === PIT_PLOT && rec?.structure_complete) return { plot: p.plot, exists: true, complete: true, damaged: false, due: pitBankOwed(b), dueFirst: false }   // a dug pit: DUE while this bag owes the chests its dug dirt
         if (p.plot === PIT_PLOT && !rec?.structure_complete && !pitWanted(pitDemandNow(b, now), b ? countItem(b, 'dirt') : 0)) return rec ? { plot: p.plot, exists: true, complete: true, damaged: false, due: false, dueFirst: false, waiting: true } : { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
@@ -32794,6 +32795,8 @@ export function pitDemandNow (bot, now = Date.now(), { fresh = false } = {}) {
     return v
   } catch { return pitDemand({}) }
 }
+/** Does THIS bag owe the town's chests dirt (the chests short of a named consumer's need, the bag holding any above its keep)? Never throws. */
+export function pitBankOwed (bot) { try { return PITSITE.on && !!bot && (pitDemandNow(bot)?.chest ?? 0) > 0 && pitBankDue(countItem(bot, 'dirt'), { final: true }) > 0 } catch { return false } }
 /** The town's dirt the pit's banking keeps out of the chest pruning: while a named consumer still has open cells (need > 0). */
 export function pitHoldsDirt (bot) { try { return PITSITE.on && (pitDemandNow(bot)?.need ?? 0) > 0 } catch { return false } }
 /** The candidates the bank may use -> [{ k, pos, dirt, free, column, room }] (the town index's known containers in town; the storehouse's
@@ -32868,7 +32871,16 @@ async function buildPit (ctx, args, signal) {
   bot.shopVisitKey = key
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', 'the pit record could not be read')
-  if (rh.head?.rec?.structure_complete) return out('no_effect', 'complete', 'the pit is dug; its pond finish is a later piece')
+  if (rh.head?.rec?.structure_complete) {
+    // a DUG pit still takes this bag's dug dirt to the town while the chests are short (rig run 1: the pit completed under one bot while
+    // the other carried 40 dug dirt; a complete record otherwise never banked it, and the town deposit sends dirt down the well)
+    if (pitBankOwed(bot)) {
+      const bk = await pitBank(ctx, signal, t0 + budget - 5_000, { final: true })
+      pitRow(bot, 'bank', { dirt: bk.banked, to: bk.to.join('+') || '-', why: `${bk.why}:after_done` }, bk.banked ? 'success' : 'no_effect')
+      if (bk.banked) return out('success', 'banked', `the pit is dug; banked ${bk.banked} dirt it gave`, { stop: 'banked' })
+    }
+    return out('no_effect', 'complete', 'the pit is dug; its pond finish is a later piece')
+  }
   // THE DEMAND: never stock for its own sake (pit.mjs pitDemand; the remedy for `no_demand` is the consumers' own draws -- the next
   // reading, PIT.demandMs later, finds the town short again or not)
   const dem = pitDemandNow(bot, Date.now(), { fresh: true })
