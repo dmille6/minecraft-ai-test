@@ -252,6 +252,18 @@ await t('...a set-aside cell dug open since is simply done (no revoke row)', asy
   assert.strictEqual(log.filter(q => q[0] === 'aside_revoked').length, 0)
 })
 
+await t('THE CREW (rig run 1): a builder whose sector lacks the cut ends `shared` on its layer -- unless the crew\'s proof sets it aside', async () => {
+  const P = S.planTank(SITE)
+  const share = { mine: c => c[0] < 10, claimAll: () => false, holdsAll: () => false }   // another builder holds the other slot
+  const r0 = await visit(V, P, fakeBot(world({ [kOf(FLOAT)]: 'dirt' }), { start: START }), { swAside: true }, { aside: new Map(), share })
+  assert.strictEqual(r0.stop, 'shared'); assert.strictEqual(r0.y, FLOAT[1]); assert.strictEqual(r0.dug, 0)
+  const log = []
+  const r1 = await visit(V, P, fakeBot(world({ [kOf(FLOAT)]: 'dirt' }), { start: START, log }), { swAside: true }, { aside: new Map([[kOf(FLOAT), 0]]), share })
+  assert.deepStrictEqual(log.filter(q => q[0] === 'set_aside').map(q => q[1].why), ['remembered'])
+  assert.ok(r1.dug > 0, 'its own sector of the layers below is dug')
+  assert.ok(log.filter(q => q[0] === 'dig' && Array.isArray(q[1])).every(q => q[1][0] < 10), 'only its own sector')
+})
+
 console.log('MUTANTS (each guard, anchored)')
 await t('mutant: falling blocks allowed -> the sand cut is set aside (the falling guard is what holds it)', async () => {
   await withMutant(SW_PATH, "  if (isFalling(b)) return 'falling'", '  void 0', async M => {
@@ -362,7 +374,9 @@ console.log('THE WIRING (structural: comments stripped, executable lines)')
 const SKS = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const BP = strip(readFileSync(new URL('../src/buildproj.mjs', import.meta.url), 'utf8'))
 const WIRES = [
-  ['skills: the tank visit gets the bot\'s set-aside memory', SKS, /plan, exit: rec\.exit, share, aside: \(bot\.stepwellAside \?\?= new Map\(\)\),/],
+  ['skills: the tank visit gets the crew\'s set-aside proofs', SKS, /plan, exit: rec\.exit, share, aside: swAside,/],
+  ['skills: the proofs are loaded from the pool', SKS, /const swAside = swAsideOn\(\) \? swAsideLoad\(dir, key\) : null/],
+  ['skills: the visit\'s proofs are saved for the crew', SKS, /if \(swAside\) \{ bot\.stepwellAside = swAside; swAsideSave\(dir, key, me, swAside\) \}/],
   ['skills: the step well\'s stamp is stale by the version rule', SKS, /if \(swStampStale\(stamp, keys, \{ code: config\.code\?\.version \?\? null, cellDone: k => swCellDone\(rd, pl, k\.split\(','\)\.map\(Number\)\) \}\)\) return true/],
   ['skills: the stamp carries the passed cells and the version', SKS, /projStuckWrite\(dir, key, me, cells, \{ stuckAt: at, \.\.\.\(swAsideOn\(\) \? \{ code: config\.code\?\.version \?\? null \} : \{\}\) \}\)/],
   ['skills: the turn view counts the step well by version', SKS, /codeOf: plot => \(plot === STEPWELL_PLOT && swAsideOn\(\) \? config\.code\?\.version \?\? null : null\)/],
