@@ -262,10 +262,14 @@ export function floatPassJobs (list, read, { aside = () => false, cells = () => 
  * THE CHECK AT THE DIG (runVisit `clearOk`, read before the walk and again after it, nothing awaited between it and the dig) -> bool.
  * Pure over `read`. Only a `float` clear is judged; the cell must read `take` now (a listed cell still over it: not yet). `listed(k)`:
  * the pass's take-list cells. `under`: the cells under the bot's body now; `floating(k)`: a listed cell still standing -- the bot never
- * digs the block it stands on, and never digs while standing on a floating listed block.
+ * digs the block it stands on, and never digs while standing on a floating listed block. `others`: the cells under every other
+ * body near it (players, mobs) -- never dug from under them.
  */
-export function floatClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], floating = () => false } = {}) {
+export function floatClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], floating = () => false, others = [] } = {}) {
   if (c?.kind !== 'float') return true
+  // ANOTHER BODY (rig 11-20: Kite dug the floating grass block Juno stood on; Juno fell 3 blocks): never a block any other player
+  // or mob stands on (`others`: the cells under their bodies) -- it waits for the next lap
+  if (others.includes(k3(c.at))) return false
   // THE BODY (Codex r1 BLOCKER 1: a walk that did not arrive left the bot on the beam, and it dug the block under itself): never the
   // block the bot stands on, and nothing at all while the bot stands on a floating listed block -- it walks off first
   if (under.includes(k3(c.at)) || under.some(k => floating(k))) return false
