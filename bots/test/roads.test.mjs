@@ -27,6 +27,19 @@ async function withMutant (file, old, neu, fn) {
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 
+/** Several anchored replacements in one mutant (each anchor present and unique). */
+async function withMutants (file, pairs, fn) {
+  let src = readFileSync(file, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
+    assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+
 // ---- the fake world ------------------------------------------------------------------------------------------------------------------
 const AIR = Object.freeze({ name: 'air', boundingBox: 'empty' })
 const WATER = Object.freeze({ name: 'water', boundingBox: 'empty' })
@@ -496,6 +509,30 @@ await t('roadsite: MUTANT KILLED -- without the fill term the road is laid UNDER
   const cells = []; for (let x = 26; x <= 36; x++) for (let z = -14; z <= 14; z++) cells.push({ at: [x, 65, z], role: 'earth' })
   const { rec, own } = siteShared(world(), [{ plot: 'country', rec: { cells } }])
   assert.ok(!rec || !surface(rec).some(c => own(c.at[0], c.at[2]) && c.at[1] < 65), 'the real road paves under a planned fill')
+})
+
+await t('roadsite: Codex r1 BLOCKER -- a TURN\'s 5x5 square keeps the shared terms on every column (the quadrant ahead of the turn too): no tread under a grading fill', async () => {
+  // Codex's case: flat ground at 64, the line east then south, the country's earth at 64 everywhere and one fill at 22,65,-1
+  const cells = []; for (let x = 10; x <= 40; x++) for (let z = -16; z <= 30; z++) cells.push({ at: [x, 64, z], role: 'earth' })
+  cells.push({ at: [22, 65, -1], role: 'earth' })
+  const recs = [{ plot: 'country', rec: { cells } }]
+  const routes = [route({ line: [[13, 0], [21, 0], [21, 18]], box: [17, 18, 25, 26] })]
+  const check = (M, want) => {
+    const { rec, own } = siteShared(world(), recs, { routes, M, max: 3 })
+    const bad = (rec ? surface(rec).concat(rec.cells.filter(c => /-core$/.test(c.role))) : []).filter(c => RD.shareOk(own(c.at[0], c.at[2]), c.at[1]))
+    if (want) assert.ok(bad.length > 0, 'the mutant should pave under the fill at 22,65,-1')
+    else assert.deepStrictEqual(bad.map(c => c.at), [], 'a road cell breaks the grading\'s terms')
+    return rec
+  }
+  const rec = check(RD, false)
+  assert.ok(rec && rec.instances.some(i => (i.path ?? []).some(p => p[1] > 4)), 'positive control: the road turned south and went on')
+  // the corner check alone (the layout's backstop off): the router lays the quadrant ahead under the fill
+  await withMutants(ROADS_PATH, [
+    ["    for (let sx = -2; sx <= 2; sx++) for (let sz = -2; sz <= 2; sz++) {", "    for (const sx of [-2, 2]) for (const sz of [-2, 2]) {"],
+    ["  for (const c of paved.values()) if (shareOk(own(c.x, c.z), c.L)) return { ok: false, why: 'shared', bad: [c.x, c.L, c.z] }\n", ''],
+  ], async M => { check(M, true) })
+  // ...and the layout's backstop alone catches it (the corner check off, the backstop on): still no cell under the fill
+  await withMutant(ROADS_PATH, "    for (let sx = -2; sx <= 2; sx++) for (let sz = -2; sz <= 2; sz++) {", "    for (const sx of [-2, 2]) for (const sz of [-2, 2]) {", async M => { check(M, false) })
 })
 
 await t('roadsite: a slab never lands on a shared column -- roadInstance refuses it (shared_slab, the column named for the router to go round)', async () => {
