@@ -85,6 +85,12 @@ const REQUIRED = [
   'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
   'bots/test/planahead.test.mjs',   // planahead-01
   'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
+  'bots/src/floatclean.mjs',   // floatclean-01show (11-20): bots clean up the floating blocks other bots left behind
+  'bots/src/floatclean/showcase.json',   // floatclean-01show: the showcase's job list (host survey, CoreProtect-proven)
+  'bots/test/floatclean.test.mjs',   // floatclean-01show
+  'bots/scripts/floatclean-survey.mjs',   // floatclean-01show: the host survey (region + pool + CoreProtect copies)
+  'bots/scripts/floatclean-render.mjs',   // floatclean-01show: the before/after pictures
+  'scripts/host/floatclean_cp.py',   // floatclean-01show: the bots' last placements from a CoreProtect copy (positive control)
   'bots/test/civicvisit.test.mjs',   // civicvisit-01show (11-15): a landmark's visit stands where its siting stood
   'bots/test/steprefusal.test.mjs',   // stepclass-01 (11-15): why a cell has no step, on the deferral row
   'bots/scripts/standreplay-offline.mjs',   // stepclass-01: the stand replay over a block dump (the acceptance check for stuck cells)
