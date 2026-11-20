@@ -684,12 +684,14 @@ export function asideFor (read, plan, u, unreach, { lights = false, aside = null
 /**
  * IS A STEPWELL STUCK STAMP STALE? -> bool. Pure. The tank's own back-off (a visit that did nothing and stopped: skills.mjs
  * buildStepwellRun) holds the project 6 h. Under stepwell-03show it holds nothing once (1) it was written by ANOTHER code version, or
- * by none (a stamp from before this rule): the release that changed the visit gets its visit -- the 11-12 lesson, a hold must not
+ * it is the tank's form from before this rule (no version, no cell): the release that changed the visit gets its visit -- the 11-12 lesson, a hold must not
  * outlive the release that fixes its cause -- or (2) every cell it names reads done (`cellDone(key) === true`). A stamp naming no
  * cell and written by this version holds, as before.
  */
 export function stampStale (stamp, keys = [], { code = null, cellDone = () => false } = {}) {
-  if (code != null && String(stamp?.code ?? '') !== String(code)) return true
+  // (Codex r2 BLOCKER 2) a stamp with no version is the TANK's old form only when it names no cell: the felling's stamps (runVisit's
+  // stuck map, its stair cells) carry none and are judged as before (felldone.mjs fellStampStale) -- a fresh one holds
+  if (code != null && (stamp?.code != null ? String(stamp.code) !== String(code) : !(Array.isArray(keys) && keys.length))) return true
   return Array.isArray(keys) && keys.length > 0 && keys.every(k => { try { return cellDone(k) === true } catch { return false } })
 }
 

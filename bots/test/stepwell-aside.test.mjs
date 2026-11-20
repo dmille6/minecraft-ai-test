@@ -339,6 +339,25 @@ await t('stampStale: another version or none -> stale; this version with no cell
   assert.strictEqual(S.stampStale({ stuckAt: 1, code: 'v2' }, ['1,2,3', '4,5,6'], { code: 'v2', cellDone: k => k === '1,2,3' }), false)
   assert.strictEqual(S.stampStale({ stuckAt: 1 }, [], { code: null }), false, 'no version known: as before')
 })
+await t('Codex r2 BLOCKER 2: a felling stamp (cells, no version) is NOT released by the version rule -- a fresh one holds', () => {
+  assert.strictEqual(S.stampStale({ stuckAt: 1, cells: { '-51,68,-76': {} } }, ['-51,68,-76'], { code: 'v2', cellDone: () => false }), false)
+  assert.strictEqual(S.stampStale({ stuckAt: 1, cells: {} }, [], { code: 'v2' }), true, 'the tank\'s old form still is')
+})
+await t('Codex r2 BLOCKER 1: the version survives the turn file (real files): this version\'s count holds across bots and restarts', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const BP = await import('../src/buildproj.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'swturn-'))
+  try {
+    const home = { x: 0, y: 70, z: 0 }, now = Date.now()
+    BP.turnWrite(dir, home, 'A', { stepwell: { at: now - 1000, n: 1, noAt: now - 1000, gen: 28, stop: 'passed', code: 'v2' } }, { now })
+    BP.turnWrite(dir, home, 'B', { stepwell: { at: now - 1000, n: 3, noAt: now - 1000, gen: 28, stop: 'passed' } }, { now })
+    const files = BP.turnRead(dir, home, { now })
+    assert.strictEqual(files.find(f => f.holder === 'A').plots.stepwell.code, 'v2')
+    assert.strictEqual(PT.turnView(files, { now, codeOf: () => 'v2' }).get('stepwell').n, 1, 'A\'s count kept, B\'s old one dropped')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
 await t('turnView codeOf: a step well back-off of another version holds nothing; this version\'s counts; other plots unchanged', () => {
   const now = 10_000_000
   const files = [{ holder: 'A', plots: { stepwell: { at: now - 1000, n: 4, noAt: now - 1000, stop: 'passed' }, wall: { at: now - 1000, n: 2, noAt: now - 1000 } } },
@@ -365,8 +384,23 @@ await t('mutant: turnView ignores codeOf -> the old version\'s back-off counts a
   })
 })
 await t('mutant: stampStale ignores the version -> the old no-cell stamp holds', async () => {
-  await withMutant(SW_PATH, "  if (code != null && String(stamp?.code ?? '') !== String(code)) return true", '  void code', async M => {
+  await withMutant(SW_PATH, "  if (code != null && (stamp?.code != null ? String(stamp.code) !== String(code) : !(Array.isArray(keys) && keys.length))) return true", '  void code', async M => {
     assert.strictEqual(M.stampStale({ stuckAt: 1 }, [], { code: 'v2' }), false)
+  })
+})
+
+await t('mutant: turnOf drops the version -> a current count read back from the file is dropped', async () => {
+  const BP_PATH = new URL('../src/buildproj.mjs', import.meta.url)
+  await withMutant(BP_PATH, "      ...(typeof e.code === 'string' ? { code: e.code } : {}) }", '      }', async M => {
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'swturnm-'))
+    try {
+      const home = { x: 0, y: 70, z: 0 }, now = Date.now()
+      M.turnWrite(dir, home, 'A', { stepwell: { at: now - 1000, n: 1, noAt: now - 1000, gen: 28, code: 'v2' } }, { now })
+      assert.strictEqual(PT.turnView(M.turnRead(dir, home, { now }), { now, codeOf: () => 'v2' }).get('stepwell').n, 0)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
 
