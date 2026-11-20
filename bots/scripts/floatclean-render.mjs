@@ -51,7 +51,8 @@ for (const j of jobs) {
 // each column's top block at or below YMAX, and the column's marks (the highest listed cell decides)
 const T = 14, pad = 30, top = 120, legendH = 120
 const nx = X1 - X0 + 1, nz = Z1 - Z0 + 1
-const W = nx * T + 2 * pad, H = nz * T + top + legendH
+// square (the macOS rasteriser, qlmanage, crops a thumbnail to a square)
+const W = Math.max(nx * T + 2 * pad, nz * T + top + legendH, 860), H = W
 const out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`, `<rect width="100%" height="100%" fill="#dfe9f2"/>`]
 out.push(`<text x="20" y="30" font-family="Helvetica,Arial" font-size="18" fill="#222">${esc(TITLE)}</text>`)
 out.push(`<text x="20" y="54" font-family="Helvetica,Arial" font-size="13" fill="#333">${esc(SUB)}</text>`)
