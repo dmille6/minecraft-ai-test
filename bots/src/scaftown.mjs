@@ -50,10 +50,42 @@
 //
 // Never a veto, never a new dead end: the price changes the ORDER of legal moves, and under each bound the search is the base's.
 // SCAFTOWN=off -> nothing is installed: every profile and every search is exactly the base's (the rollback without a deploy).
+//
+// SCAFFOLD-01show (owner 11-20 to the lead session: "yes, fix it, fix the movement code and remove all the pillars natural and
+// unnatural"). Measured on the showcase (pillars-01show, docs/reports/pillars/pillars-2026-11-20.md on its branch): of 2,390
+// CoreProtect-proven bot pillar blocks with log rows, 1,910 (+140 shared) are this pathfinder's scaffold on walks -- explore 690,
+// goto 608, gather 492 -- and 759 of the 1,695 proven pillars stand within 80 of home, where the town price already is: the
+// price round home alone does not stop them, and placements per day were flat 11-07 to 11-19. Two changes here:
+//   1. THE WILD PRICE: a placement OUTSIDE the town's area costs SCAF_TOWN.wildCost (10) more, everywhere in the world, at any
+//      height (no area -- no home -- is all wild). A tower step is then 1 + placeCost 5 + 10 = 16 walk steps: a walk round wins up
+//      to ~15 blocks per block it would place (Baritone's blockPlacementPenalty 20 is ~4 of its walk steps; this is dearer on
+//      purpose, and bounded by the same three fallbacks as the town's). In the town's area the town's 20 stays (not 30).
+//      SCAFWILD=off -> the wild price is 0 (the base's).
+//   2. GATHER IS PRICED (its exemption is gone): its approach and its walks are CAPPED searches (digapproach's slack 400: a COST
+//      cap, astar.js maxCost = start.h + radius), and a price there spends the cap -- the reason capped searches were never
+//      priced. So a profile marked `scafCapped` (scafProfileFlags: gather only) prices its capped searches too, and a priced
+//      capped search that ends noPath with the price having touched it is RESTARTED at the base's costs WITH ITS CAP
+//      (restartsSearch, restartInPlace's radius): within a cap a noPath is not the base's answer, so it gets the base's search.
+//      Every other capped search (reachprobe, the ore tunnel, the escapes' probes) is unpriced as before.
+// The escapes stay exempt (ascend, descend, deck, water, tunnel: scafProfileFlags): swimming and air come first.
 
-export const SCAF_TOWN = Object.freeze({ cost: 20, workR: 80, dy: 4, ringGrow: 2, budgetMs: 1000, latchMs: 120_000, stuckLatch: 2, hitsMs: 10 * 60_000 })
+export const SCAF_TOWN = Object.freeze({ cost: 20, wildCost: 10, workR: 80, dy: 4, ringGrow: 2, budgetMs: 1000, latchMs: 120_000, stuckLatch: 2, hitsMs: 10 * 60_000 })
 /** THE SWITCH: SCAFTOWN=off|0|false|no -> not installed. On by default. Pure. */
 export const scafTownOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.SCAFTOWN ?? '').trim())
+/** scaffold-01show: THE WILD PRICE'S SWITCH: SCAFWILD=off|0|false|no -> no price outside the town's area (the base's). Pure. */
+export const scafWildOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.SCAFWILD ?? '').trim())
+/**
+ * scaffold-01show: WHICH PROFILES THE PRICE SEARCHES, by the profile's name (index.mjs assigns these onto each clone) -> { scafTown,
+ * scafCapped }. Pure. The walk and its walking clones (composter, town deposit) priced; gather priced, its capped searches too; the
+ * escapes (ascend, descend, deck, water) and the ore tunnel never: an escape keeps every placement at the base's price.
+ */
+export function scafProfileFlags (profile) {
+  switch (String(profile)) {
+    case 'walk': case 'composter_walk': case 'town_deposit_walk': return { scafTown: true, scafCapped: false }
+    case 'gather': return { scafTown: true, scafCapped: true }
+    default: return { scafTown: false, scafCapped: false }
+  }
+}
 
 const fin = v => typeof v === 'number' && Number.isFinite(v)
 /** THE WALL RINGS a town's records have -> [[x0, z0, x1, z1]] (wall.mjs records' `ring`: the wall and every extension). Pure. */
@@ -86,14 +118,15 @@ export function inScafArea (area, x, y, z) {
  * sends) -- or IN the reference cell when that cell is still replaceable at execution (lidplace.mjs: the Paper finding). Both are
  * tested, each placement counted once: an over-price at the area's edge, never an under-price. A `useOne` entry places nothing.
  */
-export function scafTownSurcharge (toPlace, area, cost = SCAF_TOWN.cost) {
-  if (!area || !Array.isArray(toPlace) || !toPlace.length) return 0
-  let n = 0
+export function scafTownSurcharge (toPlace, area, cost = SCAF_TOWN.cost, wildCost = 0) {
+  if (!Array.isArray(toPlace) || !toPlace.length || (!area && !(wildCost > 0))) return 0
+  let n = 0, w = 0
   for (const p of toPlace) {
     if (!p || p.useOne) continue
-    if (inScafArea(area, p.x + (p.dx ?? 0), p.y + (p.dy ?? 0), p.z + (p.dz ?? 0)) || inScafArea(area, p.x, p.y, p.z)) n++
+    if (area && (inScafArea(area, p.x + (p.dx ?? 0), p.y + (p.dy ?? 0), p.z + (p.dz ?? 0)) || inScafArea(area, p.x, p.y, p.z))) n++
+    else w++   // scaffold-01show: outside the town's area (or no area at all): the wild price
   }
-  return n * cost
+  return n * cost + (wildCost > 0 ? w * wildCost : 0)
 }
 
 /** A goal's latch key -> string | null (a goal with no position is never latched: it has nothing to fall back FOR). Pure. */
@@ -109,9 +142,9 @@ export function goalKey (goal) {
  * WHAT ONE SEARCH PRICES -> 'priced' | 'off' | 'capped' | 'latched'. Pure. off: the switch or a holder (price.off > 0);
  * capped: searchRadius >= 0; latched: its goal's last priced search failed less than latchMs ago.
  */
-export function searchMode ({ on = true, off = 0, radius = -1, key = null, latch = null, now = 0 } = {}) {
+export function searchMode ({ on = true, off = 0, radius = -1, key = null, latch = null, now = 0, cappedPriced = false } = {}) {
   if (!on || off > 0) return 'off'
-  if (fin(radius) && radius >= 0) return 'capped'
+  if (fin(radius) && radius >= 0 && !cappedPriced) return 'capped'   // scaffold-01show: a scafCapped profile's capped search is priced
   if (key && latch && latch.has(key) && latch.get(key) > now) return 'latched'
   return 'priced'
 }
@@ -120,18 +153,20 @@ export const latchesGoal = (s, status) => !!s && s.mode === 'priced' && s.hits >
 /** Does a slice's result send its search back to the start at the base's costs? -> bool. Pure: the budget ran out (cut), the
  *  price touched the search (hits: otherwise it IS the base's search already) and the slice did not find the path; once per search.
  *  Never on noPath: an exhausted open heap is the base's answer too (a price never removes a move) -- Claude r2 note. */
-export const restartsSearch = (s, status) => !!s && s.cut === true && !s.restarted && s.mode === 'priced' && s.hits > 0 && status !== 'success' && status !== 'noPath'
+export const restartsSearch = (s, status) => !!s && !s.restarted && s.mode === 'priced' && s.hits > 0 && status !== 'success' &&
+  ((s.cut === true && status !== 'noPath') || (s.capped === true && status === 'noPath'))   // scaffold-01show: within a cap, noPath may be the price's
 /**
  * RESTART AN A* IN PLACE -> bool: the same context object, its state replaced by a fresh search from its own start node (the root
  * of the best node's parent chain) with its own movements, goal, timeout and tick budget, uncapped (a capped search is never
  * priced). The caller then computes again. False (nothing changed) when the start cannot be found.
  */
-export function restartInPlace (ctx) {
+export function restartInPlace (ctx, radius = -1) {
   let n = ctx?.bestNode, guard = 0
   while (n && n.parent && guard++ < 1e7) n = n.parent
   const start = n?.data
   if (!start || typeof ctx.constructor !== 'function') return false
-  const fresh = new ctx.constructor(start, ctx.movements, ctx.goal, ctx.timeout, ctx.tickTimeout, -1)
+  // scaffold-01show: a priced CAPPED search (scafCapped) restarts with its own cap; every other restart is uncapped as before
+  const fresh = new ctx.constructor(start, ctx.movements, ctx.goal, ctx.timeout, ctx.tickTimeout, fin(radius) && radius >= 0 ? radius : -1)
   for (const k of Object.keys(fresh)) ctx[k] = fresh[k]
   return true
 }
@@ -142,7 +177,8 @@ export function restartInPlace (ctx) {
  * Counters: hits (priced neighbours), chosen (priced moves in paths the walk took: index.mjs path_update), searches,
  * pricedSearches, cuts (searches that ran out of the preference budget), latches, capped, latched (searches the latch freed).
  */
-export function makeScafTownPrice ({ area = () => null, on = true, now = () => Date.now(), T = SCAF_TOWN } = {}) {
+export function makeScafTownPrice ({ area = () => null, on = true, wild = true, now = () => Date.now(), T = SCAF_TOWN } = {}) {
+  const wildCost = wild ? T.wildCost : 0   // scaffold-01show: the price outside the town's area (SCAFWILD=off -> 0)
   const price = (toPlace) => {
     if (!on || price.off > 0) return 0
     const s = price.cur
@@ -150,21 +186,23 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
       if (s.mode !== 'priced') return 0
       if (now() - s.t0 > T.budgetMs) { if (!s.cut) { s.cut = true; price.cuts++ } return 0 }
     }
-    const v = scafTownSurcharge(toPlace, area(), T.cost)
+    const v = scafTownSurcharge(toPlace, area(), T.cost, wildCost)
     if (v > 0) { price.hits++; if (s) s.hits++ }
     return v
   }
-  Object.assign(price, { off: 0, cur: null, hits: 0, chosen: 0, searches: 0, pricedSearches: 0, cuts: 0, restarts: 0, latches: 0, capped: 0, latched: 0, stuckLatches: 0, stuckSkipped: 0, latch: new Map(), stalls: new Map(), touched: new Map(), T })
+  Object.assign(price, { wildCost, off: 0, cur: null, hits: 0, chosen: 0, searches: 0, pricedSearches: 0, cuts: 0, restarts: 0, latches: 0, capped: 0, cappedPriced: 0, latched: 0, stuckLatches: 0, stuckSkipped: 0, latch: new Map(), stalls: new Map(), touched: new Map(), T })
   /** A search starts -> its scope { mode, t0, hits, key }. */
-  price.begin = ({ goal = null, radius = -1 } = {}) => {
+  price.begin = ({ goal = null, radius = -1, movements = null } = {}) => {
     const t = now(), key = goalKey(goal)
     if (price.latch.size > 64) for (const [k, u] of price.latch) if (u <= t) price.latch.delete(k)
-    const mode = searchMode({ on, off: price.off, radius, key, latch: price.latch, now: t })
+    // scaffold-01show: the profile SEARCHED says whether its capped searches are priced (scafProfileFlags: gather)
+    const capped = fin(radius) && radius >= 0
+    const mode = searchMode({ on, off: price.off, radius, key, latch: price.latch, now: t, cappedPriced: movements?.scafCapped === true && movements?.scafTown !== false })
     price.searches++
-    if (mode === 'priced') price.pricedSearches++
+    if (mode === 'priced') { price.pricedSearches++; if (capped) price.cappedPriced++ }
     else if (mode === 'capped') price.capped++
     else if (mode === 'latched') price.latched++
-    return { mode, t0: t, hits: 0, key, cut: false, done: false }
+    return { mode, t0: t, hits: 0, key, cut: false, done: false, capped: capped && mode === 'priced', radius: capped ? radius : -1 }
   }
   /**
    * THE EXECUTOR'S STALL (Claude r1 note): a priced route the planner FINISHED can still stall in the walking (a gate it cannot
@@ -254,7 +292,7 @@ export function installScafTownSearch (pathfinder, price) {
         let r = oc.call(this)
         price.checkCut(s)
         // the budget ran out before the path was found: from the start again at the base's costs, full timeout (Codex r1 BLOCKER)
-        if (restartsSearch(s, r?.status) && restartInPlace(this)) { s.restarted = true; s.mode = 'fallback'; price.restarts++; r = oc.call(this) }
+        if (restartsSearch(s, r?.status) && restartInPlace(this, s.capped ? s.radius : -1)) { s.restarted = true; s.mode = 'fallback'; price.restarts++; r = oc.call(this) }
         try { price.settle(s, r) } catch { /* a counter never breaks a search */ }
         return r
       })
@@ -263,7 +301,7 @@ export function installScafTownSearch (pathfinder, price) {
   }
   pathfinder.getPathFromTo = function * (movements, startPos, goal, options = {}) {
     const radius = options?.searchRadius ?? pathfinder.searchRadius
-    let s = price.begin({ goal, radius })
+    let s = price.begin({ goal, radius, movements })
     let g = orig.call(this, movements, startPos, goal, options)
     let step = scoped(s, () => g.next())
     price.checkCut(s)
@@ -298,10 +336,10 @@ export function chosenScafTown (path) {
 export function scafTownHitsDetail (p, prev = {}) {
   const d = k => (p?.[k] ?? 0) - (prev?.[k] ?? 0)
   return `hits=${d('hits')} chosen=${d('chosen')} searches=${d('searches')} priced=${d('pricedSearches')} cuts=${d('cuts')} restarts=${d('restarts')} latches=${d('latches')} ` +
-         `latched=${d('latched')} capped=${d('capped')} stuck_latches=${d('stuckLatches')} stuck_skipped=${d('stuckSkipped')} total_hits=${p?.hits ?? 0} off=${p?.off ?? 0}`
+         `latched=${d('latched')} capped=${d('capped')} capped_priced=${d('cappedPriced')} stuck_latches=${d('stuckLatches')} stuck_skipped=${d('stuckSkipped')} total_hits=${p?.hits ?? 0} off=${p?.off ?? 0}`
 }
 /** The counters to diff against next time. Pure. */
-export const scafTownSnap = p => ({ hits: p?.hits ?? 0, chosen: p?.chosen ?? 0, searches: p?.searches ?? 0, pricedSearches: p?.pricedSearches ?? 0, cuts: p?.cuts ?? 0, restarts: p?.restarts ?? 0, latches: p?.latches ?? 0, latched: p?.latched ?? 0, capped: p?.capped ?? 0, stuckLatches: p?.stuckLatches ?? 0, stuckSkipped: p?.stuckSkipped ?? 0 })
+export const scafTownSnap = p => ({ hits: p?.hits ?? 0, chosen: p?.chosen ?? 0, searches: p?.searches ?? 0, pricedSearches: p?.pricedSearches ?? 0, cuts: p?.cuts ?? 0, restarts: p?.restarts ?? 0, latches: p?.latches ?? 0, latched: p?.latched ?? 0, capped: p?.capped ?? 0, cappedPriced: p?.cappedPriced ?? 0, stuckLatches: p?.stuckLatches ?? 0, stuckSkipped: p?.stuckSkipped ?? 0 })
 /** The licence row (`_scaftown_mode`, once per spawn). Pure. */
 export const scafTownModeDetail = (env = process.env, area = null, T = SCAF_TOWN) =>
-  `on=${scafTownOn(env) ? 1 : 0} cost=${T.cost} workR=${T.workR} dy=${T.dy} budget_ms=${T.budgetMs} latch_ms=${T.latchMs} home=${area ? `${area.hx},${area.hy},${area.hz}` : '-'} rings=${area?.rings?.length ?? 0}`
+  `on=${scafTownOn(env) ? 1 : 0} cost=${T.cost} wild=${scafWildOn(env) ? T.wildCost : 0} workR=${T.workR} dy=${T.dy} budget_ms=${T.budgetMs} latch_ms=${T.latchMs} home=${area ? `${area.hx},${area.hy},${area.hz}` : '-'} rings=${area?.rings?.length ?? 0}`

@@ -65,7 +65,7 @@ function moves (w, { town = null, canDig = false } = {}) {
   if (town) {
     const mod = town.mod ?? ST
     const area = mod.scafAreaOf({ home: town.home ?? HOME, rings: town.rings ?? [] })
-    const price = mod.makeScafTownPrice({ area: () => area, now: town.now ?? (() => 0) })
+    const price = mod.makeScafTownPrice({ area: () => area, now: town.now ?? (() => 0), wild: town.wild ?? true })
     mod.installScafTownPrice(m, price)
     m.__scafPrice = price
   }
@@ -196,12 +196,16 @@ test('CHAIN the ledge in town (owner 11-07: "dirt as a cheap way to get over obs
   assert.ok(cand.path.some(n => n.z >= 13), 'its route passes the staircase at z 14')
 })
 
-test('CHAIN the same ledge FAR from town (home 500 away): the candidate is the base (scaffold where it is the only cheap way stays legitimate)', () => {
+test('CHAIN the same ledge FAR from town (home 500 away): with SCAFWILD off the candidate is the base; with the wild price (scaffold-01show) it takes the stairs too', () => {
   const w = world(ledgeCells())
   const base = plan(moves(w), [0, 70, 0], GOAL_LEDGE())
+  assert.ok(base.placed.length >= 1, 'positive control: the base towers')
+  const off = plan(moves(w, { town: { home: { x: 500, y: 70, z: 500 }, wild: false } }), [0, 70, 0], GOAL_LEDGE())
+  assert.equal(off.status, 'success')
+  assert.deepEqual(off.placed, base.placed)
   const cand = plan(moves(w, { town: { home: { x: 500, y: 70, z: 500 } } }), [0, 70, 0], GOAL_LEDGE())
   assert.equal(cand.status, 'success')
-  assert.deepEqual(cand.placed, base.placed)
+  assert.deepEqual(cand.placed, [], `the wild price takes the stairs 14 along: placed ${cand.placed.join(' ')}`)
 })
 
 test('CHAIN a pit inside the town with nothing to climb: the candidate still towers out (no new dead end) -- and from 66 the price does not even apply', () => {
@@ -402,7 +406,7 @@ test('MUTANTS: the exemption, the post-legality price, the cap, the budget and t
     assert.notDeepEqual(plan(esc, [0, 70, 0], GOAL_LEDGE()).placed, base.placed, 'M1 killed: without the exemption an escape is priced')
   })
   // M2 the cap ignored: a capped search is priced -> stairs
-  await withMutant(ST_URL, "if (fin(radius) && radius >= 0) return 'capped'", '', async mod => {
+  await withMutant(ST_URL, "if (fin(radius) && radius >= 0 && !cappedPriced) return 'capped'", '', async mod => {
     const m = moves(w, { town: { mod } }), pf = fakePathfinder(); mod.installScafTownSearch(pf, m.__scafPrice)
     assert.notDeepEqual(placedOf(runSearch(pf, m, GOAL_LEDGE(), { searchRadius: 400 }).path), base.placed, 'M2 killed: a capped search priced')
   })
@@ -421,7 +425,7 @@ test('MUTANTS: the exemption, the post-legality price, the cap, the budget and t
     assert.equal(m.__scafPrice.latches, 0, 'M4 killed: no latch')
   })
   // M6 the restart removed: the priced search past its budget keeps its inflated nodes and does not end where the base ends
-  await withMutant(ST_URL, "if (restartsSearch(s, r?.status) && restartInPlace(this)) { s.restarted = true; s.mode = 'fallback'; price.restarts++; r = oc.call(this) }", '', async mod => {
+  await withMutant(ST_URL, "if (restartsSearch(s, r?.status) && restartInPlace(this, s.capped ? s.radius : -1)) { s.restarted = true; s.mode = 'fallback'; price.restarts++; r = oc.call(this) }", '', async mod => {
     const wc = world(columnCells()), goal = new goals.GoalBlock(6, 90, 0)
     const b = plan(moves(wc), [0, 70, 0], goal, { timeout: 60000 })
     let t = 0, step = 0
@@ -460,7 +464,12 @@ function wiringProblems (src) {
   const iSearch = at('installScafTownSearch(bot.pathfinder, scafPrice)', 'the search scope')
   const iClone = at('const gatherMoves = Object.create(Object.getPrototypeOf(moves))', 'the first clone')
   if (!(iLid < iMine && iMine < iClone && iSearch < iClone)) bad.push('order: lid price < town price, search < the first clone')
-  for (const p of ['gatherMoves', 'ascendMoves', 'descendMoves', 'deckMoves', 'waterMoves']) at(`${p}.scafTown = false`, `${p} exempt`)
+  for (const p of ['ascendMoves', 'descendMoves', 'deckMoves', 'waterMoves']) at(`${p}.scafTown = false`, `${p} exempt`)
+  // scaffold-01show: gather priced (its capped searches too), the ore tunnel never
+  at("Object.assign(gatherMoves, scafProfileFlags('gather'))", 'gather priced')
+  at("Object.assign(bot.tunnelMovements, scafProfileFlags('tunnel'))", 'the tunnel exempt')
+  at('wild: scafWildOn(process.env)', 'the wild price switch')
+  if (/\bgatherMoves\.scafTown = false/.test(src)) bad.push('gather exempt again')
   at("if (r.status === 'success') bot.scafTownPrice.chosen += chosenScafTown(r.path)", 'the chosen counter')
   at("logEvent({ kind: 'scaftown_hits'", 'the positive-control row')
   at("if (reason === 'stuck' && bot.pathfinder?.movements?.scafTown !== false) { try { bot.scafTownPrice?.stuck?.(bot.pathfinder?.goal ?? null) }", 'the stall fallback')
@@ -473,7 +482,8 @@ test('WIRING index.mjs: the price on `moves` after the lid price and BEFORE the 
   assert.match(strip(readFileSync(SKILLS_URL, 'utf8')), /export function scafTownRecords \(\) \{\s*try \{ return projectHeads\(\)/)
   const mutants = [
     ['ascendMoves.scafTown = false', ''],
-    ['gatherMoves.scafTown = false', ''],
+    ["Object.assign(gatherMoves, scafProfileFlags('gather'))", 'gatherMoves.scafTown = false'],
+    ["Object.assign(bot.tunnelMovements, scafProfileFlags('tunnel'))", ''],
     ['installScafTownPrice(moves, scafPrice)', ''],
     ['installScafTownSearch(bot.pathfinder, scafPrice)', ''],
     ['const gatherMoves = Object.create(Object.getPrototypeOf(moves))', 'const gatherMoves = Object.create(Object.getPrototypeOf(moves))\ninstallScafTownPrice(moves, scafPrice)'],
