@@ -8,7 +8,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const P = await import(path.join(here, '../../bots/src/pit.mjs'))
-const { readerOf } = await import(path.join(here, 'pitplan.mjs')).catch(() => ({}))
 const [planF, beforeF, afterF] = process.argv.slice(2)
 const plan = JSON.parse(fs.readFileSync(planF, 'utf8'))
 const dump = f => JSON.parse(fs.readFileSync(f, 'utf8'))
@@ -27,7 +26,10 @@ for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x
   if (b) wetB++; if (a) wetA++
   if (a && !b) newWet.push([x, y, z].join(',')); if (b && !a) goneWet.push([x, y, z].join(','))
 }
-const dug = plan.cells.filter(c => /^(air|cave_air)$/.test(ra(...c.at) ?? '') && !/^(air|cave_air)$/.test(rb(...c.at) ?? ''))
+// dug: the cell's block is gone -- air, or the snow layer the sky laid on the new ground since (the site is a snowy shore)
+const gone = n => /^(air|cave_air|snow)$/.test(n ?? '')
+const dug = plan.cells.filter(c => gone(ra(...c.at)) && !gone(rb(...c.at)))
+const left = plan.cells.filter(c => !gone(ra(...c.at))).map(c => `${c.at.join(',')}:${ra(...c.at)}`)
 const breach = dug.filter(c => { const [x, y, z] = c.at; for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) for (let dy = -1; dy <= 1; dy++) if (WET.test(ra(x + dx, y + dy, z + dz) ?? '')) return true; return false })
 const byY = {}; for (const c of dug) byY[c.at[1]] = (byY[c.at[1]] ?? 0) + 1
-console.log(JSON.stringify({ listed: plan.cells.length, dug: dug.length, dirtDug: dug.filter(c => c.e).length, dugByLayer: byY, wetBefore: wetB, wetAfter: wetA, newWet: newWet.slice(0, 20), newWetN: newWet.length, goneWetN: goneWet.length, goneWet: goneWet.slice(0, 10), breach: breach.map(c => c.at.join(',')) }))
+console.log(JSON.stringify({ listed: plan.cells.length, dug: dug.length, left, dirtDug: dug.filter(c => c.e).length, dugByLayer: byY, wetBefore: wetB, wetAfter: wetA, newWet: newWet.slice(0, 20), newWetN: newWet.length, goneWetN: goneWet.length, goneWet: goneWet.slice(0, 10), breach: breach.map(c => c.at.join(',')) }))

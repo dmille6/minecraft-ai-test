@@ -41,6 +41,12 @@ Pictures: `pit-top.png` and `pit-iso.png` (the designed bowl), plus the rig's be
 6. **Read it.** Take a top-down and an iso picture, check that no water outside the pond moved (a positive control: the sea's edge
    cells are the same before and after), and show the owner.
 
+## The climate
+
+The point is a snowy shore. Snow already lies on the bowl's new ground (the rig: 57 dug cells under a snow layer within 40
+minutes), and the sea beside it is ice. Still water here freezes over at night. A frozen pond is still a pond, but the dock should
+not rely on open water, and the cane must stand next to water that stays liquid (by a light, or on the sea side in option B).
+
 ## Guards the finish keeps
 
 - Water goes in only from buckets, or through the one channel in option B, never through a guard-refused cell.
