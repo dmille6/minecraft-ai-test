@@ -30197,12 +30197,20 @@ function floatGuardStrict (bot) {
     return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })   // Codex r2: the plan head is `head.plan`
   } catch { return null }
 }
-/** The cells under this bot's body (its feet's floor, every column its 0.6-wide box stands over) -> ['x,y,z']. Never throws. */
-function bodyFloorKeys (bot) {
+/** The cells under a body (its feet's floor, every column its box stands over) -> ['x,y,z']. Never throws. */
+function floorKeysOf (e) {
   try {
-    const p = bot.entity.position, y = Math.floor(p.y + 1e-6) - 1, out = []
-    for (const x of new Set([Math.floor(p.x - 0.3), Math.floor(p.x + 0.3)])) for (const z of new Set([Math.floor(p.z - 0.3), Math.floor(p.z + 0.3)])) out.push(`${x},${y},${z}`)
+    const p = e.position, w = (Number(e.width) || 0.6) / 2, y = Math.floor(p.y + 1e-6) - 1, out = []
+    for (const x of new Set([Math.floor(p.x - w), Math.floor(p.x + w)])) for (const z of new Set([Math.floor(p.z - w), Math.floor(p.z + w)])) out.push(`${x},${y},${z}`)
     return out
+  } catch { return [] }
+}
+const bodyFloorKeys = bot => floorKeysOf(bot.entity)
+/** rig 11-20: the cells under every OTHER body within 12 blocks (players, mobs; never items, orbs, arrows) -> ['x,y,z']. Never throws. */
+function othersFloorKeys (bot) {
+  try {
+    const me = bot.entity?.position
+    return Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && (!me || e.position.distanceTo(me) <= 12)).flatMap(floorKeysOf)
   } catch { return [] }
 }
 /** One lap -> { tried, status, why, cleared, stop }. `tried` false: nothing walked to or dug (no list, nothing take-able now). */
@@ -30262,7 +30270,7 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.fcStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
       domain: () => true, walkR: FC.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
       clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
-      clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k) }) } },
+      clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) }) } },
     effects, { deadline: Math.min(deadline, t0 + FC.passMs), maxSteps: 200 })
     cleared = r.cleared ?? 0
     // set aside: a cell this lap offered, considered to the end of the list, and left standing (no stand, no arrival) -- per bot
