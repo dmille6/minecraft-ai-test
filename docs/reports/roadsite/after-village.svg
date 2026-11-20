@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="860" height="860" viewBox="0 0 860 860">
 <rect width="100%" height="100%" fill="#dfe9f2"/>
-<text x="20" y="30" font-family="Helvetica,Arial" font-size="18" fill="#222">After: R5 on the village route, sited and built by the bots (Paper rig, sandbox3)</text>
-<text x="20" y="54" font-family="Helvetica,Arial" font-size="13" fill="#333">showcase-Kite, Juno, Echo on a copy of the 11-20 04:15Z backup; 3 runs, 0 deaths; the lantern not placed (no_material)</text>
-<text x="20" y="76" font-family="Helvetica,Arial" font-size="13" fill="#333">R5: surface cells 55 -- built 55, open 0; lanterns 0 of 1; on shared columns 6 (paths 0, grading 6); north up, x 26..54, z -12..14; darker = lower</text>
+<text x="20" y="30" font-family="Helvetica,Arial" font-size="18" fill="#222">After: R5 on the village route, sited and built by the bots, its lamp lit (Paper rig, sandbox3)</text>
+<text x="20" y="54" font-family="Helvetica,Arial" font-size="13" fill="#333">showcase-Kite, Juno, Echo on a copy of the 11-20 04:15Z backup; 6 runs, 0 deaths; the lantern drawn from the store hall (16,71,-51)</text>
+<text x="20" y="76" font-family="Helvetica,Arial" font-size="13" fill="#333">R5: surface cells 55 -- built 55, open 0; lanterns 1 of 1; on shared columns 6 (paths 0, grading 6); north up, x 26..54, z -12..14; darker = lower</text>
 <rect x="30" y="120" width="14" height="14" fill="rgb(80,120,54)" stroke="rgba(0,0,0,0.1)" stroke-width="0.5"/>
 <text x="31" y="130" font-family="Helvetica,Arial" font-size="7" fill="rgba(255,255,255,0.75)">68</text>
 <rect x="30" y="134" width="14" height="14" fill="rgb(126,126,130)" stroke="rgba(0,0,0,0.1)" stroke-width="0.5"/>
@@ -1077,7 +1077,7 @@
 <rect x="325.5" y="303.5" width="11" height="11" fill="none" stroke="#00c853" stroke-width="2"/>
 <rect x="325.5" y="317.5" width="11" height="11" fill="none" stroke="#00c853" stroke-width="2"/>
 <circle cx="331" cy="323" r="2.2" fill="#00e5ff"/>
-<circle cx="289" cy="337" r="5" fill="none" stroke="#ffb300" stroke-width="2"/>
+<circle cx="289" cy="337" r="5" fill="#ffd23f" stroke="#ffb300" stroke-width="2"/>
 <rect x="20" y="528" width="13" height="13" fill="none" stroke="#00c853" stroke-width="2.5"/><text x="44" y="539" font-family="Helvetica,Arial" font-size="12" fill="#222">a road surface cell, built (the region holds its block)</text>
 <rect x="20" y="548" width="13" height="13" fill="none" stroke="#ff00d4" stroke-width="2.5"/><text x="44" y="559" font-family="Helvetica,Arial" font-size="12" fill="#222">a road surface cell, not built (sited, open)</text>
 <circle cx="26" cy="574" r="5" fill="#ffd23f" stroke="#ffb300" stroke-width="2"/><text x="44" y="579" font-family="Helvetica,Arial" font-size="12" fill="#222">a lamp post's lantern (filled: standing)</text>
