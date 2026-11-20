@@ -1,0 +1,393 @@
+16:07:15 Echo _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:07:17 Gale _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:08:05 Echo _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=560 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:08:05 Echo _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:08:05 Echo _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=440 consumer=tidy to=- at=- why=short gen=-
+16:08:05 Gale _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=447 consumer=tidy to=- at=- why=short gen=-
+16:08:20 Echo _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=31 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:08:20 Echo _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:08:20 Echo _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=440 consumer=tidy to=- at=- why=short gen=-
+16:08:35 Echo _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=156 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:08:35 Echo _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:08:35 Echo _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=440 consumer=tidy to=- at=- why=short gen=-
+16:08:40 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:08:43 Iris _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=459 consumer=tidy to=- at=- why=short gen=-
+16:09:05 Gale _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=60593 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:09:05 Gale _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:09:07 Iris _pit success op=sited y=- half=- n=cells543/cols220/rim26/held5 dirt=508 short=- consumer=- to=- at=- why=layers:70:0,69:1,68:1,67:2,66:0,65:56,64:124,63:157,62:107,61:60 gen=1
+16:09:15 Iris _build_visit success project=pit outcome=complete stop=complete cleared=2 slot=1 gen=1 ms=32003 why=layer_y70_W:_complete;_dug_2_(0_dirt),_banked_0;_541_cell(s)_left
+16:09:15 Iris _pit success op=dig y=70 half=W n=2c/left541/layer69 dirt=0 short=459 consumer=tidy to=- at=- why=complete gen=1
+16:09:17 Iris _build_visit no_effect project=pit outcome=complete stop=complete cleared=0 slot=1 gen=1 ms=259 why=layer_y69_W:_complete;_dug_0_(0_dirt),_banked_0;_541_cell(s)_left
+16:09:17 Iris _pit no_effect op=dig y=69 half=W n=0c/left541/layer69 dirt=0 short=548 consumer=tidy to=- at=- why=complete gen=1
+16:09:17 Iris _pit no_effect op=guard y=69 half=W n=2 dirt=- short=- consumer=- to=- at=-54,69,-97 why=unreached:complete:miss_counted gen=2
+16:09:17 Iris _pit success op=demand y=- half=- n=need548/stock0 dirt=- short=548 consumer=tidy to=- at=- why=short gen=-
+16:09:20 Gale _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=447 consumer=tidy to=- at=- why=short gen=-
+16:09:32 Iris _build_visit no_effect project=pit outcome=complete stop=complete cleared=0 slot=1 gen=2 ms=468 why=layer_y69_W:_complete;_dug_0_(0_dirt),_banked_0;_541_cell(s)_left
+16:09:32 Iris _pit no_effect op=dig y=69 half=W n=0c/left541/layer69 dirt=0 short=548 consumer=tidy to=- at=- why=complete gen=2
+16:09:32 Iris _pit no_effect op=guard y=69 half=W n=2 dirt=- short=- consumer=- to=- at=-54,69,-97 why=unreached:complete:miss_counted gen=3
+16:09:32 Iris _pit success op=demand y=- half=- n=need548/stock0 dirt=- short=548 consumer=tidy to=- at=- why=short gen=-
+16:09:48 Iris _pit no_effect op=guard y=- half=- n=2 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:09:48 Iris _pit success op=demand y=- half=- n=need548/stock0 dirt=- short=548 consumer=tidy to=- at=- why=short gen=-
+16:09:53 Iris _build_visit success project=pit outcome=complete stop=complete cleared=1 slot=1 gen=3 ms=5415 why=layer_y69_E:_complete;_dug_1_(0_dirt),_banked_0;_540_cell(s)_left
+16:09:53 Iris _pit success op=dig y=69 half=E n=1c/left540/layer68 dirt=0 short=548 consumer=tidy to=- at=- why=complete gen=3
+16:09:55 Iris _pit no_effect op=guard y=- half=- n=2 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:09:55 Iris _pit success op=demand y=- half=- n=need1019/stock0 dirt=- short=1019 consumer=tidy to=- at=- why=short gen=-
+16:10:06 Iris _build_visit success project=pit outcome=complete stop=complete cleared=2 slot=1 gen=3 ms=11244 why=layer_y68_W:_complete;_dug_2_(0_dirt),_banked_0;_538_cell(s)_left
+16:10:06 Iris _pit success op=dig y=68 half=W n=2c/left538/layer68 dirt=0 short=1019 consumer=tidy to=- at=- why=complete gen=3
+16:10:08 Iris _pit success op=demand y=- half=- n=need548/stock0 dirt=- short=548 consumer=tidy to=- at=- why=short gen=-
+16:10:09 Iris _pit no_effect op=guard y=- half=- n=2 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:10:11 Iris _build_visit success project=pit outcome=complete stop=complete cleared=1 slot=1 gen=3 ms=2999 why=layer_y68_E:_complete;_dug_1_(0_dirt),_banked_0;_536_cell(s)_left
+16:10:11 Iris _pit success op=dig y=68 half=E n=1c/left536/layer67 dirt=0 short=548 consumer=tidy to=- at=- why=complete gen=3
+16:10:13 Iris _pit no_effect op=guard y=- half=- n=3 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:10:13 Iris _pit success op=demand y=- half=- n=need1019/stock0 dirt=- short=1018 consumer=tidy to=- at=- why=short gen=-
+16:10:20 Gale _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=60373 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:10:20 Gale _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:10:26 Iris _build_visit success project=pit outcome=complete stop=complete cleared=9 slot=1 gen=3 ms=13353 why=layer_y67_W:_complete;_dug_9_(0_dirt),_banked_0;_526_cell(s)_left
+16:10:26 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=- at=- why=no_container gen=-
+16:10:26 Iris _pit success op=dig y=67 half=W n=9c/left526/layer67 dirt=0 short=1018 consumer=tidy to=- at=- why=complete gen=3
+16:10:29 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:10:29 Iris _pit success op=demand y=- half=- n=need548/stock0 dirt=- short=547 consumer=tidy to=- at=- why=short gen=-
+16:10:34 Iris _build_visit success project=pit outcome=complete stop=complete cleared=1 slot=1 gen=3 ms=5147 why=layer_y67_E:_complete;_dug_1_(0_dirt),_banked_0;_525_cell(s)_left
+16:10:34 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=- at=- why=no_container gen=-
+16:10:34 Iris _pit success op=dig y=67 half=E n=1c/left525/layer66 dirt=0 short=547 consumer=tidy to=- at=- why=complete gen=3
+16:10:35 Gale _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=447 consumer=tidy to=- at=- why=short gen=-
+16:10:36 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:10:36 Iris _pit success op=demand y=- half=- n=need1019/stock0 dirt=- short=1016 consumer=tidy to=- at=- why=short gen=-
+16:10:50 Iris _build_visit success project=pit outcome=complete stop=complete cleared=11 slot=1 gen=3 ms=14349 why=layer_y66_W:_complete;_dug_11_(0_dirt),_banked_0;_514_cell(s)_left
+16:10:50 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=- at=- why=no_container gen=-
+16:10:50 Iris _pit success op=dig y=66 half=W n=11c/left514/layer66 dirt=0 short=1016 consumer=tidy to=- at=- why=complete gen=3
+16:10:52 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:10:52 Iris _pit success op=demand y=- half=- n=need548/stock0 dirt=- short=545 consumer=tidy to=- at=- why=short gen=-
+16:10:56 Iris _build_visit success project=pit outcome=complete stop=complete cleared=1 slot=1 gen=3 ms=3993 why=layer_y66_E:_complete;_dug_1_(0_dirt),_banked_0;_513_cell(s)_left
+16:10:56 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=- at=- why=no_container gen=-
+16:10:56 Iris _pit success op=dig y=66 half=E n=1c/left513/layer66 dirt=0 short=545 consumer=tidy to=- at=- why=complete gen=3
+16:10:58 Iris _build_visit no_effect project=pit outcome=complete stop=complete cleared=0 slot=1 gen=3 ms=241 why=layer_y66_E:_complete;_dug_0_(0_dirt),_banked_0;_513_cell(s)_left
+16:10:58 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=- at=- why=no_container gen=-
+16:10:58 Iris _pit no_effect op=dig y=66 half=E n=0c/left513/layer66 dirt=0 short=1025 consumer=tidy to=- at=- why=complete gen=3
+16:10:58 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:10:58 Iris _pit no_effect op=guard y=66 half=E n=1 dirt=- short=- consumer=- to=- at=-50,66,-101 why=unreached:complete:miss_counted gen=4
+16:10:58 Iris _pit success op=demand y=- half=- n=need1028/stock0 dirt=- short=1025 consumer=tidy to=- at=- why=short gen=-
+16:11:13 Iris _pit success op=demand y=- half=- n=need1028/stock0 dirt=- short=1025 consumer=tidy to=- at=- why=short gen=-
+16:11:14 Iris _build_visit no_effect project=pit outcome=complete stop=complete cleared=0 slot=1 gen=4 ms=612 why=layer_y66_E:_complete;_dug_0_(0_dirt),_banked_0;_512_cell(s)_left
+16:11:14 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=- at=- why=no_container gen=-
+16:11:14 Iris _pit no_effect op=dig y=66 half=E n=0c/left512/layer66 dirt=0 short=1025 consumer=tidy to=- at=- why=complete gen=4
+16:11:14 Iris _pit no_effect op=guard y=- half=- n=3 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:11:14 Iris _pit no_effect op=guard y=66 half=E n=1 dirt=- short=- consumer=- to=- at=-50,66,-101 why=unreached:complete:miss_counted gen=5
+16:11:29 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:11:29 Iris _pit success op=demand y=- half=- n=need1028/stock0 dirt=- short=1025 consumer=tidy to=- at=- why=short gen=-
+16:11:37 Gale _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:11:39 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:11:41 Gale _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=447 consumer=tidy to=- at=- why=short gen=-
+16:11:43 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:11:43 Iris _pit success op=demand y=- half=- n=need1267/stock0 dirt=- short=1264 consumer=tidy to=- at=- why=short gen=-
+16:12:41 Gale _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=60519 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:12:41 Gale _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:12:56 Gale _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=447 consumer=tidy to=- at=- why=short gen=-
+16:13:08 Iris _pit success op=dig y=65 half=W n=38c/left474/layer65 dirt=35 short=1264 consumer=tidy to=- at=- why=complete gen=5
+16:13:47 Iris _build_visit success project=pit outcome=complete stop=complete cleared=38 slot=1 gen=5 ms=124892 why=layer_y65_W:_complete;_dug_38_(35_dirt),_banked_0;_474_cell(s)_left
+16:13:47 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=12,71,-57:done+14,71,-57:done+24,71,-57:done at=- why=none gen=-
+16:13:50 Iris _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=420 consumer=tidy to=- at=- why=short gen=-
+16:13:56 Gale _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=60314 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:13:56 Gale _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:14:12 Gale _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=447 consumer=tidy to=- at=- why=short gen=-
+16:14:13 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:14:20 Iris _pit success op=dig y=65 half=W n=2c/left472/layer65 dirt=1 short=420 consumer=tidy to=- at=- why=complete gen=5
+16:14:37 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:14:39 Kite _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:14:40 Iris _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=418 consumer=tidy to=- at=- why=short gen=-
+16:14:43 Kite _pit success op=demand y=- half=- n=need459/stock0 dirt=- short=459 consumer=tidy to=- at=- why=short gen=-
+16:14:55 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:15:12 Kite _build_visit no_effect project=pit outcome=shared stop=shared slot=2 ms=29379 why=the_pit's_E_half_is_being_dug_by_another_bot
+16:15:12 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:15:27 Kite _build_visit no_effect project=pit outcome=shared stop=shared slot=2 ms=152 why=the_pit's_E_half_is_being_dug_by_another_bot
+16:15:27 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:15:27 Kite _pit success op=demand y=- half=- n=need540/stock0 dirt=- short=540 consumer=tidy to=- at=- why=short gen=-
+16:15:34 Iris _pit success op=dig y=65 half=E n=18c/left454/layer64 dirt=15 short=418 consumer=tidy to=- at=- why=complete gen=5
+16:15:42 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:15:42 Kite _pit success op=demand y=- half=- n=need540/stock0 dirt=- short=540 consumer=tidy to=- at=- why=short gen=-
+16:17:34 Iris _build_visit success project=pit outcome=complete stop=complete cleared=18 slot=1 gen=5 ms=173859 why=layer_y65_E:_complete;_dug_18_(15_dirt),_banked_0;_454_cell(s)_left
+16:17:34 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=12,71,-57:unreachable+14,71,-57:unreachable at=- why=none gen=-
+16:17:36 Iris _pit success op=demand y=- half=- n=need540/stock0 dirt=- short=484 consumer=tidy to=- at=- why=short gen=-
+16:17:37 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:17:42 Kite _pit success op=dig y=64 half=E n=46c/left408/layer64 dirt=44 short=540 consumer=tidy to=- at=- why=deadline gen=5
+16:18:20 Kite _build_visit success project=pit outcome=deadline stop=deadline cleared=46 slot=2 gen=5 ms=158077 why=layer_y64_E:_deadline;_dug_46_(44_dirt),_banked_23;_408_cell(s)_left
+16:18:20 Kite _pit success op=bank y=- half=- n=- dirt=23 short=- consumer=tidy to=12,71,-57:23+14,71,-57:done+24,71,-57:done at=- why=partial gen=-
+16:18:22 Kite _pit success op=demand y=- half=- n=need459/stock23 dirt=- short=429 consumer=tidy to=- at=- why=short gen=-
+16:18:47 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:19:12 Iris _pit success op=dig y=64 half=W n=48c/left346/layer64 dirt=48 short=484 consumer=tidy to=- at=- why=complete gen=5
+16:19:25 Kite _pit success op=dig y=64 half=E n=20c/left340/layer64 dirt=19 short=429 consumer=tidy to=- at=- why=complete gen=5
+16:20:31 Iris _build_visit success project=pit outcome=complete stop=complete cleared=48 slot=1 gen=5 ms=175000 why=layer_y64_W:_complete;_dug_48_(48_dirt),_banked_0;_346_cell(s)_left
+16:20:31 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=24,71,-57:unreachable+26,71,-55:unreachable at=- why=none gen=-
+16:20:33 Iris _pit success op=demand y=- half=- n=need540/stock23 dirt=- short=413 consumer=tidy to=- at=- why=short gen=-
+16:20:34 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:20:57 Iris _pit success op=dig y=64 half=W n=10c/left330/layer63 dirt=11 short=413 consumer=tidy to=- at=- why=complete gen=5
+16:21:17 Kite _build_visit success project=pit outcome=complete stop=complete cleared=20 slot=2 gen=5 ms=175000 why=layer_y64_E:_complete;_dug_20_(19_dirt),_banked_0;_340_cell(s)_left
+16:21:17 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=tidy to=12,71,-57:unreachable+26,71,-55:unreachable at=- why=none gen=-
+16:21:19 Kite _pit success op=demand y=- half=- n=need459/stock23 dirt=- short=410 consumer=tidy to=- at=- why=short gen=-
+16:21:35 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:21:46 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:21:48 Kite _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:21:49 Iris _pit success op=demand y=- half=- n=need459/stock23 dirt=- short=320 consumer=tidy to=- at=- why=short gen=-
+16:21:51 Kite _pit success op=demand y=- half=- n=need1214/stock23 dirt=- short=1164 consumer=tidy to=- at=- why=short gen=-
+16:21:52 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:22:00 Iris _build_visit success project=pit outcome=banked stop=banked ms=11833 why=banked_116_dirt_for_tidy_(banked:_12,71,-57:116)
+16:22:00 Iris _pit success op=bank y=- half=- n=- dirt=116 short=320 consumer=tidy to=12,71,-57:116 at=- why=banked gen=-
+16:22:02 Iris _pit success op=demand y=- half=- n=need459/stock139 dirt=- short=320 consumer=tidy to=- at=- why=short gen=-
+16:22:27 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:22:58 Kite _build_visit success project=pit outcome=complete stop=complete cleared=48 slot=2 gen=5 ms=67882 why=layer_y63_E:_complete;_dug_48_(46_dirt);_263_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:22:58 Kite _pit success op=dig y=63 half=E n=48c/left263/layer63 dirt=46 short=1164 consumer=tidy to=- at=- why=complete gen=5
+16:23:01 Kite _pit success op=demand y=- half=- n=need1028/stock139 dirt=- short=815 consumer=tidy to=- at=- why=short gen=-
+16:23:40 Kite _build_visit success project=pit outcome=banked stop=banked ms=39762 why=banked_64_dirt_for_tidy_(partial:_12,71,-57:64_14,71,-57:done_24,71,-57:done)
+16:23:40 Kite _pit success op=bank y=- half=- n=- dirt=64 short=815 consumer=tidy to=12,71,-57:64+14,71,-57:done+24,71,-57:done at=- why=partial gen=-
+16:23:42 Kite _pit success op=demand y=- half=- n=need459/stock203 dirt=- short=246 consumer=tidy to=- at=- why=short gen=-
+16:23:44 Iris _build_visit success project=pit outcome=complete stop=complete cleared=48 slot=1 gen=5 ms=101988 why=layer_y63_W:_complete;_dug_48_(43_dirt);_233_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:23:44 Iris _pit success op=dig y=63 half=W n=48c/left233/layer63 dirt=43 short=320 consumer=tidy to=- at=- why=complete gen=5
+16:23:47 Iris _pit success op=demand y=- half=- n=need459/stock203 dirt=- short=212 consumer=tidy to=- at=- why=short gen=-
+16:24:06 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:24:29 Iris _build_visit success project=pit outcome=banked stop=banked ms=43080 why=banked_31_dirt_for_tidy_(partial:_12,71,-57:31_14,71,-57:done_24,71,-57:done)
+16:24:29 Iris _pit success op=bank y=- half=- n=- dirt=31 short=212 consumer=tidy to=12,71,-57:31+14,71,-57:done+24,71,-57:done at=- why=partial gen=-
+16:24:32 Iris _pit success op=demand y=- half=- n=need459/stock234 dirt=- short=211 consumer=tidy to=- at=- why=short gen=-
+16:24:55 Kite _build_visit success project=pit outcome=complete stop=complete cleared=28 slot=1 gen=5 ms=72481 why=layer_y63_W:_complete;_dug_28_(27_dirt);_205_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:24:55 Kite _pit success op=dig y=63 half=W n=28c/left205/layer63 dirt=27 short=246 consumer=tidy to=- at=- why=complete gen=5
+16:24:56 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:24:57 Kite _pit success op=demand y=- half=- n=need548/stock234 dirt=- short=276 consumer=tidy to=- at=- why=short gen=-
+16:25:53 Iris _build_visit success project=pit outcome=complete stop=complete cleared=31 slot=1 gen=5 ms=81462 why=layer_y63_E:_complete;_dug_31_(30_dirt);_174_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:25:53 Iris _pit success op=dig y=63 half=E n=31c/left174/layer63 dirt=30 short=211 consumer=tidy to=- at=- why=complete gen=5
+16:25:55 Iris _pit success op=demand y=- half=- n=need540/stock234 dirt=- short=261 consumer=tidy to=- at=- why=short gen=-
+16:26:00 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:26:02 Kite _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:26:04 Iris _pit success op=demand y=- half=- n=need670/stock234 dirt=- short=391 consumer=tidy to=- at=- why=short gen=-
+16:26:06 Kite _pit success op=demand y=- half=- n=need459/stock234 dirt=- short=187 consumer=tidy to=- at=- why=short gen=-
+16:26:54 Iris _build_visit success project=pit outcome=banked stop=banked ms=50637 why=banked_31_dirt_for_tidy_(partial:_12,71,-57:31_14,71,-57:done_24,71,-57:done)
+16:26:54 Iris _pit success op=bank y=- half=- n=- dirt=31 short=391 consumer=tidy to=12,71,-57:31+14,71,-57:done+24,71,-57:done at=- why=partial gen=-
+16:26:56 Iris _pit success op=demand y=- half=- n=need459/stock265 dirt=- short=180 consumer=tidy to=- at=- why=short gen=-
+16:27:21 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:27:23 Iris _build_visit success project=pit outcome=complete stop=complete cleared=1 slot=1 gen=5 ms=27483 why=layer_y63_E:_complete;_dug_1_(2_dirt);_173_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:27:23 Iris _pit success op=dig y=63 half=E n=1c/left173/layer62 dirt=2 short=180 consumer=tidy to=- at=- why=complete gen=5
+16:27:26 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:27:26 Iris _pit success op=demand y=- half=- n=need540/stock265 dirt=- short=258 consumer=tidy to=- at=- why=short gen=-
+16:28:27 Iris _build_visit success project=pit outcome=complete stop=complete cleared=41 slot=1 gen=5 ms=61190 why=layer_y62_W:_complete;_dug_41_(39_dirt);_132_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:28:27 Iris _pit success op=dig y=62 half=W n=41c/left132/layer62 dirt=39 short=258 consumer=tidy to=- at=- why=complete gen=5
+16:28:29 Iris _pit success op=demand y=- half=- n=need548/stock265 dirt=- short=226 consumer=tidy to=- at=- why=short gen=-
+16:29:00 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=187 consumer=tidy to=12,71,-57:unreachable+14,71,-57:unreachable+24,71,-57:unreachable at=- why=none gen=-
+16:29:01 Kite _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=176002 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:29:01 Kite _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:29:13 Iris _build_visit success project=pit outcome=banked stop=banked ms=44197 why=banked_57_dirt_for_tidy_(banked:_12,71,-57:57)
+16:29:13 Iris _pit success op=bank y=- half=- n=- dirt=57 short=226 consumer=tidy to=12,71,-57:57 at=- why=banked gen=-
+16:29:15 Iris _pit success op=demand y=- half=- n=need459/stock322 dirt=- short=137 consumer=tidy to=- at=- why=short gen=-
+16:29:17 Kite _pit success op=demand y=- half=- n=need459/stock322 dirt=- short=99 consumer=tidy to=- at=- why=short gen=-
+16:29:40 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:29:49 Iris _build_visit success project=pit outcome=complete stop=complete cleared=4 slot=1 gen=5 ms=33652 why=layer_y62_W:_complete;_dug_4_(4_dirt);_128_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:29:49 Iris _pit success op=dig y=62 half=W n=4c/left128/layer62 dirt=4 short=137 consumer=tidy to=- at=- why=complete gen=5
+16:29:51 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:29:51 Iris _pit success op=demand y=- half=- n=need459/stock322 dirt=- short=132 consumer=tidy to=- at=- why=short gen=-
+16:31:04 Iris _build_visit success project=pit outcome=complete stop=complete cleared=48 slot=1 gen=5 ms=73596 why=layer_y62_E:_complete;_dug_48_(45_dirt);_80_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:31:04 Iris _pit success op=dig y=62 half=E n=48c/left80/layer62 dirt=45 short=132 consumer=tidy to=- at=- why=complete gen=5
+16:31:07 Iris _pit success op=demand y=- half=- n=need548/stock322 dirt=- short=175 consumer=tidy to=- at=- why=short gen=-
+16:32:11 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=99 consumer=tidy to=26,71,-55:unreachable+26,71,-53:unreachable+-13,71,-8:unreachable at=- why=none gen=-
+16:32:12 Kite _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=176001 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:32:12 Kite _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:32:28 Kite _pit success op=demand y=- half=- n=need459/stock322 dirt=- short=99 consumer=tidy to=- at=- why=short gen=-
+16:32:39 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=99 consumer=tidy to=-14,71,-7:done+-13,71,-6:done+-9,71,-2:done at=- why=none gen=-
+16:33:08 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:33:33 Kite _build_visit success project=pit outcome=complete stop=complete cleared=15 slot=1 gen=5 ms=65477 why=layer_y62_E:_complete;_dug_15_(13_dirt);_65_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:33:33 Kite _pit success op=dig y=62 half=E n=15c/left65/layer61 dirt=13 short=99 consumer=tidy to=- at=- why=complete gen=5
+16:33:35 Kite _pit success op=demand y=- half=- n=need540/stock322 dirt=- short=166 consumer=tidy to=- at=- why=short gen=-
+16:34:01 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=175 consumer=tidy to=12,71,-57:unreachable+26,71,-55:unreachable+26,71,-53:unreachable at=- why=none gen=-
+16:34:02 Iris _build_visit no_effect project=pit outcome=site_unread stop=site_unread ms=176002 why=the_walk_to_the_pit_did_not_arrive;_the_next_visit_walks_again
+16:34:02 Iris _pit no_effect op=walk y=- half=- n=- dirt=- short=- consumer=- to=- at=- why=not_arrived gen=-
+16:34:18 Iris _pit success op=demand y=- half=- n=need459/stock322 dirt=- short=86 consumer=tidy to=- at=- why=short gen=-
+16:34:34 Iris _build_visit success project=pit outcome=banked stop=banked ms=16957 why=banked_51_dirt_for_tidy_(banked:_-13,71,-8:51)
+16:34:34 Iris _pit success op=bank y=- half=- n=- dirt=51 short=86 consumer=tidy to=-13,71,-8:51 at=- why=banked gen=-
+16:34:36 Iris _pit success op=demand y=- half=- n=need459/stock373 dirt=- short=86 consumer=tidy to=- at=- why=short gen=-
+16:34:40 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=166 consumer=tidy to=-11,71,-2:done+-13,71,0:done+-13,70,6:done at=- why=none gen=-
+16:35:01 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:35:09 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:35:33 Iris _build_visit success project=pit outcome=complete stop=complete cleared=23 slot=1 gen=5 ms=56664 why=layer_y61_W:_complete;_dug_23_(22_dirt);_27_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:35:33 Iris _pit success op=dig y=61 half=W n=23c/left27/layer61 dirt=22 short=86 consumer=tidy to=- at=- why=complete gen=5
+16:35:35 Iris _build_visit no_effect project=pit outcome=shared stop=shared slot=1 ms=511 why=the_pit's_E_half_is_being_dug_by_another_bot
+16:35:35 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:35:35 Iris _pit success op=demand y=- half=- n=need459/stock373 dirt=- short=63 consumer=tidy to=- at=- why=short gen=-
+16:35:36 Kite _build_visit success project=pit outcome=deadline stop=deadline cleared=18 slot=2 gen=5 ms=121295 why=layer_y61_E:_deadline;_dug_18_(19_dirt);_24_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:35:36 Kite _pit success op=dig y=61 half=E n=18c/left24/layer61 dirt=19 short=166 consumer=tidy to=- at=- why=deadline gen=5
+16:35:38 Kite _pit success op=demand y=- half=- n=need540/stock373 dirt=- short=95 consumer=tidy to=- at=- why=short gen=-
+16:35:51 Iris _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:35:51 Iris _pit success op=demand y=- half=- n=need459/stock373 dirt=- short=63 consumer=tidy to=- at=- why=short gen=-
+16:36:12 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=95 consumer=tidy to=-8,71,6:done+-5,71,8:done at=- why=none gen=-
+16:36:26 Iris _build_visit success project=pit outcome=complete stop=complete cleared=20 slot=1 gen=5 ms=35882 why=layer_y61_E:_complete;_dug_20_(18_dirt);_4_cell(s)_left;_the_bag's_dirt_is_banked_by_the_next_visit
+16:36:26 Iris _pit success op=dig y=61 half=E n=20c/left4/layer- dirt=18 short=63 consumer=tidy to=- at=- why=complete gen=5
+16:36:28 Iris _pit success op=demand y=- half=- n=need548/stock373 dirt=- short=133 consumer=tidy to=- at=- why=short gen=-
+16:36:42 Kite _build_visit success project=pit outcome=complete stop=complete slot=1 ms=64297 why=the_pit_is_dug_to_its_design_(4_cell(s)_set_aside_by_the_guard)
+16:36:42 Kite _pit no_effect op=guard y=- half=- n=4 dirt=- short=- consumer=- to=-54,69,-97 at=-54,69,-97 why=unreached:set_aside_as_rim gen=-
+16:36:42 Kite _pit success op=done y=- half=- n=left4/set_aside4 dirt=- short=- consumer=- to=- at=- why=accepted gen=6
+16:36:44 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:36:55 Iris _build_visit success project=pit outcome=banked stop=banked ms=26904 why=banked_29_dirt_for_tidy_(partial:_-13,71,-8:29)
+16:36:55 Iris _pit success op=bank y=- half=- n=- dirt=29 short=133 consumer=tidy to=-13,71,-8:29 at=- why=partial gen=-
+16:36:57 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:36:59 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:12 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:14 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:27 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:29 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:42 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:44 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:57 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:37:59 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:12 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:14 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:27 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:29 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:42 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:44 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:57 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:38:59 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:12 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:15 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:27 Iris _build_visit no_effect project=pit outcome=complete ms=12 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:30 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:42 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:45 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:39:57 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:00 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:12 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:15 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:27 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:30 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:42 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:45 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:40:57 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:00 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:12 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:15 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:27 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:30 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:42 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:45 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:41:57 Iris _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:00 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:12 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:15 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:27 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:30 Kite _build_visit no_effect project=pit outcome=complete ms=12 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:42 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:45 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:42:57 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:00 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:12 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:15 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:28 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:30 Kite _build_visit no_effect project=pit outcome=complete ms=12 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:43 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:45 Kite _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:43:58 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:00 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:13 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:15 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:28 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:30 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:43 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:45 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:44:58 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:45:00 Kite _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:45:13 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:45:15 Kite _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:45:31 Iris _build_visit no_effect project=pit outcome=complete ms=15126 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:45:31 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=-13,71,-8:done+12,71,-57:done+14,71,-57:done at=- why=none:after_done gen=-
+16:45:50 Iris _build_visit no_effect project=pit outcome=complete ms=3565 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:45:50 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=24,71,-57:done+26,71,-55:done+26,71,-53:done at=- why=none:after_done gen=-
+16:46:05 Iris _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:46:05 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:46:20 Iris _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:46:20 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:46:27 Kite _build_visit success project=pit outcome=banked stop=banked ms=69252 why=the_pit_is_dug;_banked_64_dirt_it_gave
+16:46:27 Kite _pit success op=bank y=- half=- n=- dirt=64 short=- consumer=- to=12,71,-57:64+-13,71,-8:done+14,71,-57:done at=- why=partial:after_done gen=-
+16:46:33 Kite _build_visit no_effect project=pit outcome=complete ms=3803 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:46:33 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=12,71,-57:done+24,71,-57:done+26,71,-53:done at=- why=none:after_done gen=-
+16:46:35 Iris _build_visit no_effect project=pit outcome=complete ms=11 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:46:35 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:46:48 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:46:48 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:46:50 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:46:50 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:03 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:03 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:05 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:05 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:18 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:18 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:20 Iris _build_visit no_effect project=pit outcome=complete ms=11 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:20 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:33 Kite _build_visit no_effect project=pit outcome=complete ms=11 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:33 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:35 Iris _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:35 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:48 Kite _build_visit no_effect project=pit outcome=complete ms=12 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:48 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:47:50 Iris _build_visit no_effect project=pit outcome=complete ms=15 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:47:50 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:03 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:03 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:05 Iris _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:05 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:18 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:18 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:20 Iris _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:20 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:33 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:33 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:35 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:35 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:48 Kite _build_visit no_effect project=pit outcome=complete ms=12 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:48 Kite _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:50 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:48:50 Iris _pit no_effect op=bank y=- half=- n=- dirt=0 short=- consumer=- to=- at=- why=no_container:after_done gen=-
+16:48:57 Iris _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:48:59 Kite _pit success op=mode on=1 site=-51,-99,15,21 floor=60 rim=3 builders=2
+16:49:01 Iris _build_visit no_effect project=pit outcome=complete ms=512 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:03 Kite _build_visit no_effect project=pit outcome=complete ms=520 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:16 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:18 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:31 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:33 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:46 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:49:48 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:01 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:03 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:16 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:18 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:31 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:33 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:46 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:50:48 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:01 Iris _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:03 Kite _build_visit no_effect project=pit outcome=complete ms=10 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:16 Iris _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:18 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:31 Iris _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:33 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:46 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:51:48 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:01 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:03 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:16 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:18 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:31 Iris _build_visit no_effect project=pit outcome=complete ms=5 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:33 Kite _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:46 Iris _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:52:48 Kite _build_visit no_effect project=pit outcome=complete ms=8 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:01 Iris _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:03 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:16 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:18 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:31 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:33 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:46 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:53:48 Kite _build_visit no_effect project=pit outcome=complete ms=9 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:01 Iris _build_visit no_effect project=pit outcome=complete ms=581 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:03 Kite _build_visit no_effect project=pit outcome=complete ms=580 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:16 Iris _build_visit no_effect project=pit outcome=complete ms=7 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:18 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:31 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:33 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:46 Iris _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
+16:54:48 Kite _build_visit no_effect project=pit outcome=complete ms=6 why=the_pit_is_dug;_its_pond_finish_is_a_later_piece
