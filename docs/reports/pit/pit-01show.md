@@ -128,4 +128,8 @@ ci3, worktree at 8e5c7072: 552/555. The three that fail are known:
 - `well` (fails alone on the base too, on ci4);
 - `reccache` (passes alone on this branch on ci4; it fails under load).
 
-FINALSUITE
+The final tree (e92e4132a, ci3) gave 551/555. The four that fail are known or fail only under load:
+- `nothing-important-is-orphaned` and `well` fail on the base as well;
+- `craftsync` (7/7 alone on ci4) and `lavastep` (1/1 alone on ci4) pass when run alone; each also passed in the first full run.
+
+`npm run check`: eslint is clean. The movement-writers lint fails on the base with the same five files; none of them is this change's.
