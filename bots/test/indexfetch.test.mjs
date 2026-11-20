@@ -310,6 +310,15 @@ await t('MUTANT KILLED: the allowance filter passes every target', async () => {
     assert.deepEqual(m.fetchAllowed([{ k: 'a', names: { torch: 11 } }], () => 0), [], 'killed')
   }).then(() => assert.fail('mutant survived'), e => assert.match(String(e?.message), /killed/))
 })
+await t('THE LEG ROW (control 11-19): each walk says whether the path or the clock ended it, with the ms and the distance covered', () => {
+  assert.equal(F.walkOutcome({ inReach: true }), 'reached')
+  assert.equal(F.walkOutcome({ err: Object.assign(new Error('pathfinding exceeded 40000ms'), { budgetExceeded: true }) }), 'timeout')
+  assert.equal(F.walkOutcome({ err: new Error('No path to the goal!') }), 'no_path')
+  assert.equal(F.walkOutcome({ err: new Error('boom') }), 'error')
+  assert.equal(F.walkOutcome({}), 'stopped', 'an empty path resolves where it stands')
+  assert.equal(F.indexLegDetail({ plot: 'stepwell', k: FAR, outcome: 'timeout', ms: 40012, cap: 40000, d0: 53.04, d1: 53.04, moved: 0, why: 'path_budget' }),
+    `op=leg plot=stepwell k=${FAR} walk=timeout ms=40012 cap_ms=40000 d0=53 d1=53 gain=0 moved=0 why=path_budget`)
+})
 await t('MUTANT KILLED: a visited chest not excluded (the stale chest is reopened while its entry could not be corrected)', async () => {
   await withMutant(F_PATH, '    for (const h of halves) visited.add(h)   // never again', '    void halves   // never again', async m => {
     const w = town({ [MID]: { index: { torch: 116 }, real: {} } }, { ix: false })
