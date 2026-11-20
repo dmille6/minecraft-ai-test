@@ -422,7 +422,7 @@ export class AtlasRecorder {
 
 /**
  * Install the recorder on a bot (features.mjs, once per spawn) -> the recorder | null (off). Sets `bot.atlas` = { view(), line(opts),
- * aim(a), recorder }. A second spawn replaces the first install's timer. Never throws.
+ * aim(a), gone(find), recorder }. A second spawn replaces the first install's timer. Never throws.
  */
 let installed = null
 export function installAtlas (bot, { on, dir, by, home = null, Vec3, emit = null, zonesFn = null } = {}) {
@@ -439,6 +439,14 @@ export function installAtlas (bot, { on, dir, by, home = null, Vec3, emit = null
       return p ? mapLine(readView(dir, now), { pos: p, wants, now, inZone, home }) : ''
     },
     aim: a => rec.aim(a),
+    // logwalk-01show: a find a bot walked to and found no log at is GONE for every reader at once (flushed, the fold re-read)
+    gone: (f, now = Date.now()) => {
+      try {
+        if (!f || !FIND_KINDS[f.kind] || ![f.x, f.y, f.z].every(Number.isFinite)) return false
+        noteGone(rec.doc, f, now); rec.dirty = true; rec.flush(now, true); dropViewCache(); rec.stats.gone++
+        return true
+      } catch { return false }
+    },
   }
   const timer = setInterval(() => rec.tick(Date.now()), TICK_MS); timer.unref?.()
   installed = { timer, rec }
