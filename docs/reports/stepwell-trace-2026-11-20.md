@@ -19,8 +19,11 @@ held for 6 h.
 
 - The region is older than the last visits, but nothing has been dug or placed in the step well since 11-16 16:00Z.
   Every visit after that was `0d/0p`, so the saved world is the world those visits saw.
-- The 11-20 06:00Z visit is not in my copy. It is taken from the brief, and its text matches the five before it.
-- ES carries no showcase rows: `prefix bot.name: showcase` returned 0 hits. All reads below come from the file copies.
+- ES (`mcai-skill-showcase*`, read-only key) has the visits after the copy, and all three repeat the same sequence:
+  `fell_done`, `refused at=-58,70,-74 why=walk_failed` x2, then `visit y=70 why=passed n=0d/0p/0o/1s`. They are
+  11-19 23:58Z (Nova), 11-20 06:00Z (Delta) and 11-20 12:10Z (Bravo).
+  - My first ES read was wrong. I queried only `mcai-skill-agents*`, the fleet index, which holds no showcase rows, and
+    I had no positive control. I corrected it before relying on ES.
 - Two tools are new on this branch:
   - `bots/scripts/stepwell-trace.mjs` (the first undone unit and its stands)
   - `bots/scripts/stepwell-visit-replay.mjs` (the REAL `runStepwellVisit` loop over the region; each walk is driven by

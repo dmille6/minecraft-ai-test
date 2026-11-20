@@ -593,8 +593,10 @@ export function cellDone (read, plan, c) {
 }
 /** IS THE UNIT DONE? -> true | false | null. Pure. The LIGHTS never hold a unit (a town with no torch still gets its tank: a light is
  *  laid when the bag has one -- stepwellNext `lights` -- and a later visit lays the ones passed). */
-export function unitDone (read, plan, u, { lights = false } = {}) {
+export function unitDone (read, plan, u, { lights = false, aside = null } = {}) {
   for (const c of [...u.cut, ...u.faces, ...u.under, ...u.tops, ...u.posts, ...(lights ? u.lights : [])]) {
+    // stepwell-03show: a cut SET ASIDE this visit (asideRefusal: proven unreachable, solid, never falling, dry) holds no unit
+    if (aside && aside.has(kOf(c))) continue
     const d = cellDone(read, plan, c)
     if (d == null) return null
     if (!d) return false
@@ -602,13 +604,91 @@ export function unitDone (read, plan, u, { lights = false } = {}) {
   return true
 }
 /** THE FIRST UNIT NOT DONE, top down -> { i, unit } | { i, unknown: true } | null (the tank stands). Repairs are the same scan. Pure. */
-export function firstUndoneUnit (read, plan, { lights = false } = {}) {
+export function firstUndoneUnit (read, plan, { lights = false, aside = null } = {}) {
   for (let i = 0; i < plan.units.length; i++) {
-    const d = unitDone(read, plan, plan.units[i], { lights })
+    const d = unitDone(read, plan, plan.units[i], { lights, aside })
     if (d == null) return { i, unit: plan.units[i], unknown: true }
     if (!d) return { i, unit: plan.units[i] }
   }
   return null
+}
+
+// ---- stepwell-03show: A CUT NO WALK REACHES IS SET ASIDE, AND THE LAYER BELOW GOES ON ----------------------------------------------
+// THE CASE (LIVE showcase 11-16 23:16Z to 11-20, docs/reports/stepwell-trace-2026-11-20.md): an explore's pathfinder bridge left four
+// dirt blocks floating 8 above the dug pit (the takeback expired on them). One, -58,70,-74, is a listed cut of the y=70 layer; the only
+// stands in its reach are the other three floating blocks, no walk gets there and no real floor is within a rise of 5. The layers go
+// strictly top down, so every visit passed that one cell, ended `passed` with nothing done and held the project 6 h -- while every
+// layer below had stands. THE RULE: a CUT (a dig, never a placement) this visit proved it cannot reach (no stand, or every stand's
+// walk failed) is SET ASIDE when what it holds can neither fall nor flow into the cuts below (asideRefusal): the unit counts it done
+// for the ORDER only -- it stays on the record, owed (tiersDone and the completion still count it), and every later visit offers it
+// first again (a bot that set it aside within ASIDE_MS reuses its own proof instead of walking at it again). SWASIDE=off: as before.
+export const asideOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SWASIDE ?? '').trim().toLowerCase())
+/** How long a bot reuses its own set-aside proof before it walks at the cell again. */
+export const ASIDE_MS = 60 * 60_000
+/** The proofs a visit gives that no walk reaches a cell (stepwellvisit.mjs fail's whys). */
+export const ASIDE_WHYS = Object.freeze(['no_stand', 'walk_failed'])
+/**
+ * MAY THIS CELL BE SET ASIDE? -> null (yes) | why not. Pure over read. Only a CUT of the plan (a listed cut, or a felling stand the
+ * tank digs as foreign), read, not already open, holding a block with a collision box that is no liquid, no lava and no falling block,
+ * with no liquid, lava or unread cell among its six neighbours: a block left there cannot drop or flow into the layers cut under it.
+ */
+export function asideRefusal (read, plan, c) {
+  const k = kOf(c)
+  const e = plan?.byKey?.get(k)
+  if (!plan?.cutKeys?.has(k) || (e && e.role !== 'stand')) return 'not_cut'
+  const b = read(...c)
+  if (!b) return 'unread'
+  if (cellGood('cut', b)) return 'open'
+  if (isLava(b) || isWet(b)) return 'liquid'
+  if (isFalling(b)) return 'falling'
+  if (b.boundingBox !== 'block') return 'no_body'
+  for (const [dx, dy, dz] of N6) {
+    const nb = read(c[0] + dx, c[1] + dy, c[2] + dz)
+    if (!nb) return 'unread'
+    if (isLava(nb) || isWet(nb)) return 'liquid'
+  }
+  return null
+}
+/**
+ * THE UNIT'S CELLS STILL HOLDING IT -> [[x, y, z]] (not done, not set aside; lights only when `lights`). Pure. A cell read as unknown
+ * is returned too (it holds the unit; it is never set aside).
+ */
+export function unitHolding (read, plan, u, { lights = false, aside = null } = {}) {
+  const out = []
+  for (const c of [...u.cut, ...u.faces, ...u.under, ...u.tops, ...u.posts, ...(lights ? u.lights : [])]) {
+    if (aside && aside.has(kOf(c))) continue
+    if (cellDone(read, plan, c) !== true) out.push(c)
+  }
+  return out
+}
+/**
+ * WHAT TO SET ASIDE WHEN A UNIT HAS NOTHING LEFT THIS VISIT CAN DO -> [{ at, why }] | null (the unit holds: the visit ends `passed`
+ * as before). Pure. `unreach`: Map key -> why of the cells this visit proved unreachable (ASIDE_WHYS). Every cell still holding the
+ * unit must be one of them and pass asideRefusal; one that does not (a face, a post, a falling block, a wet one, one refused for any
+ * other reason) holds the unit, and nothing is set aside.
+ */
+export function asideFor (read, plan, u, unreach, { lights = false, aside = null } = {}) {
+  const hold = unitHolding(read, plan, u, { lights, aside })
+  if (!hold.length) return null
+  const out = []
+  for (const c of hold) {
+    const why = unreach?.get(kOf(c))
+    if (!ASIDE_WHYS.includes(why) || asideRefusal(read, plan, c) != null) return null
+    out.push({ at: c, why })
+  }
+  return out
+}
+
+/**
+ * IS A STEPWELL STUCK STAMP STALE? -> bool. Pure. The tank's own back-off (a visit that did nothing and stopped: skills.mjs
+ * buildStepwellRun) holds the project 6 h. Under stepwell-03show it holds nothing once (1) it was written by ANOTHER code version, or
+ * by none (a stamp from before this rule): the release that changed the visit gets its visit -- the 11-12 lesson, a hold must not
+ * outlive the release that fixes its cause -- or (2) every cell it names reads done (`cellDone(key) === true`). A stamp naming no
+ * cell and written by this version holds, as before.
+ */
+export function stampStale (stamp, keys = [], { code = null, cellDone = () => false } = {}) {
+  if (code != null && String(stamp?.code ?? '') !== String(code)) return true
+  return Array.isArray(keys) && keys.length > 0 && keys.every(k => { try { return cellDone(k) === true } catch { return false } })
 }
 
 /** The bot's body cells (feet, head) and its floor. Pure. */

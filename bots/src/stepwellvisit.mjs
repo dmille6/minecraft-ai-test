@@ -11,6 +11,7 @@
 import { Vec3 } from 'vec3'
 import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK, unitDone } from './stepwell.mjs'
 import { shareView } from './stepwell.mjs'   // stepwell-05: the crew's sector of a layer
+import { asideOn, asideFor, asideRefusal, ASIDE_MS } from './stepwell.mjs'   // stepwell-03show: an unreachable cut set aside
 import { isFull, isWet } from './shaftgeom.mjs'
 import { stairRead, stairItems } from './shaftvisit.mjs'
 import { withDigScope } from './digtown.mjs'
@@ -38,30 +39,54 @@ const kOf = a => a.join(',')
 const same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
 
 /**
- * -> { stop, why, y, placed, dug, ops, skipped, tiers }. `p` = { rec, plan, onStop(y, why) -> Promise, onTiers?(tiers) -> Promise,
- * exit, share? }. stepwell-05 `share` = { mine(cell) -> bool, claimAll() -> bool (take every other slot's lease; false when another
+ * -> { stop, why, y, placed, dug, ops, skipped, tiers, aside, passed }. `p` = { rec, plan, onStop(y, why) -> Promise, onTiers?(tiers) -> Promise,
+ * exit, share?, aside? }. stepwell-03show `aside`: Map key -> ms, this bot's own set-aside proofs (read at the start: one younger than
+ * ASIDE_MS whose cell still passes asideRefusal is set aside without a walk; written when the visit sets one aside); `swAside` (the
+ * option, default the SWASIDE switch) off: nothing is set aside. `out.aside`: the cells set aside; `out.passed`: the keys passed. stepwell-05 `share` = { mine(cell) -> bool, claimAll() -> bool (take every other slot's lease; false when another
  * builder holds one), holdsAll() -> bool } (absent: one builder, as before). `e` = { read (a fresh reader per get), feet() -> [x,y,z], walkTo(cell) -> Promise<bool>, dig(cell) -> Promise<'confirmed'|...>,
  * place(cell, role) -> Promise<'confirmed'|'no_material'|'no_support'|'no_reach'|'refused'>, toolOk() -> bool, fence() -> bool,
  * occupied?(cell) -> bool (a player's body stands on the cell: never dug), log(op, d), now(), aborted() }.
  */
-export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW.unitOps, lights = () => true } = {}) {
+export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW.unitOps, lights = () => true, swAside = asideOn() } = {}) {
   const plan = p.plan
-  const out = { stop: null, why: null, y: null, placed: 0, dug: 0, ops: 0, skipped: 0, tiers: [] }
+  const out = { stop: null, why: null, y: null, placed: 0, dug: 0, ops: 0, skipped: 0, tiers: [], aside: 0, passed: [] }
   const skip = new Set()
   const fails = new Map()
   const banned = new Set()
+  // stepwell-03show: the cells this visit proved no walk reaches (key -> why), and the ones it set aside (asideFor)
+  const unreach = new Map()
+  const aside = new Set()
+  const setAside = (c, why, y) => {
+    const k = kOf(c)
+    if (aside.has(k)) return
+    aside.add(k); skip.add(k); out.aside++
+    try { if (p.aside instanceof Map && why !== 'remembered') p.aside.set(k, e.now()) } catch { /* the proof is this visit's */ }
+    e.log('set_aside', { at: c, why, y })
+  }
+  if (swAside && p.aside instanceof Map) {
+    // a proof this bot made within ASIDE_MS, its cell still a cut that can be left (read now): set aside without walking at it again
+    const r0 = e.read
+    for (const [k, t] of [...p.aside]) {
+      if (!(Number.isFinite(t) && e.now() - t < ASIDE_MS)) { p.aside.delete(k); continue }
+      const c = k.split(',').map(Number)
+      if (asideRefusal(r0, plan, c) != null) { p.aside.delete(k); continue }
+      setAside(c, 'remembered', c[1])
+    }
+  }
   let litOff = false
   let shareOff = false   // stepwell-05: no other builder holds a slot -- this visit works whole layers
   // a claim that does not hold (holdsAll false right after claimAll) can never spin the loop: bounded per visit
   let claims = 0
   const claim = () => ++claims <= CLAIMS_MAX && p.share.claimAll()
   const end = (stop, why = null, y = null) => { out.stop = stop; out.why = why; out.y = y; return out }
-  const fail = (c, why) => {
+  const fail = (c, why, own = false) => {
     const k = kOf(c)
     const n = (fails.get(k) ?? 0) + 1
     fails.set(k, n)
     e.log('refused', { at: c, why })
-    if (n >= CELL_TRIES) { skip.add(k); out.skipped++ }
+    if (!own && (why === 'no_stand' || why === 'walk_failed')) unreach.set(k, why)
+    else unreach.delete(k)   // refused for another reason: the cell is reached; it is never set aside this visit
+    if (n >= CELL_TRIES) { skip.add(k); out.skipped++; if (!out.passed.includes(k)) out.passed.push(k) }
   }
   const body = async () => {
     for (;;) {
@@ -71,7 +96,7 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       if (out.ops >= opsMax) return end('ops')
       const read = e.read
       const lit = !!lights() && !litOff
-      const w = firstUndoneUnit(read, plan, { lights: lit })
+      const w = firstUndoneUnit(read, plan, { lights: lit, aside })
       if (!w) return end('complete')
       if (w.unknown) return end('unknown', 'an unloaded or unread cell', w.unit.y)
       // stepwell-05: THE CREW -- a tank layer is this builder's sector only (the others' sectors are theirs). Work outside it -- the
@@ -95,14 +120,19 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       if (op.op === 'done') {
         // only torches left that would not take (Paper 11-05: a torch refused twice held the descent's first station for 40 visits):
         // the torches never hold the work -- this visit goes on without them; a later visit or the repair lays them
-        if (lit && unitDone(read, plan, unit, { lights: false }) === true) { litOff = true; e.log('lights_passed', { at: unit.cut[0] ?? unit.tops[0] ?? null, y: w.unit.y }); continue }
+        if (lit && unitDone(read, plan, unit, { lights: false, aside }) === true) { litOff = true; e.log('lights_passed', { at: unit.cut[0] ?? unit.tops[0] ?? null, y: w.unit.y }); continue }
         // stepwell-05: this builder's part of the layer is DONE (not passed): the rest is another builder's while one holds a slot,
         // else this visit holds every slot and takes the whole layer (never the next one before this one stands: the order is the safety)
-        if (sharing && unitDone(read, plan, unit, { lights: lit }) === true) {
+        if (sharing && unitDone(read, plan, unit, { lights: lit, aside }) === true) {
           if (!claim()) return end('shared', 'this builder\'s sector of the layer is done; another builder works the rest', w.unit.y)
           shareOff = true
           continue
         }
+        // stepwell-03show: every cell still holding the unit is a cut this visit proved no walk reaches, and one that can neither fall
+        // nor flow into the layers below: set aside (a row each), and the next unit is worked -- else the visit ends passed, as before
+        // (the lights never hold the work -- litOff above: they are not asked here; the next pass lays or passes them)
+        const sa = swAside ? asideFor(read, plan, unit, unreach, { lights: false, aside }) : null
+        if (sa) { for (const q of sa) setAside(q.at, q.why, w.unit.y); continue }
         return end('passed', `${out.skipped} cell(s) passed this visit`, w.unit.y)
       }
       if (op.op === 'wait') return end('unknown', `unread ${kOf(op.at)}`, w.unit.y)
@@ -118,9 +148,10 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       // a cell under the bot's own feet (its floor) or in its body: another stand first (never the one it stands on)
       if (op.own || !inReach(e.feet(), op.at, SW.standReach)) {
         const st = standsFor(read, plan, op.at, { feet: e.feet(), banned: op.own ? new Set([...banned, kOf(e.feet())]) : banned })
-        if (!st.length) { fail(op.at, 'no_stand'); fail(op.at, 'no_stand'); continue }
+        // the bot's OWN floor or body with no other stand is reached (it stands there): never a proof for the set-aside
+        if (!st.length) { fail(op.at, 'no_stand', op.own); fail(op.at, 'no_stand', op.own); continue }
         const ok = await e.walkTo(st[0])
-        if (!ok || !same(e.feet(), st[0])) { banned.add(kOf(st[0])); fail(op.at, 'walk_failed'); continue }
+        if (!ok || !same(e.feet(), st[0])) { banned.add(kOf(st[0])); fail(op.at, 'walk_failed', op.own); continue }
         // the walk took time and the world moved: decide again from the new stand
         continue
       }
