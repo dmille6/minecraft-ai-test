@@ -139,20 +139,21 @@ function pitWorld () {
   return { srv, list: { v: 1, pool: 'showcase', surveyedAt: 1, jobs }, record: k => k === `24,${G},0` }
 }
 /** ONE LAP, composed exactly as skills.mjs floatcleanLap composes it (the options are checked against the source below). */
-async function lap (RM, F, srv, list, mem, { cells = () => false, walked = [] } = {}) {
+async function lap (RM, F, srv, list, mem, { cells = () => false, walked = [], feet = [0, G + 1, 0], walkFails = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-'))
   const key = BF.PJ.projKey(BF.HOME, F.FLOATCLEAN_PLOT)
   const slot = BF.PJ.takeSlot(dir, key, 'A', F.FC.builders)
   const pj = F.floatPassJobs(list, srv.read, { aside: k => F.floatAsideNow(mem, k, 1000), cells, max: F.FC.passMax, part: slot.slot - 1, parts: F.FC.builders })
   const take = new Map(pj.take.map(q => [F.k3(q.at), q]))
-  const e = BF.bot(srv, 'A', { feet: [0, G + 1, 0] })
+  const e = BF.bot(srv, 'A', { feet })
   const walk0 = e.walkTo
-  e.walkTo = async s => { walked.push(s.slice()); return walk0(s) }
+  e.walkTo = async s => { walked.push(s.slice()); return walkFails ? false : walk0(s) }
+  const under = () => { const f = e.feet(); return [`${f[0]},${f[1] - 1},${f[2]}`] }   // skills.mjs bodyFloorKeys (a centred body)
   const record = { v: 1, plot: F.FLOATCLEAN_PLOT, home: BF.HOME, cells: [], clear: pj.take, segments: [], zones: [], structure_complete: false }
   const r = await RM.runVisit({ dir, key, me: 'A', home: BF.HOME, stood: [], record, recordGen: 0, palette: {}, res: null, resFailed: false,
     slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 50, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
     clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease: 'seg-clear-A', has: () => true },
-    clearOk: (q, rd) => F.floatClearOk(q, rd ?? srv.read, { listed: k => take.has(k), cells }) }, e, { maxSteps: 200 })
+    clearOk: (q, rd) => F.floatClearOk(q, rd ?? srv.read, { listed: k => take.has(k), cells, under: under(), floating: k => pj.floor.has(k) }) }, e, { maxSteps: 200 })
   const after = F.floatAsideAfter(mem, { offered: [...take.keys()], standing: k => F.sameBlock(srv.read(...k.split(',').map(Number))?.name ?? '', take.get(k).name), complete: r.stop === 'complete', now: 1000 })
   return { r, pj, after, logs: e.logs }
 }
@@ -202,7 +203,7 @@ await t('MUTANT (buildrun clearKeepOrder): lowest first leaves the stack\'s dirt
   })
 })
 await t('MUTANT (the check at the dig): without floatClearOk the held cells are dug', async () => {
-  await killedBy(FC_PATH, FC, [["  if (c?.kind !== 'float') return true\n  return floatVerdict(", "  if (c?.kind !== 'float' || true) return true\n  return floatVerdict("]], async F => {
+  await killedBy(FC_PATH, FC, [["  if (c?.kind !== 'float') return true\n  // THE BODY", "  if (c?.kind !== 'float' || true) return true\n  // THE BODY"]], async F => {
     const { srv, record } = pitWorld()
     // the dig-time check alone: a listed cell that came to hold a torch AFTER the list was read is still never dug
     const list = { v: 1, pool: 'showcase', surveyedAt: 1, jobs: [{ at: [13, G, 0], name: 'dirt', beam: 0 }] }
@@ -212,6 +213,19 @@ await t('MUTANT (the check at the dig): without floatClearOk the held cells are 
     await lap(BF.R, F, srv, list, { tries: {}, until: {} }, { cells: record })
     assert.strictEqual(e0(13, G, 0)?.name, 'dirt', 'a torch hung on it before the dig: not dug')
   })
+})
+await t('CODEX r1 BLOCKER 1: a bot left standing on the beam (its walk failed) digs nothing -- never the block under it', async () => {
+  const scenario = async F => {
+    const { srv, list, record } = pitWorld()
+    await lap(BF.R, F, srv, list, { tries: {}, until: {} }, { cells: record, feet: [10, G + 1, 0], walkFails: true })
+    assert.strictEqual(standing(srv, 10), 'dirt', 'the block under the bot stands')
+    assert.strictEqual(standing(srv, 11, G + 1), 'cobblestone', 'nothing dug while it stands on the beam')
+  }
+  await killedBy(FC_PATH, FC, [['  if (under.includes(k3(c.at)) || under.some(k => floating(k))) return false\n', '\n']], scenario)
+  // the walk off works: from the rim, the same lap digs
+  const { srv, list, record } = pitWorld()
+  await lap(BF.R, FC, srv, list, { tries: {}, until: {} }, { cells: record, feet: [9, G + 1, 0] })
+  assert.strictEqual(standing(srv, 10), 'air')
 })
 await t('MUTANT (floatAsideAfter): a lap that ran out of time says nothing about a cell -- no try counted', async () => {
   await killedBy(FC_PATH, FC, [['    if (!complete) continue\n', '\n']], F => {
@@ -253,7 +267,11 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.ok(body.includes('clearKeepOrder: true, clearNoFloor: pj.floor,'), 'top down, never a stand on a listed cell')
   assert.ok(/clearOk: \(q, rd\) => floatClearOk\(q, rd \?\? rd0, \{ listed: k => take\.has\(k\)/.test(body), 'the dig-time check')
   assert.ok(body.includes("row('aside', 'no_effect', { at: a.k, why: 'unreached'"), 'a set-aside cell gets its row')
-  assert.ok(body.includes('const guard = bw3GuardStrict()') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
+  assert.ok(body.includes('const guard = floatGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
+  assert.ok(/clearOk: \(q, rd\) => floatClearOk\(q, rd \?\? rd0, \{ listed: k => take\.has\(k\), cells: cellsNow, zone, under: bodyFloorKeys\(bot\), floating: k => pj\.floor\.has\(k\) \}\)/.test(body), 'the guard read again at the dig, the body')
+  const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function bodyFloorKeys'))
+  assert.ok(g.includes('for (const v of Object.values(h.head?.rec ?? {})) if (Array.isArray(v)) for (const q of v) { const at = q?.at ?? q?.cell; if (tri(at)) out.add(at.join(\',\')) }'), 'every listed cell of every record (cells and clears)')
+  assert.ok(g.includes('return boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])'), 'the plan plots')
   const tv = src.slice(src.indexOf('async function buildTidyVisit'))
   assert.ok(/if \(floatcleanDue\(procMem\(bot\)\)\) \{\n\s+const fl = await floatcleanLap\(ctx, signal, \{ deadline: t0 \+ budget - ZIG_VISIT_TAIL_MS \}\)/.test(tv), 'the lap at the head of the tidy visit')
 })
