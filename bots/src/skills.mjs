@@ -152,6 +152,7 @@ import { placeRefFor, opensOnClick } from './placeref.mjs'   // spentpick-01show
 import { installServerBlockWitness } from './buildbot.mjs'   // homes-02show r1: the connection's witness drops a kept walk the world moved under
 import { cottage2StylesAll } from './cottage.mjs'   // homes-02show: every look of the family
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
+import { PALCHOICE, paletteChoice, paletteChoiceDetail, sourceOf } from './palchoice.mjs'   // civicroof-01show: a course's next palette choice
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
@@ -24842,7 +24843,10 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
     // town does not stock is not drawn by name -- the visit crafts it (cottageFurnitureCrafts)
     const cot2 = isCottage2Blueprint(rec.blueprint)
     const recB = cot2 ? { ...rec, cells: (rec.cells ?? []).filter(c => !c.byFoot && !cottageCellWaits(bot, rec, c)) } : rec
-    const bill = billOf(recB, pal, read, { done: buildCellDone, inTown: billInTown(town), planks })
+    // civicroof-01show: A COURSE WHOSE FIRST NAME HAS NO SOURCE takes the palette's next one, the whole course (palchoice.mjs); the bill
+    // draws it, the visit places only it, and a `_palette_choice` row says what was taken and why. Off (or none taken): the base's.
+    const palChoice = PALCHOICE.on ? visitPaletteChoice(bot, recB, pal, read, { town, bag: held0, planks, plot }) : null
+    const bill = billOf(recB, pal, read, { done: buildCellDone, inTown: billInTown(town), planks, choice: palChoice })
     if (cot2) for (const n of Object.keys(bill)) if ((/_bed$/.test(n) || n === 'lantern') && !(Number(town[n]) > 0)) delete bill[n]
     const want = visitNeeds(recB, bill, { saplingAt: c => /_sapling$|^mangrove_propagule$/.test(read(...c)?.name ?? ''), town, spare: spare0, planks })
     const need = needFromTown(want, spare0)
@@ -24886,7 +24890,7 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
       // ONLY THE PARTS OF THE SEGMENTS WORKABLE NOW (every dependency complete: Paper skill e2e 11-05 -- crafting the whole roof at the
       // first visit turned the walls' planks into stairs, and the walls stopped `no_material` with 44 stairs in the bag)
       const open = new Set((rec.segments ?? []).filter(sg => (sg.deps ?? []).every(d => buildSegComplete(read, rec, pal, d)) && !buildSegComplete(read, rec, pal, sg.seg)).map(sg => sg.seg))
-      const partBill = billOf({ cells: (recB.cells ?? []).filter(c => open.has(c.seg)) }, pal, read, { done: buildCellDone, inTown: billInTown(town), planks })
+      const partBill = billOf({ cells: (recB.cells ?? []).filter(c => open.has(c.seg)) }, pal, read, { done: buildCellDone, inTown: billInTown(town), planks, choice: palChoice })
       const wp = woodPartsPlan(partBill, { have: n => (h2[n] ?? 0) - (keep[n] ?? 0) })
       if (wp) {
         for (const [pl, n] of Object.entries(wp.planks)) {
@@ -24967,7 +24971,7 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
     Object.assign(storeOpts, tempStandOf(bot, c, plot))   // tempstand-01: a cell no stand reaches, deferred before, is clicked from a temporary pillar
     // cottage2-01: a furnishing that WAITS (no bed, no 3 wool of a colour; no flower; no lantern, no iron) is done for the visit
     if (isCottage2Blueprint(rec.blueprint)) storeOpts.alsoDone = c => cottageCellWaits(bot, rec, c)
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, choice: palChoice, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     // reroof-04: the new roof stands -- its temporary stair comes down (the next generation lists it as kind=temp clears; the next visit
     // digs them), whatever this visit stopped on: an old cell it cannot repair never keeps the stair up (Codex r1 BLOCKER)
     if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)
@@ -25023,6 +25027,33 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
     if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(plot, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
   }
+}
+
+/**
+ * civicroof-01show: THE BUILDING VISIT'S PALETTE CHOICES (palchoice.mjs paletteChoice) -> Map cellKey -> name | null (none taken). A
+ * name's source: this bot's bag and the town index (`town`), the bots' shared map (bot.atlas: a live find of its log within a trip),
+ * an open refill job. One `_palette_choice` row a course whose first name had no source. Never throws (null: the base's behaviour).
+ */
+function visitPaletteChoice (bot, rec, pal, read, { town = {}, bag = {}, planks = 'oak_planks', plot = '-' } = {}) {
+  try {
+    let finds = []
+    try { finds = bot.atlas?.view?.()?.finds ?? [] } catch { finds = [] }
+    let jobs = []
+    try { jobs = openJobs(refillJobsNow()) } catch { jobs = [] }
+    const home = homeVec()
+    let townCoverage = 0
+    try { townCoverage = Number(matsTownStock(bot)?.coverage) || 0 } catch { townCoverage = 0 }
+    const has = n => (Number(bag?.[n]) || 0) + (Number(town?.[n]) || 0)
+    const { choice, rows } = paletteChoice(rec, {
+      names: role => roleNames(pal, role, planks),
+      read,
+      done: (b, c) => buildCellDone(b, pal, c.role, c.ws),
+      source: (name, n, used) => sourceOf(name, n, { held: x => has(x) - (Number(used?.[x]) || 0), finds, home, jobs }),
+      townCoverage,
+    })
+    for (const r of rows) { try { logEvent({ kind: 'palette_choice', status: r.took === '-' ? 'no_effect' : 'success', snapshot: snapshot(bot), detail: paletteChoiceDetail(plot, r) }) } catch { /* telemetry */ } }
+    return choice.size ? choice : null
+  } catch { return null }
 }
 
 // ================================================================================================================================

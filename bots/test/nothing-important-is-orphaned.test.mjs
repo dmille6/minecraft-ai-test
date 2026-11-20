@@ -37,6 +37,8 @@ const REQUIRED = [
   // buildfirst-01show (item 10, 11-18): idle bots go to a building first; a room refusal's well trip; the room hold
   'bots/src/buildfirst.mjs',
   'bots/test/drawshort.test.mjs',   // drawshort-01show
+  'bots/src/palchoice.mjs',   // civicroof-01show: a course's next palette choice when its first has no source
+  'bots/test/civicroof.test.mjs',   // civicroof-01show
   'bots/src/wellstand.mjs', 'bots/src/wellturn.mjs', 'bots/test/wellstand.test.mjs', 'bots/test/wellturn.test.mjs',   // wellfix-01show
   'bots/scripts/wellstand-replay.mjs', 'bots/test/fixtures/wellstand-showcase-1118.json',   // wellfix-01show: the replay and its cells
   'bots/test/buildfirst.test.mjs',
