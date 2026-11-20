@@ -30141,7 +30141,8 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
   const rd0 = tidyRead(bot)
   const pj = floatPassJobs(list, rd0, { aside: k => floatAsideNow(mem, k), cells, zone, max: FC.passMax, part: slot.slot - 1, parts: FC.builders })
   row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, ...pj.census })
-  for (const h of pj.held) { const k = k3(h.job.at); if (rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-' }) }
+  // a held cell's row (once a cell an FC.rowMs); an UNREAD one (its chunk not loaded for this bot) is no finding: counted in the survey row only
+  for (const h of pj.held) { const k = k3(h.job.at); if (h.why !== 'unread' && rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-' }) }
   if (!pj.take.length) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return no(pj.census.standing ? 'nothing_takeable' : 'list_done') }
   const take = new Map(pj.take.map(q => [k3(q.at), q]))
   let effects = null, cleared = 0
