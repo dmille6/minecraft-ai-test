@@ -204,7 +204,7 @@ await t('MUTANT (buildrun clearKeepOrder): lowest first leaves the stack\'s dirt
   })
 })
 await t('MUTANT (the check at the dig): without floatClearOk the held cells are dug', async () => {
-  await killedBy(FC_PATH, FC, [["  if (c?.kind !== 'float') return true\n  // THE BODY", "  if (c?.kind !== 'float' || true) return true\n  // THE BODY"]], async F => {
+  await killedBy(FC_PATH, FC, [["  if (c?.kind !== 'float') return true\n  // ANOTHER BODY", "  if (c?.kind !== 'float' || true) return true\n  // ANOTHER BODY"]], async F => {
     const { srv, record } = pitWorld()
     // the dig-time check alone: a listed cell that came to hold a torch AFTER the list was read is still never dug
     const list = { v: 1, pool: 'showcase', surveyedAt: 1, jobs: [{ at: [13, G, 0], name: 'dirt', beam: 0 }] }
@@ -227,6 +227,26 @@ await t('CODEX r1 BLOCKER 1: a bot left standing on the beam (its walk failed) d
   const { srv, list, record } = pitWorld()
   await lap(BF.R, FC, srv, list, { tries: {}, until: {} }, { cells: record, feet: [9, G + 1, 0] })
   assert.strictEqual(standing(srv, 10), 'air')
+})
+await t('RIG 11-20: never the block another body stands on (Kite dug the block under Juno): it waits, and is taken once the body has gone', async () => {
+  const scenario = async F => {
+    const { srv, list, record } = pitWorld()
+    const e0 = BF.bot
+    // a second bot stands on beam cell 10 (feet G+1): its floor is that cell
+    const others = [`10,${G},0`]
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-'))
+    const key = BF.PJ.projKey(BF.HOME, F.FLOATCLEAN_PLOT)
+    const slot = BF.PJ.takeSlot(dir, key, 'A', F.FC.builders)
+    const pj = F.floatPassJobs(list, srv.read, { cells: record })
+    const take = new Map(pj.take.map(q => [F.k3(q.at), q]))
+    const e = e0(srv, 'A', { feet: [9, G + 1, 1] })
+    await BF.R.runVisit({ dir, key, me: 'A', home: BF.HOME, stood: [], record: { v: 1, plot: 'floatclean', home: BF.HOME, cells: [], clear: pj.take, segments: [], zones: [] }, recordGen: 0, palette: {}, res: null, resFailed: false,
+      slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 50, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true, clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease: 'seg-clear-A', has: () => true },
+      clearOk: (q, rd) => F.floatClearOk(q, rd ?? srv.read, { listed: k => take.has(k), cells: record, under: [`${e.feet()[0]},${e.feet()[1] - 1},${e.feet()[2]}`], floating: k => pj.floor.has(k), others }) }, e, { maxSteps: 200 })
+    assert.strictEqual(standing(srv, 10), 'dirt', 'the block under the other body stands')
+    assert.strictEqual(standing(srv, 11), 'air', 'the positive control: its neighbour is taken')
+  }
+  await killedBy(FC_PATH, FC, [['  if (others.includes(k3(c.at))) return false\n', '\n']], scenario)
 })
 await t('MUTANT (floatAsideAfter): a lap that ran out of time before a cell says nothing about it; a cell it got to and left standing gets its try', async () => {
   await killedBy(FC_PATH, FC, [['    if (!considered(k)) continue\n', '\n']], F => {
@@ -283,9 +303,9 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.strictEqual(body.split('releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)').length, 2, 'the slot released once, in the finally, at its latest generation')
   assert.ok(/\} finally \{\n\s+releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/.test(body), 'in the finally')
   assert.ok(body.includes('const guard = floatGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
-  assert.ok(body.includes('clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k) }) } },'), 'the guard read again at the dig, the body, the try')
+  assert.ok(body.includes('clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) }) } },'), 'the guard read again at the dig, the body, other bodies, the try')
   assert.ok(body.includes('considered: k => considered.has(k) && !visitGone(bot, signal) })'), 'a try only for a cell the visit got to')
-  const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function bodyFloorKeys'))
+  const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function floorKeysOf'))
   assert.ok(g.includes('return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })'), 'the guard over the records, the bridges and the plan head (head.plan)')
   assert.ok(g.includes('if (!ph.ok || !ph.head?.plan) return null'), 'no plan: no lap')
 })
