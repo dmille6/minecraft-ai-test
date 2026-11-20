@@ -53,6 +53,8 @@ import { peacefulFoodActive } from './foodskip.mjs'
 import { smeltRecipeFor, smeltInputsFor } from './smelting.mjs'
 // logbank-01: the personal wood keep, ONE number shared with milestones.mjs's stockpile_wood ceiling (a leaf module)
 import { WOOD_KEEP, LOGBANK } from './woodkeep.mjs'
+import { LANES } from './yard.mjs'   // nostock-01show: the stock keep's switch (milestones.mjs NOSTOCK)
+import { refillOn } from './refill.mjs'
 // coalfirst-01 (OWNER 10-29): the bag's coal keep and the coal split (coalrun.mjs is a leaf module)
 import { COALFIRST, COAL_KEEP, coalKeepOf } from './coalrun.mjs'
 export { WOOD_KEEP }
@@ -99,6 +101,18 @@ export const CREDIT_CAP = 64
 export const STOCKPILE_KEEP = 64
 /** The gatherer chain's held counts for items that are never bankable anyway (asserted against the chain). */
 export const HELD_TARGETS = Object.freeze({ dirt: 16, sand: 8 })
+// NOSTOCK-01show: where the chain's stock rungs are stepped over (milestones.mjs NOSTOCK: the yard's lanes and the refill jobs, i.e.
+// the showcase) their keep goes with them -- `gather_rung` held 16 dirt back from every build and tidy visit (spare = held - keep),
+// so the dirt the rung gathered was exactly the dirt tidy could not lay (gather-diag 2026-11-20 section 4: 26 of 79 visits ended
+// holding exactly 16). What stays is the SCAFFOLD RESERVE below (bankable.mjs scaffoldKeep: the 8 cheapest blocks and 2 sticks),
+// which is the escape's -- a pillar out of a hole, a block under the feet in water, a step up a ledge -- and is kept on every path.
+// Same switch as milestones.mjs NOSTOCK (copied, not imported: milestones imports skills.mjs, which imports this module; a test
+// asserts they agree).
+export const NOSTOCK_KEEP = Object.freeze({ on: !!LANES.on && refillOn(typeof process !== 'undefined' ? process.env : {}) })
+/** The held targets in force -> { name: n }. Pure. Empty where the stock rungs are stepped over. */
+export const heldTargetsFor = (noStock = NOSTOCK_KEEP.on) => (noStock ? {} : HELD_TARGETS)
+/** The escape's blocks: bankable.mjs scaffoldKeep's own budget (8: a pillar out of most holes), made up with dirt (nostock-01show). */
+export const ESCAPE_BLOCKS = 8
 /** Planks kept whatever the logs: the pickaxe rungs' `stick >= 2 || planks >= 2` and the table's `planks >= 4`. */
 export const PLANKS_MEANS = 4
 /** A wanted item (active rung + ingredients) is kept up to one stack. */
@@ -133,7 +147,7 @@ const byHeldDesc = counts => (a, b) => (counts[b] ?? 0) - (counts[a] ?? 0) || (a
  * WHAT STAYS IN THE BAG, as a TOTAL per name -> { keep: {name: n}, why: {name: rule} }. Pure. Every rule is a
  * floor; the strongest wins (never a sum). Each rule keeps min(held, its target): a deposit never deepens a deficit.
  */
-export function townKeeps (counts = {}, { wanted = [] } = {}) {
+export function townKeeps (counts = {}, { wanted = [], noStock = NOSTOCK_KEEP.on } = {}) {
   const keep = {}, why = {}
   const floor = (name, n, rule) => {
     const k = Math.min(counts[name] ?? 0, Math.max(0, n))
@@ -150,7 +164,16 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
   // rung `planks >= 4 || logs >= 1` -- with the logs kept above, a few planks keep every one of them reachable.
   let means = Math.min(PLANKS_MEANS, PLANKS.reduce((t, n) => t + (counts[n] ?? 0), 0))
   for (const n of [...PLANKS].sort(byHeldDesc(counts))) { const k = Math.min(means, counts[n] ?? 0); if (k > 0) { floor(n, k, 'ladder_means'); means -= k } }
-  for (const [n, t] of Object.entries(HELD_TARGETS)) floor(n, t, 'gather_rung')
+  for (const [n, t] of Object.entries(heldTargetsFor(noStock))) floor(n, t, 'gather_rung')
+  // nostock-01show: THE ESCAPE'S DIRT. The scaffold reserve below never counts plain dirt (bankable.mjs isScaffoldItem: built for
+  // the bank, which never takes dirt), but the pathfinder towers and bridges with it (mineflayer-pathfinder seeds scafoldingBlocks
+  // with dirt and cobblestone; index.mjs extendScaffolding adds the rest). With the stock keep gone, a bot whose only blocks are
+  // dirt would lay its way out of a hole into the town's ground, so dirt makes up the reserve to ESCAPE_BLOCKS -- less what the
+  // scaffold reserve already keeps of other tower blocks (one reserve, never two).
+  if (noStock) {
+    const towered = Object.entries(scaffoldKeep(counts)).filter(([n]) => n !== 'stick').reduce((t, [, k]) => t + k, 0)
+    floor('dirt', ESCAPE_BLOCKS - towered, 'escape_reserve')
+  }
   for (const [n, k] of Object.entries(ironKeeps(counts, { wanted }))) floor(n, k, 'iron_ladder')
   for (const n of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) floor(n, WANTED_KEEP, 'wanted')
   for (const [n, k] of Object.entries(scaffoldKeep(counts))) floor(n, k, 'scaffold_reserve')

@@ -56,6 +56,9 @@ const REQUIRED = [
   'bots/test/cleanzone.test.mjs',
   // cleanzone-02 (11-13): gather does not take the ground inside the clean zone; it walks out and searches again
   'bots/test/gatherzone.test.mjs',
+  // nostock-01show (11-20): no stock gathers on the showcase; the stock keep released; gather skips built cells and walks out
+  'bots/src/gatherbuilt.mjs',
+  'bots/test/nostock.test.mjs',
   // wellstep-01 (11-13): the junk well's stand is reached again -- the failed walk is tried once more with a pass for that goal
   'bots/test/wellstep.test.mjs',
   // roofclimb-01 (11-14, owner "Yes, fix it"): surface climbs out from under a ground roof above sea level

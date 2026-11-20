@@ -192,8 +192,9 @@ await ta('MUTANT KILLED: putting oak back in the live rung', async () => {
   // The mutant must make the REAL behaviour assertion fail: the wood rung stops
   // being satisfied by birch.
   await withMutant(MSRC,
-    "    M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12'),",
-    "    M.gather('oak_log', 12, 'Wood too.'),",
+    // nostock-01show: the rung is wrapped in stockRung (stepped over only where NOSTOCK is on; this suite's pool has it off)
+    "    stockRung(M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12')),",
+    "    stockRung(M.gather('oak_log', 12, 'Wood too.')),",
     async mod => {
       const wood = mod.MILESTONES_BY_ROLE.gatherer[1]
       let threw = null
