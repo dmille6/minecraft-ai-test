@@ -54,3 +54,24 @@ open on all four sides. Only 78 + 27 are real lone columns.
 - A block that has gained a neighbour since the survey is held as `not_lone` and never dug.
 - Progress is counted apart: `proven=n/1440 other=n/78` on every `_pillarclean` survey and pass row.
 - The host can refresh the list by dropping `pillarclean-other.json` in the pool directory.
+
+## Rig on the final code commit a505fcde (sandbox3, 20 min, lock taken and released, world restored)
+
+- **Setup:**
+  - The same backup copy and the same pool copy, from `git archive a505fcde3`.
+  - Delta started from its own position. Juno walked to the south side (-20,50) and Kite to the north beach (0,-118), with the pathfinder's own walk. No command moved a bot.
+- **The bots:** 69 laps, 225 blocks dug (23 of them sea pillars' blocks).
+  - **Deaths: 0.**
+  - **Digs with water under the bot's feet: 0.**
+- **Pillars taken down, the two lists apart:**
+  - proven: 171 of the 1,440 (21 of them sea pillars);
+  - other: **14 of the 78**, all of them on land.
+- **Off-list solid blocks removed** (whole-world diff against both lists): **0.** The other changes are growth: leaves 76, logs 12, grass 17.
+- **No wider-set column was dug from the sea.**
+  - The 23 sea columns of the 78 are hanging blocks over the frozen sea, away from the shore. No stand off the ice reaches them, so the sea guard leaves them.
+  - Kite set them aside after two laps and worked the proven ones.
+- **Pictures:**
+  - [rig/map-after.png](rig/map-after.png): the 78 after the rig (green: taken down).
+  - Ten of the 14 taken down, as before/after pairs: `rig/taken-NN-before.png` / `rig/taken-NN-after.png`, NN = 01..10 ([taken.json](rig/taken.json)).
+- **Codex r3** (the follow-up commit only): BLOCKERS none.
+- **Full suite at a505fcde on ci3: 555/558.** The 3 failures (`lavastep`, `nothing-important-is-orphaned` (bagdiet), `well`) are the base's own (b27f5218 on ci3: the same 3).
