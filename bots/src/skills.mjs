@@ -288,7 +288,7 @@ import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, s
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
-import { pillarcleanOn, pillarListOk, pillarListNewer, pillarPassJobs, pillarClearOk, pillarDetail, pillarGuardOf, pillarFloorKeys, pillarAsideAfter, pillarAsideNow, sameBlock as samePillarBlock, PL, PILLARCLEAN_PLOT } from './pillarclean.mjs'   // pillars-01show
+import { pillarcleanOn, pillarListOk, pillarListNewer, scafLeftPillars, pillarListWith, pillarPassJobs, pillarClearOk, pillarDetail, pillarGuardOf, pillarFloorKeys, pillarAsideAfter, pillarAsideNow, sameBlock as samePillarBlock, PL, PILLARCLEAN_PLOT } from './pillarclean.mjs'   // pillars-01show
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
@@ -30159,8 +30159,19 @@ function pillarListNow (pool, dir) {
   if (!plDocs.has(pool)) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(new URL(`./pillarclean/${pool}.json`, import.meta.url), 'utf8')), pool) } catch { d = null } plDocs.set(pool, d) }
   const k = `${pool}|${dir}`
   let c = plDocs.get(k)
-  if (!c || Date.now() - c.at > 5 * 60_000) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(path.join(dir, 'pillarclean.json'), 'utf8')), pool) } catch { d = null } c = { at: Date.now(), d }; plDocs.set(k, c) }
-  return pillarListNewer(plDocs.get(pool), c.d)
+  if (!c || Date.now() - c.at > 5 * 60_000) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(path.join(dir, 'pillarclean.json'), 'utf8')), pool) } catch { d = null } c = { at: Date.now(), d, sl: scafLeftFiles(dir) }; plDocs.set(k, c) }
+  // scaffold-01show's hand-off: every bot's scafleft-<bot>.json (fresh entries only; judged again at the dig) on top of the list
+  const list = pillarListNewer(plDocs.get(pool), c.d)
+  const named = new Set((list?.pillars ?? []).flatMap(p => p.take.map(t => `${t[0]},${t[1]},${t[2]}`)))
+  return pillarListWith(list, scafLeftPillars(c.sl, Date.now(), { skip: q => named.has(q) }), pool)
+}
+/** scaffold-01show: every `scafleft-<bot>.json` in the pool's directory -> [{ holder, entries }]. An unreadable file hands nothing. */
+function scafLeftFiles (dir) {
+  const out = []
+  let names = []
+  try { names = fs.readdirSync(dir).filter(n => /^scafleft-[A-Za-z0-9_.-]+\.json$/.test(n)) } catch { return out }
+  for (const n of names) { try { const j = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if (Array.isArray(j?.entries)) out.push({ holder: String(j.holder ?? n.slice(9, -5)), entries: j.entries }) } catch { /* unreadable: nothing */ } }
+  return out
 }
 export const pillarcleanDue = (mem, now = Date.now()) => PL_ON && now >= (Number(mem?.plNextAt) || 0)
 /** pillars-01show (floatclean-01show's guard, carried here: Codex r1 BLOCKER 2 there): THE LAP'S GUARD -> (k) -> bool | null. Every

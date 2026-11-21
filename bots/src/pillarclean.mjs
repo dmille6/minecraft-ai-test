@@ -176,6 +176,45 @@ export function pillarListOk (doc, pool) {
     .map(p => ({ ...p, top: Number.isInteger(p.top) ? p.top : Math.max(...p.take.map(t => t[1])) }))
   return { ...doc, pillars }
 }
+/**
+ * SCAFFOLD-01show's HAND-OFF (takeback.mjs: every out-of-town block a walk left -- carried, unwatched, old -- goes on the bot's
+ * `scafleft-<bot>.json` in the pool's state directory): the files -> pillars in the list's shape. Pure. A hand-off entry is the
+ * placing bot's own claim, not CoreProtect's proof, so it is believed only while fresh (keepMs, 3 h: litter.mjs keepMs's reasoning --
+ * a cell's name cannot tell the handed block from a replacement), only for the bots' scaffold materials (PILLAR_TOPS), and the lap
+ * judges every cell again at the dig exactly as a listed one (pillarVerdict, pillarClearOk: the guard, the zones, the sea).
+ *   files  [{ holder, entries: [{ at, block, t }] }]   skip  (k) -> bool: a cell the host's list already names
+ * One pillar a column (its entries top down); ids from SL_ID up (the crew's split by id still works). med: one under the lowest.
+ */
+export const SCAFLEFT = Object.freeze({ keepMs: 3 * 60 * 60_000, idBase: 1_000_000, max: 512 })
+export function scafLeftPillars (files, now, { skip = () => false, T = SCAFLEFT } = {}) {
+  const cols = new Map()
+  for (const f of files ?? []) {
+    const holder = String(f?.holder ?? '-')
+    for (const e of f?.entries ?? []) {
+      if (!e || !Array.isArray(e.at) || e.at.length !== 3 || !e.at.every(Number.isInteger) || typeof e.block !== 'string' || !Number.isFinite(e.t)) continue
+      if (!(now - e.t <= T.keepMs) || e.t > now + 60_000) continue
+      if (!PILLAR_TOPS.test(e.block)) continue
+      const k = e.at.join(',')
+      if (skip(k)) continue
+      const ck = `${e.at[0]},${e.at[2]}`
+      if (!cols.has(ck)) cols.set(ck, new Map())
+      cols.get(ck).set(k, [e.at[0], e.at[1], e.at[2], e.block, holder])
+    }
+  }
+  const out = []
+  for (const [, m] of [...cols.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const take = [...m.values()].sort((a, b) => b[1] - a[1])
+    out.push({ id: T.idBase + out.length, x: take[0][0], z: take[0][2], med: Math.min(...take.map(t => t[1])) - 1, top: take[0][1], sea: false, kind: 'scafleft', take })
+    if (out.length >= T.max) break
+  }
+  return out
+}
+/** A list with the hand-off's pillars added (none of its cells already listed) -> a list | null. Pure. */
+export function pillarListWith (list, extra, pool) {
+  if (!extra?.length) return list
+  const base = list ?? { v: 1, pool, surveyedAt: 0, pillars: [] }
+  return { ...base, pillars: [...base.pillars, ...extra], scafleft: extra.length }
+}
 export const pillarListNewer = (a, b) => (!a ? b : !b ? a : (Number(b.surveyedAt) || 0) > (Number(a.surveyedAt) || 0) ? b : a)
 
 /**
