@@ -83,6 +83,7 @@ export function summaryDetail (sum, windowS) {
 /** scaffold-01show: how long a failed placement's cell is watched for its block landing late, and at most how many cells. */
 export const LATE_MS = 12_000
 export const LATE_MAX = 64
+export const OTHER_R = 6   // farther than any player's reach (4.5 survival, 5 creative) plus a body
 export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced = null, timers = true, now = () => Date.now(), summaryMs = SUMMARY_MS } = {}) {
   // once a BOT (never by the function on top: skills.mjs's bag tally wraps placeBlock for a visit and restores only when it is still on
   // top -- a second install at a respawn under it would double every row and strand its restore)
@@ -105,9 +106,23 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced 
       if (!w) return
       if (now() > w.until) { pending.delete(k); return }
       if (n.name !== w.rec.block) return
-      pending.delete(k); stats.late++
+      pending.delete(k)
+      // ONLY THIS BOT COULD HAVE PLACED IT (Codex r4 BLOCKER: another bot laying the same block there within LATE_MS): a placement
+      // needs reach, so a late landing with any other player, or an enderman (it carries and sets blocks), within OTHER_R of the
+      // cell is not this bot's, and gets no receipt
+      if (otherNear(w.rec.cell)) { stats.lateOther = (stats.lateOther ?? 0) + 1; return }
+      stats.late++
       if (onPlaced) { try { onPlaced({ ...w.rec, late: true }) } catch { sum.ierr++ } }
     } catch { sum.ierr++ }
+  }
+  const otherNear = c => {
+    for (const e of Object.values(bot.entities ?? {})) {
+      const p = e?.position
+      if (!p || e === bot.entity) continue
+      if (!(e.type === 'player' || /enderman/.test(String(e.name ?? '')))) continue
+      if (Math.hypot(p.x - (c[0] + 0.5), p.y - (c[1] + 0.5), p.z - (c[2] + 0.5)) <= OTHER_R) return true
+    }
+    return false
   }
   const watchLate = rec => {
     if (!onPlaced || typeof bot.on !== 'function' || !rec?.cell) return
