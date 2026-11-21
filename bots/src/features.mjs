@@ -194,7 +194,14 @@ export function scafLeftIo (dir, holder) {
       await fs.promises.rename(tmp, file)
     } catch { try { await fs.promises.unlink(tmp) } catch { /* never made, or renamed */ } }
   }
-  const save = entries => {
+  const save = (entries, { sync = false } = {}) => {
+    // a bot that ends writes at once (review r1, Claude: a fast reconnect must load this list, not the one before it)
+    if (sync) {
+      const now = () => { try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file}.${process.pid}.sync.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder, at: Date.now(), entries })); fs.renameSync(tmp, file) } catch { /* best effort */ } }
+      now(); again = null
+      if (writing) writing.then(now, now)                         // an older write still in flight lands first, then this one again
+      return
+    }
     if (writing) { again = entries; return }                     // one write at a time; the newest list wins
     writing = write(entries).finally(() => { writing = null; if (again) { const e = again; again = null; save(e) } })
   }
