@@ -1,0 +1,112 @@
+[
+ {
+  "i": 1,
+  "x": 36,
+  "z": 49,
+  "where": "land",
+  "med": 68,
+  "top": 72,
+  "blocks": "grass_block",
+  "gone": true,
+  "file": "sample-01.svg"
+ },
+ {
+  "i": 2,
+  "x": -27,
+  "z": 54,
+  "where": "land",
+  "med": 64,
+  "top": 69,
+  "blocks": "grass_block",
+  "gone": true,
+  "file": "sample-02.svg"
+ },
+ {
+  "i": 3,
+  "x": -41,
+  "z": -56,
+  "where": "land",
+  "med": 65,
+  "top": 72,
+  "blocks": "dirt",
+  "gone": true,
+  "file": "sample-03.svg"
+ },
+ {
+  "i": 4,
+  "x": -60,
+  "z": -36,
+  "where": "land",
+  "med": 66,
+  "top": 71,
+  "blocks": "dirt",
+  "gone": true,
+  "file": "sample-04.svg"
+ },
+ {
+  "i": 5,
+  "x": -70,
+  "z": -11,
+  "where": "land",
+  "med": 64,
+  "top": 68,
+  "blocks": "grass_block",
+  "gone": true,
+  "file": "sample-05.svg"
+ },
+ {
+  "i": 6,
+  "x": -70,
+  "z": 11,
+  "where": "land",
+  "med": 63,
+  "top": 69,
+  "blocks": "dirt",
+  "gone": true,
+  "file": "sample-06.svg"
+ },
+ {
+  "i": 7,
+  "x": -75,
+  "z": 4,
+  "where": "land",
+  "med": 63,
+  "top": 71,
+  "blocks": "dirt",
+  "gone": true,
+  "file": "sample-07.svg"
+ },
+ {
+  "i": 8,
+  "x": -78,
+  "z": -4,
+  "where": "land",
+  "med": 64,
+  "top": 67,
+  "blocks": "grass_block",
+  "gone": true,
+  "file": "sample-08.svg"
+ },
+ {
+  "i": 9,
+  "x": -80,
+  "z": 3,
+  "where": "land",
+  "med": 63,
+  "top": 67,
+  "blocks": "grass_block",
+  "gone": true,
+  "file": "sample-09.svg"
+ },
+ {
+  "i": 10,
+  "x": 125,
+  "z": 49,
+  "where": "land",
+  "med": 69,
+  "top": 74,
+  "blocks": "dirt,dirt,dirt",
+  "gone": true,
+  "file": "sample-10.svg"
+ }
+]
