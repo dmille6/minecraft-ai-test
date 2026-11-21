@@ -343,6 +343,13 @@ export function nextTopsOwed (read, plan) {
  *  `known` 0 and an empty stock, and the fetch skipped the town's 308 stone_bricks as "none"); a stale or partial one is unknown --
  *  the withdraw's own search (its skip_zero_stock) asks the containers. */
 export const townView = ts => (ts && ts.known > 0 && Number(ts.coverage) >= 1 && ts.stock && typeof ts.stock === 'object' ? ts.stock : null)
+/** THE TANK'S DRAW CLOCK -> the withdraw's `reserveMs` (rig 11-21, head v3: one withdraw ran to the SKILL's clock -- 30 s before its
+ *  180 s -- past the visit's own deadline, and every visit ended `time` with nothing laid): a draw ends `workMs` before the visit's
+ *  deadline, never later than the withdraw's own 30 s reserve. Pure. */
+export function drawReserveMs ({ skillDeadline, visitDeadline, workMs = SWSTOCK.workMs, min = 30_000 } = {}) {
+  const r = Number(skillDeadline) - (Number(visitDeadline) - workMs)
+  return Number.isFinite(r) ? Math.max(min, r) : min
+}
 /** RULE 1: the posts to draw from the town's walls before any is crafted -> n. Pure. */
 export function postsDraw ({ bag = {}, postsLeft = 0, max = SWSTOCK.postsMax } = {}) {
   return Math.max(0, Math.min(n0(postsLeft), max) - wallsHeld(bag))

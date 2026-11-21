@@ -184,6 +184,11 @@ await t('stockTank: no draw or craft is started once the visit\'s own share of t
   const out2 = await V.stockTank(st, { timeOk: () => ++calls <= 1 })
   assert.deepStrictEqual(Object.keys(out2.drawn), ['cobblestone_wall'], 'the walls drawn, then the clock is the tank\'s')
 })
+await t('drawReserveMs: a draw ends workMs before the visit\'s deadline (the 180 s skill, the 120 s visit -> 120 s reserved), never under 30 s', () => {
+  assert.strictEqual(V.drawReserveMs({ skillDeadline: 180_000, visitDeadline: 120_000 }), 120_000)
+  assert.strictEqual(V.drawReserveMs({ skillDeadline: 180_000, visitDeadline: 600_000 }), 30_000)
+  assert.strictEqual(V.drawReserveMs({}), 30_000)
+})
 console.log('THE CHAIN (the real visit loop, the real keep)')
 /** THE BASE'S STOCK-UP (d78215c15 skills.mjs buildStepwellRun, the tank's branch), for the positive control: the town draw only under
  *  48 raw stone, the craft from raw cobblestone (walls < 6 and cobblestone >= 48 + 16). */
@@ -404,6 +409,11 @@ await t('MUTANT KILLED: the stock-up ignores the clock', async () => {
     assert.ok(Object.keys(out.drawn).length > 0)
   })
 })
+await t('MUTANT KILLED: the draw clock ignores the visit (the withdraw\'s 30 s alone)', async () => {
+  await withMutant(SV_PATH, 'const r = Number(skillDeadline) - (Number(visitDeadline) - workMs)', 'const r = 0', async M => {
+    assert.strictEqual(M.drawReserveMs({ skillDeadline: 180_000, visitDeadline: 120_000 }), 30_000)
+  })
+})
 console.log('THE WIRING (structural: skills.mjs buildStepwellRun)')
 const SKS = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const RUN = SKS.slice(SKS.indexOf('async function buildStepwellRun ('), SKS.indexOf('async function foundStore ('))
@@ -412,6 +422,7 @@ const WIRES = [
   ['the visit runs through the remedy', /const r = await swTankWithRemedy\(\{ now, deadline, back: \(\) => stairWalk\(bot, rec\.exit, STEPWELL_WALK_MS, signal\), stock: \{ bag: \(\) => heldMap\(bot\), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw \}, run: \(\) => runIt\(\(\) => runStepwellVisit\(\{/],
   ['the stamp follows tankStamps', /if \(swTankStamps\(r\)\) \{/],
   ['the stock-up keeps the tank\'s share of the clock', /\{ max: STEPWELL_POSTS_CRAFT, timeOk: \(\) => Date\.now\(\) < deadline - SWSTOCK\.workMs \}\)/],
+  ['every tank draw ends before the visit\'s work share', /rsv = swDrawReserveMs\(\{ skillDeadline: withdrawClock\(ctx\)\.deadline, visitDeadline: t0 \+ budget - ZIG_VISIT_TAIL_MS \}\)/],
   ['the town\'s stock is read through townView', /const swTown = \(\) => \{ try \{ return swTownView\(matsTownStock\(bot\)\) \} catch \{ return null \} \}/],
   ['the remedy follows tankRemedy', /const remedy = swTankRemedy\(r\)/],
   ['the effects count above the keep', /palette: rec\.palette \?\? \{\}, signal, fence, keep,/],
