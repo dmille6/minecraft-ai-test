@@ -4349,6 +4349,11 @@ const ESCAPE_ROUTINES = {
   pillar_up: async bot => {
     const yBefore = bot.entity?.position?.y ?? 0
     const out = await pillarOut(bot)
+    // villagesafe-01show (Codex r2): a guarded climb (a zone refused it) is walked out by the guarded branch, never read as height
+    if (out === ESCAPE_GUARDED) {
+      const g = await guardBranch(bot, { handler: 'pillar_up' })
+      return { ok: !!g?.progressed, rose: (bot.entity?.position?.y ?? yBefore) - yBefore, why: `guarded: ${g?.stair?.stopped ?? (g?.progressed ? 'walked out' : 'no way out')}` }
+    }
     const rose = (bot.entity?.position?.y ?? yBefore) - yBefore
     return { ok: rose >= 1, rose, why: out ? `declined: ${out}` : `climbed ${rose.toFixed(1)}` }
   },
@@ -7145,7 +7150,17 @@ async function unstick(bot) {
                snapshot: snapshot(bot) })
     const yBefore = bot.entity.position.y
     const invBefore = inventorySummary(bot)
-    try { await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+    let pout = null
+    try { pout = await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+    // villagesafe-01show (Codex r2; Nova 11-21 19:28Z was this branch): a climb a protected zone refused goes to the guarded
+    // branch -- the walk out under the zone's side -- never back to the blind horizontal stages beside the same reference
+    if (pout === ESCAPE_GUARDED) {
+      let g = null
+      try { g = await guardBranch(bot, { handler: 'unstick' }) } catch (e) { log('warn', 'guarded walk-out failed', { err: e.message }) }
+      noteReflexInventory(bot, invBefore, 'unstick_oscillation')
+      if (g?.progressed) { mem.origins = []; log('info', 'reflex: walked out of the guarded pit', { how: g?.stair?.stopped ?? '' }); return }
+      log('warn', 'reflex: guarded and could not walk out, falling through', { how: g?.stair?.stopped ?? '' })
+    } else {
     noteReflexInventory(bot, invBefore, 'unstick_oscillation')
     // Same discipline as the entombed branch: "I ran the recovery" and "the bot
     // got out" are different claims, and only the second is worth reporting.
@@ -7156,6 +7171,7 @@ async function unstick(bot) {
       return
     }
     log('warn', 'reflex: could not pillar out either, falling through', { climbed: round1(climbed) })
+    }
   }
 
   // 0. LOOK BEFORE THRASHING.

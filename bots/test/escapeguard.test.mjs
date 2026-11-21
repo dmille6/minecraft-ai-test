@@ -503,6 +503,14 @@ await t('MUTANT KILLED (anchored): pillarOut swallows the zone refusal again -> 
     assert.ok(tries() > 1, `the mutant retries the refused placement (${tries()} tries, out ${out})`)
   })
 })
+await t('VILLAGESAFE WIRING (Codex r2, comments stripped): pillarOut\'s other callers send a guarded climb to guardBranch -- the escape lattice\'s pillar_up and the unstick oscillation (Nova\'s branch)', () => {
+  const src = stripComments(readFileSync(REFLEX_PATH, 'utf8'))
+  const pu = src.slice(src.indexOf('  pillar_up: async bot => {'), src.indexOf('  surface_swim: bot => surfaceSwim(bot),'))
+  assert.ok(pu.includes('if (out === ESCAPE_GUARDED) {') && pu.includes("const g = await guardBranch(bot, { handler: 'pillar_up' })"), 'pillar_up routes guarded')
+  const un = src.slice(src.indexOf('let pout = null'), src.indexOf('reflex: could not pillar out either, falling through'))
+  assert.ok(un.includes('pout = await pillarOut(bot)') && un.includes('if (pout === ESCAPE_GUARDED) {') && un.includes("g = await guardBranch(bot, { handler: 'unstick' })"), 'unstick routes guarded')
+  assert.strictEqual(src.split("const g = await guardBranch(bot, { handler: 'pillar_up' })").length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+})
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
