@@ -250,7 +250,7 @@ import { trunkGuard } from './buildsite.mjs'   // leaffell-01show r1: the retrof
 import { reservationsStrict } from './buildsite.mjs'   // leaffell-01show r2: ...over reservations whose every input says whether it was read
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
-import { stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
+import { townView as swTownView, stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
 import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's descent stops above the town mine (owner 11-09)
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
@@ -33169,7 +33169,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     // the keep and the next layer's owed tops, then the top stone (stone_bricks first), then the face stone (cobbled_deepslate first)
     const pal = rec.palette ?? {}
     const postsLeft = plan.cells.filter(q => q.role === 'post' && !/_wall$/.test(read0(...q.at)?.name ?? '')).length
-    const swTown = () => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } }
+    const swTown = () => { try { return swTownView(matsTownStock(bot)) } catch { return null } }   // stepwell-04show rig: a stale index is unknown
     const topsOwed = () => { try { return swNextTopsOwed(stairRead(bot), plan).n } catch { return 0 } }
     const swDraw = async (name, n) => (await draw({ [name]: n }))[name] ?? 0
     await swStockTank({ bag: () => heldMap(bot), keep, palette: pal, postsLeft, owed: topsOwed, town: swTown, draw: swDraw,

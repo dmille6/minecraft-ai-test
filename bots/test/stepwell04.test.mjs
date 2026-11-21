@@ -129,6 +129,22 @@ await t('trimFetch: on what is PLACEABLE (above the keep), stone_bricks first, t
   const onyx = { cobblestone: 50, cobbled_deepslate: 51 }, ok = townKeeps(onyx).keep
   assert.deepStrictEqual(V.trimFetch({ bag: onyx, keep: ok, topsOwed: 151, palette: PAL, town }), { name: 'stone_bricks', n: 128 })
 })
+await t('townView (rig 11-21): only a fully known scan is the town\'s stock; a stale or partial index is unknown (every source asked)', () => {
+  const stock = { stone_bricks: 308, cobblestone: 29 }
+  assert.deepStrictEqual(V.townView({ stock, known: 35, keys: 35, coverage: 1 }), stock)
+  assert.strictEqual(V.townView({ stock: {}, known: 0, keys: 35, coverage: 0 }), null, 'LIVE rig: every entry stale')
+  assert.strictEqual(V.townView({ stock, known: 20, keys: 35, coverage: 20 / 35 }), null, 'partial')
+  assert.strictEqual(V.townView(null), null)
+  // the chain: an unknown town asks for the bricks; the stale empty stock would have skipped them
+  const bag = LUMEN(), keep = townKeeps(bag).keep
+  assert.deepStrictEqual(V.trimFetch({ bag, keep, topsOwed: 151, palette: PAL, town: V.townView({ stock: {}, known: 0, keys: 35, coverage: 0 }) }), { name: 'stone_bricks', n: 117 })
+  assert.strictEqual(V.trimFetch({ bag, keep, topsOwed: 151, palette: PAL, town: {} }), null, 'control: the empty stock read as a proof skips every source')
+})
+await t('MUTANT KILLED: townView takes any reading as the stock (the rig\'s stale index)', async () => {
+  await withMutant(SV_PATH, "export const townView = ts => (ts && ts.known > 0 && Number(ts.coverage) >= 1 && ts.stock && typeof ts.stock === 'object' ? ts.stock : null)", 'export const townView = ts => ts?.stock ?? null', async M => {
+    assert.deepStrictEqual(M.townView({ stock: {}, known: 0, keys: 35, coverage: 0 }), {})
+  })
+})
 await t('faceFetch: the face stone on what is placeable beyond the owed tops, cobbled_deepslate first', () => {
   const bag = LUMEN(), keep = townKeeps(bag).keep
   assert.deepStrictEqual(V.faceFetch({ bag, keep, topsOwed: 151, palette: PAL, town: { cobbled_deepslate: 2002, cobblestone: 46 } }), { name: 'cobbled_deepslate', n: 64 })
@@ -379,6 +395,7 @@ const WIRES = [
   ['the stock-up runs before the visit', /await swStockTank\(\{ bag: \(\) => heldMap\(bot\), keep, palette: pal, postsLeft, owed: topsOwed, town: swTown, draw: swDraw,/],
   ['the visit runs through the remedy', /const r = await swTankWithRemedy\(\{ now, deadline, back: \(\) => stairWalk\(bot, rec\.exit, STEPWELL_WALK_MS, signal\), stock: \{ bag: \(\) => heldMap\(bot\), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw \}, run: \(\) => runIt\(\(\) => runStepwellVisit\(\{/],
   ['the stamp follows tankStamps', /if \(swTankStamps\(r\)\) \{/],
+  ['the town\'s stock is read through townView', /const swTown = \(\) => \{ try \{ return swTownView\(matsTownStock\(bot\)\) \} catch \{ return null \} \}/],
   ['the remedy follows tankRemedy', /const remedy = swTankRemedy\(r\)/],
   ['the effects count above the keep', /palette: rec\.palette \?\? \{\}, signal, fence, keep,/],
 ]
