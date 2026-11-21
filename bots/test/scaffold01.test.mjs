@@ -434,6 +434,25 @@ await t('MUTANT: the block-update watch cut -- the replacement is dug (killed)',
     f.arrive(); await q.catch(() => {})
   })
 })
+await t('REVIEW r2 (Codex, reproduced): the cell replaced DURING the equip\'s await -- judged again at the dig, never dug', async () => {
+  const f = await carried()
+  f.bot.pathfinder.bestHarvestTool = () => ({ name: 'stone_shovel' })   // the take-back equips: the await
+  f.bot.equip = async () => { update(f, [1, 64, 0], 'air'); update(f, [1, 64, 0], 'dirt'); await sleep(2) }
+  const q = f.walk({ id: 'b', x: -40, y: 64, z: 0 }); f.stand(3, 64, 0)
+  await sleep(20 * T.tickMs)
+  assert.deepStrictEqual(f.bot.dug, [], 'the replacement stands')
+  f.arrive(); await q.catch(() => {})
+})
+await t('MUTANT: without the second judgement the replacement is dug (killed)', async () => {
+  await withMutant(TB_URL, [["    if (r.changed || r.unwatched || blockAt(r.cell)?.name !== r.block) { row(r, r.unwatched ? 'left' : 'adopted', r.unwatched ? 'unwatched' : 'changed'); return true }\n", '']], async M => {
+    const f = await carried({ M })
+    f.bot.pathfinder.bestHarvestTool = () => ({ name: 'stone_shovel' })   // the take-back equips: the await
+    f.bot.equip = async () => { update(f, [1, 64, 0], 'air'); update(f, [1, 64, 0], 'dirt'); await sleep(2) }
+    const q = f.walk({ id: 'b', x: -40, y: 64, z: 0 }); f.stand(3, 64, 0)
+    await until(() => f.bot.dug.length === 1)
+    f.arrive(); await q.catch(() => {})
+  })
+})
 await t('ITS CHUNK UNLOADS: the claim ends (`left why=unwatched`), the block goes on the hand-off file, and it is never dug from memory', async () => {
   const f = await carried()
   f.bot.emit('chunkColumnUnload', { x: 0, z: 0 })
