@@ -9,7 +9,7 @@
 // pickaxe and the bag; a cell refused twice, or with no stand, is passed for this visit. THE VISIT ENDS AT THE EXIT: a builder below
 // the rim walks out by the flights (the plan's walk proof: every walkable column reaches the rim in steps of 1).
 import { Vec3 } from 'vec3'
-import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK, unitDone } from './stepwell.mjs'
+import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK, unitDone, cellDone } from './stepwell.mjs'
 import { shareView } from './stepwell.mjs'   // stepwell-05: the crew's sector of a layer
 import { asideOn, asideFor, asideRefusal, ASIDE_MS, ASIDE_WALKS } from './stepwell.mjs'   // stepwell-03show: an unreachable cut set aside
 import { isFull, isWet } from './shaftgeom.mjs'
@@ -188,8 +188,10 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
         const r = await e.dig(op.at)
         if (r === 'confirmed') { out.dug++; e.log('dig', { at: op.at, kind: op.kind, why: op.why, y: w.unit.y }) } else fail(op.at, `dig:${r}`)
       } else {
-        const r = await e.place(op.at, op.role)
-        if (r === 'confirmed') { out.placed++; e.log('place', { at: op.at, role: op.role, why: op.why, y: w.unit.y }) } else if (r === 'no_material') return end('no_material', `no ${op.role} block in the bag`, w.unit.y)
+        // stepwell-04show: the unit's tops still owed ride with every placement (pickPlaceItem: a face or an under never takes the
+        // stone those tops need while another stone will do)
+        const r = await e.place(op.at, op.role, { topsOwed: topsOwedIn(read, plan, unit) })
+        if (r === 'confirmed') { out.placed++; e.log('place', { at: op.at, role: op.role, why: op.why, y: w.unit.y }) } else if (r === 'no_material') { out.role = op.role; return end('no_material', `no ${op.role} block in the bag`, w.unit.y) }
         else fail(op.at, `place:${r}`)
       }
     }
@@ -245,7 +247,7 @@ export const TOOL_MIN = 8
  * cell reads its role's block after the acknowledgement (a seal: no longer a liquid). `walk(cell, ms)` -> arrived (skills.mjs
  * stairWalk: the town-deposit profile, no digs, no scaffold).
  */
-export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence = () => true, log = () => {}, walk, occupied = () => false } = {}) {
+export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence = () => true, log = () => {}, walk, occupied = () => false, keep = null } = {}) {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const fresh = () => stairRead(bot)
   const equipFor = async c => {
@@ -283,8 +285,10 @@ export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence
     feet: () => B.feet(),
     walkTo: async c => { const ok = await walk(c); return !!ok },
     dig: async c => { await equipFor(c); return withDigScope(bot, { purpose: 'target', by: 'build_stepwell' }, () => B.dig(c)) },
-    place: async (c, role) => {
-      const item = itemsFor(role, palette).find(n => B.has(n))
+    place: async (c, role, at = {}) => {
+      // stepwell-04show: what is held above the visit's keeps (`keep`, the same map B.has counts above), the unit's owed tops reserved
+      const spare = n => (!B.has(n) ? 0 : keep ? stairItems(bot).filter(i => i.name === n).reduce((t, i) => t + (i.count ?? 1), 0) - (Number(keep[n]) || 0) : 1)
+      const item = pickPlaceItem(role, palette, spare, { topsOwed: at?.topsOwed ?? 0 })
       if (!item) return 'no_material'
       const accept = role === 'seal' ? b => !!b && !isWet(b) && isFull(b) : b => cellGood(role, b, fresh()(c[0], c[1] - 1, c[2])) === true
       const r = await click(c, item, accept, role)
@@ -298,4 +302,170 @@ export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence
     now: () => Date.now(),
     aborted: () => !!signal?.aborted,
   }
+}
+
+// ---- stepwell-04show: THE TANK'S STOCK -----------------------------------------------------------------------------------------
+// THE CASE (LIVE showcase 11-21, ES + the town index): every tank visit ended `no trim block in the bag at y 62 -- carry cobblestone`
+// and wrote a 6 h stuck stamp. The bag keeps 64 of its stone (towndeposit.mjs townKeeps, cobblestone first, fixed at the visit's start)
+// and only blocks ABOVE that keep are placed. Lumen came with 98 cobblestone (34 placeable); the visit crafted 48 of them into
+// cobblestone_wall posts and kept 50, all under the keep. The town fetch was skipped while the bag held 48+ of any stone, judged
+// BEFORE the craft; the town held 624 stone_bricks and 6,526 cobblestone_wall. THE RULES, each a pure function below:
+//   1. posts come from the town's walls first (postsDraw);
+//   2. posts are crafted only from cobblestone above BOTH the keep and the next layer's owed tops (postsCraft);
+//   3. the top stone (trim + floor) is fetched on what is PLACEABLE (above the keep), after any craft, stone_bricks first (trimFetch);
+//      the face stone likewise, cobbled_deepslate first (faceFetch: the stone the town has most of, never the tops' cobblestone);
+//   4. a visit that ends without a top block fetches it and goes on (tankWithRemedy); a stamp is written only when the town had none.
+// A face, a body or an under never takes the tops' stone while another stone will do (pickPlaceItem).
+export const SWSTOCK = Object.freeze({ postsMax: 48, wallsBatch: 6, topMax: 128, faceMin: 48, faceDraw: 64, refetch: 2, refetchMs: 60_000, workMs: 60_000 })
+export const TOP_ROLES = Object.freeze(new Set(['trim', 'floor']))
+export const TRIM_FETCH_ORDER = Object.freeze(['stone_bricks', 'cobblestone'])
+export const FACE_FETCH_ORDER = Object.freeze(['cobbled_deepslate', 'cobblestone'])
+const n0 = v => Math.max(0, Number(v) || 0)
+/** What `names` hold above the keep -> n. Pure. `bag`, `keep`: { name: n }. */
+export const spareOf = (bag = {}, keep = {}, names = []) => [...new Set(names)].reduce((t, n) => t + Math.max(0, n0(bag?.[n]) - n0(keep?.[n])), 0)
+/** The items a top (trim or floor) is laid with. Pure. */
+export const topItems = (palette = {}) => [...new Set([...itemsFor('trim', palette), ...itemsFor('floor', palette)])]
+/** The walls a bag holds (any `_wall`) -> n. Pure. */
+export const wallsHeld = (bag = {}) => Object.entries(bag ?? {}).filter(([n]) => POST_BLOCK.test(n)).reduce((t, [, c]) => t + n0(c), 0)
+/** A unit's tops (trim and floor cells) not done now -> n (an unread one is owed). Pure over read. */
+export function topsOwedIn (read, plan, unit) {
+  let n = 0
+  for (const c of unit?.tops ?? []) if (TOP_ROLES.has(plan.byKey.get(`${c[0]},${c[1]},${c[2]}`)?.role) && cellDone(read, plan, c) !== true) n++
+  return n
+}
+/** THE NEXT LAYER'S OWED TOPS -> { y, n }: the first unit, top down, that owes a trim or floor cell (n 0, y null: none). Pure. */
+export function nextTopsOwed (read, plan) {
+  for (const u of plan?.units ?? []) { const n = topsOwedIn(read, plan, u); if (n > 0) return { y: u.y, n } }
+  return { y: null, n: 0 }
+}
+/** THE TOWN'S STOCK AS THE FETCH READS IT -> { name: n } | null (unknown: every source is asked). Pure over skills.mjs matsTownStock's
+ *  reading. Only a scan whose every container the index knows is a proof of what the town holds (rig 11-21: an index 12 h stale read
+ *  `known` 0 and an empty stock, and the fetch skipped the town's 308 stone_bricks as "none"); a stale or partial one is unknown --
+ *  the withdraw's own search (its skip_zero_stock) asks the containers. */
+export const townView = ts => (ts && ts.known > 0 && Number(ts.coverage) >= 1 && ts.stock && typeof ts.stock === 'object' ? ts.stock : null)
+/** THE TANK'S DRAW CLOCK -> the withdraw's `reserveMs` (rig 11-21, head v3: one withdraw ran to the SKILL's clock -- 30 s before its
+ *  180 s -- past the visit's own deadline, and every visit ended `time` with nothing laid): a draw ends `workMs` before the visit's
+ *  deadline, never later than the withdraw's own 30 s reserve. Pure. */
+export function drawReserveMs ({ skillDeadline, visitDeadline, workMs = SWSTOCK.workMs, min = 30_000 } = {}) {
+  const r = Number(skillDeadline) - (Number(visitDeadline) - workMs)
+  return Number.isFinite(r) ? Math.max(min, r) : min
+}
+/** RULE 1: the posts to draw from the town's walls before any is crafted -> n. Pure. */
+export function postsDraw ({ bag = {}, postsLeft = 0, max = SWSTOCK.postsMax } = {}) {
+  return Math.max(0, Math.min(n0(postsLeft), max) - wallsHeld(bag))
+}
+/** RULE 2: the walls to craft (whole batches of 6 from 6 cobblestone) -> n, only from cobblestone above BOTH the keep and the next
+ *  layer's owed tops. Pure. */
+export function postsCraft ({ bag = {}, keep = {}, postsLeft = 0, topsOwed = 0, max = SWSTOCK.postsMax, batch = SWSTOCK.wallsBatch } = {}) {
+  const want = Math.min(n0(postsLeft), max) - wallsHeld(bag)
+  if (!(want > 0)) return 0
+  const free = n0(bag.cobblestone) - n0(keep.cobblestone) - n0(topsOwed)
+  return Math.max(0, Math.min(Math.ceil(want / batch), Math.floor(free / batch))) * batch
+}
+/** RULE 3: THE NEXT TOP-STONE DRAW -> { name, n } | null: the owed tops less the placeable top stone (above the keep), at most `max`,
+ *  from the first source in TRIM_FETCH_ORDER not yet `tried` that the town holds (`town` null: unknown, every source is asked). Pure. */
+export function trimFetch ({ bag = {}, keep = {}, topsOwed = 0, palette = {}, town = null, tried = [], max = SWSTOCK.topMax } = {}) {
+  const deficit = Math.min(max, n0(topsOwed) - spareOf(bag, keep, topItems(palette)))
+  if (!(deficit > 0)) return null
+  for (const name of TRIM_FETCH_ORDER) {
+    if (tried.includes(name)) continue
+    if (town && !(n0(town[name]) > 0)) continue
+    return { name, n: town ? Math.min(deficit, n0(town[name])) : deficit }
+  }
+  return null
+}
+/** RULE 3 for the faces: THE NEXT FACE-STONE DRAW -> { name, n } | null when the placeable face stone (the non-top stone above the
+ *  keep, and the top stone beyond the owed tops) is under `min`. Pure. */
+export function faceFetch ({ bag = {}, keep = {}, topsOwed = 0, palette = {}, town = null, tried = [], min = SWSTOCK.faceMin, n = SWSTOCK.faceDraw } = {}) {
+  const tops = topItems(palette)
+  const other = itemsFor('wall', palette).filter(x => !tops.includes(x))
+  const usable = spareOf(bag, keep, other) + Math.max(0, spareOf(bag, keep, tops) - n0(topsOwed))
+  if (usable >= min) return null
+  for (const name of FACE_FETCH_ORDER) {
+    if (tried.includes(name)) continue
+    if (town && !(n0(town[name]) > 0)) continue
+    return { name, n }
+  }
+  return null
+}
+/**
+ * RULES 1-3 IN THEIR ORDER: THE TANK'S STOCK BEFORE A VISIT -> { drawn: { name: n }, crafted: n }. `s` = { bag() -> { name: n }, keep,
+ * palette, postsLeft, owed() -> the next layer's owed tops, town() -> { name: n } | null, draw(name, n) -> Promise<n taken>,
+ * craft(n) -> Promise (n cobblestone_wall) }: the posts from the town's walls (postsDraw), a craft only from cobblestone above the keep
+ * and the owed tops (postsCraft, read AFTER the draw), then the top stone (trimFetch, AFTER the craft), then the face stone (faceFetch).
+ */
+export async function stockTank (s, { max = SWSTOCK.postsMax, timeOk = () => true } = {}) {
+  const drawn = {}
+  const take = async (name, n) => { const got = n0(await s.draw(name, n)); if (got > 0) drawn[name] = (drawn[name] ?? 0) + got; return got }
+  // rig 11-21 (head v2): the town's walk ate the visit's whole clock and the tank got none -- no draw or craft is STARTED once
+  // `timeOk()` says the visit's own share of the deadline is all that is left (skills.mjs: SWSTOCK.workMs before it)
+  const wd = postsDraw({ bag: s.bag(), postsLeft: s.postsLeft, max })
+  if (wd > 0 && timeOk()) await take('cobblestone_wall', wd)
+  const cw = postsCraft({ bag: s.bag(), keep: s.keep, postsLeft: s.postsLeft, topsOwed: s.owed(), max })
+  if (cw > 0 && timeOk()) await s.craft(cw)
+  const town = s.town()
+  for (const fn of [trimFetch, faceFetch]) {
+    const tried = []
+    for (let f; timeOk() && (f = fn({ bag: s.bag(), keep: s.keep, topsOwed: s.owed(), palette: s.palette, town, tried })) != null;) { tried.push(f.name); await take(f.name, f.n) }
+  }
+  return { drawn, crafted: cw }
+}
+/** THE ITEM A PLACEMENT HOLDS -> name | null. Pure. `spare(name)` -> what is held above the keep. A top (and a seal: the safety) takes
+ *  its role's first item held; a face, body or under takes a top's stone only while the top stone held exceeds the owed tops, else
+ *  the next stone it may use -- and the top stone after all when nothing else is held (the face is never left for want of a choice). */
+export function pickPlaceItem (role, palette = {}, spare = () => 0, { topsOwed = 0 } = {}) {
+  const have = itemsFor(role, palette).filter(n => spare(n) > 0)
+  if (!have.length) return null
+  if (TOP_ROLES.has(role) || role === 'seal' || !(n0(topsOwed) > 0)) return have[0]
+  const tops = topItems(palette)
+  const topSpare = tops.reduce((t, n) => t + Math.max(0, spare(n)), 0)
+  return have.find(n => !tops.includes(n) || topSpare > n0(topsOwed)) ?? have[0]
+}
+/** THE STUCK STAMP'S RULE -> bool. Pure. A visit that did nothing and stopped on a failure waits the project (the 6 h stamp) -- but
+ *  never one that fetched stone for the tank, whatever its last run's stop (Codex r1 BLOCKER: a rerun from the town chest can read
+ *  the tank unloaded and end `unknown`; the stone is in the bag and the next visit lays it). */
+export const TANK_STAMP_STOPS = Object.freeze(['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'])
+export function tankStamps (r = {}) {
+  if (!(r.placed > 0 || r.dug > 0) && TANK_STAMP_STOPS.includes(r.stop)) return !Object.values(r.fetched ?? {}).some(v => v > 0)
+  return false
+}
+/** THE REMEDY A VISIT'S END NAMES -> text: one the bot performs from where it is. Pure. */
+export function tankRemedy (r = {}) {
+  const got = Object.entries(r.fetched ?? {}).filter(([, v]) => v > 0)
+  if (r.stop === 'no_material') {
+    if (got.length) return ` -- fetched ${got.map(([k, v]) => `${v} ${k}`).join(', ')} from town; the next visit lays them`
+    if (TOP_ROLES.has(r.role)) return ' -- the town gives no stone_bricks or cobblestone: mine cobblestone and carry it'
+    if (r.role === 'post') return ' -- withdraw cobblestone_wall at town (or craft it from cobblestone above the keep)'
+    return ' -- carry stone (withdraw cobbled_deepslate or cobblestone at town)'
+  }
+  return { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', passed: ' -- the cells passed are tried again from other stands next visit', unsealed: ' -- the water is sealed from another stand next visit (nothing is cut beside it until then)' }[r.stop] ?? ''
+}
+/**
+ * RULE 4: THE TANK VISIT WITH ITS TOP-STONE REMEDY -> runStepwellVisit's out, summed over its runs, plus `fetched` { name: n }.
+ * `run()` -> one runStepwellVisit; a run that ends `no_material` on a top (trim or floor) fetches the top stone (trimFetch, the
+ * town read again: stone_bricks first, then cobblestone) and runs again, at most `refetch` times and only while `refetchMs` of the
+ * deadline is left; a fetch that took nothing ends it (the stamp's case). `stock` = { bag() -> { name: n }, keep, palette, town() ->
+ * { name: n } | null, owed() -> the next layer's owed tops, draw(name, n) -> Promise<n taken> }. `back()` (Codex r1 BLOCKER): the walk
+ * from the town's chests back to the tank before the next run (its chunks loaded again); a walk that fails still runs (the run's own
+ * stands walk, or it ends `unknown` -- never stamped after a fetch, tankStamps).
+ */
+export async function tankWithRemedy ({ run, stock, back = null, now = () => Date.now(), deadline = Infinity, refetch = SWSTOCK.refetch, refetchMs = SWSTOCK.refetchMs }) {
+  const sum = { placed: 0, dug: 0, ops: 0, skipped: 0, aside: 0, passed: [], fetched: {}, runs: 0 }
+  let r = null
+  const add = x => { r = x; sum.runs++; for (const k of ['placed', 'dug', 'ops', 'skipped', 'aside']) sum[k] += n0(x[k]); for (const k of x.passed ?? []) if (!sum.passed.includes(k)) sum.passed.push(k) }
+  add(await run())
+  for (let i = 0; i < refetch && r.stop === 'no_material' && TOP_ROLES.has(r.role) && now() < deadline - refetchMs; i++) {
+    const town = stock.town()
+    const tried = []
+    let took = 0
+    for (let f; (f = trimFetch({ bag: stock.bag(), keep: stock.keep, topsOwed: stock.owed(), palette: stock.palette, town, tried })) != null;) {
+      tried.push(f.name)
+      const n = n0(await stock.draw(f.name, f.n))
+      if (n > 0) { sum.fetched[f.name] = (sum.fetched[f.name] ?? 0) + n; took += n }
+    }
+    if (!took || now() >= deadline - refetchMs) break
+    if (back) { try { await back() } catch (err) { if (err?.aborted) throw err } }
+    add(await run())
+  }
+  return { ...r, ...sum, tiers: r.tiers }
 }
