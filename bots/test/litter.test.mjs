@@ -482,7 +482,7 @@ await t('a step the walk left behind is in the bot\'s file, on the record\'s cut
   assert.strictEqual(c.srv.read(6, G + 1, 3).name, 'stone', 'the rise beside it stands')
 })
 await t('mutant (takeback.mjs): without the hand-off nothing reaches the file, the record or the visit', async () => {
-  await withMutant(P('takeback.mjs'), "    if (outcome === 'left' && onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } }\n", '', async M => {
+  await withMutant(P('takeback.mjs'), "  const handOff = (r, why) => { if (onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } } }\n", '  const handOff = () => {}\n', async M => {
     const c = await chain(M)
     assert.deepStrictEqual(c.litter, []); assert.deepStrictEqual(litterFiles(c.dir), [])
     assert.ok(!c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP)))

@@ -80,6 +80,10 @@ export function summaryDetail (sum, windowS) {
  * Install the wrapper on one bot -> { final, stats } | null (already wrapped, or no placeBlock). Never throws into the caller.
  *   home  { x, y, z };  emitPlace({ detail, args }), emitSummary({ detail, args })
  */
+/** scaffold-01show: how long a failed placement's cell is watched for its block landing late, and at most how many cells. */
+export const LATE_MS = 12_000
+export const LATE_MAX = 64
+export const OTHER_R = 6   // farther than any player's reach (4.5 survival, 5 creative) plus a body
 export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced = null, timers = true, now = () => Date.now(), summaryMs = SUMMARY_MS } = {}) {
   // once a BOT (never by the function on top: skills.mjs's bag tally wraps placeBlock for a visit and restores only when it is still on
   // top -- a second install at a respawn under it would double every row and strand its restore)
@@ -87,7 +91,47 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced 
   bot.__placeAudit = true
   const orig = bot.placeBlock
   let sum = emptySummary(), winStart = now(), closed = false
-  const stats = { wrapped: 0, settled: 0 }
+  const stats = { wrapped: 0, settled: 0, late: 0 }
+  // scaffold-01show: A PLACEMENT THAT "FAILED" AND LANDED LATER (measured in the sandbox2 rig 11-21: every block of a tower beside a
+  // 4-high cliff -- 7 calls, 3 blocks standing -- rejected `blockUpdate ... did not fire within timeout of 5000ms` and the block
+  // then landed 5-6 s after the rejection; on the showcase 11-19, 5,599 of 11,804 pathfinder placements settled `failed`). Such a
+  // block got no receipt, so nothing ever took it back. Its cell is watched for LATE_MS: an update there to the block the bot held
+  // hands it on (`onPlaced`, rec.late), once. One listener for all of them; at most LATE_MAX cells.
+  const pending = new Map()
+  const onBlock = (_o, n) => {
+    try {
+      const p = n?.position
+      if (!p || !pending.size) return
+      const k = `${p.x},${p.y},${p.z}`, w = pending.get(k)
+      if (!w) return
+      if (now() > w.until) { pending.delete(k); return }
+      if (n.name !== w.rec.block) return
+      pending.delete(k)
+      // ONLY THIS BOT COULD HAVE PLACED IT (Codex r4 BLOCKER: another bot laying the same block there within LATE_MS): a placement
+      // needs reach, so a late landing with any other player, or an enderman (it carries and sets blocks), within OTHER_R of the
+      // cell is not this bot's, and gets no receipt
+      if (otherNear(w.rec.cell)) { stats.lateOther = (stats.lateOther ?? 0) + 1; return }
+      stats.late++
+      if (onPlaced) { try { onPlaced({ ...w.rec, late: true }) } catch { sum.ierr++ } }
+    } catch { sum.ierr++ }
+  }
+  const otherNear = c => {
+    for (const e of Object.values(bot.entities ?? {})) {
+      const p = e?.position
+      if (!p || e === bot.entity) continue
+      if (!(e.type === 'player' || /enderman/.test(String(e.name ?? '')))) continue
+      if (Math.hypot(p.x - (c[0] + 0.5), p.y - (c[1] + 0.5), p.z - (c[2] + 0.5)) <= OTHER_R) return true
+    }
+    return false
+  }
+  const watchLate = rec => {
+    if (!onPlaced || typeof bot.on !== 'function' || !rec?.cell) return
+    const t = now()
+    for (const [k, w] of pending) if (t > w.until) pending.delete(k)
+    if (pending.size >= LATE_MAX) pending.delete(pending.keys().next().value)
+    pending.set(rec.cell.join(','), { rec, until: t + LATE_MS })
+  }
+  if (typeof bot.on === 'function') bot.on('blockUpdate', onBlock)
   const capture = (ref, face) => {
     const p = ref?.position
     if (!p || !face) return null
@@ -112,6 +156,7 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced 
       sum.by[k] = (sum.by[k] ?? 0) + 1
       // takeback-01 (`onPlaced`): a placement that LANDED, in the town or anywhere else, is handed on (takeback.mjs's receipt)
       if (!err && onPlaced) { try { onPlaced(rec) } catch { sum.ierr++ } }
+      if (err) watchLate(rec)                                       // scaffold-01show: it may land late
       if (rec.zone) {
         const args = { x: rec.cell[0], y: rec.cell[1], z: rec.cell[2], block: rec.block, reason: rec.reason, by: rec.by, shape: rec.shape, zone: rec.zone, outcome, feet: rec.feet, profile: rec.profile, ms: now() - rec.t0 }
         try { emitPlace({ detail: `pos=${rec.cell.join(',')} block=${rec.block} reason=${rec.reason} by=${rec.by} shape=${rec.shape} zone=${rec.zone} outcome=${outcome} profile=${rec.profile}`, args }) } catch { sum.ierr++ }
@@ -136,7 +181,7 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced 
   }
   let timer = null
   if (timers) { timer = setInterval(flush, summaryMs); timer.unref?.() }
-  const final = () => { if (closed) return; flush(); closed = true; if (timer) clearInterval(timer) }
+  const final = () => { if (closed) return; flush(); closed = true; if (timer) clearInterval(timer); try { bot.removeListener?.('blockUpdate', onBlock) } catch { /* gone */ } pending.clear() }
   return { final, flush, stats }
 }
 

@@ -397,5 +397,6 @@ test('WIRING MUTANTS: each missing piece is named', () => {
   assert.match(mut('      installCleanZoneSearch(bot.pathfinder, cleanZone)\n', ''), /the search scope is installed/)
   assert.match(mut('    ascendMoves.cleanZone = false ', '    ascendMoves.cleanZoneX = false '), /ascendMoves is exempt: found 0/)
   assert.match(mut('    waterMoves.cleanZone = false ', '    waterMoves.cleanZoneX = false '), /waterMoves is exempt: found 0/)
-  assert.match(mut('    gatherMoves.scafTown = false ', '    gatherMoves.cleanZone = false; gatherMoves.scafTown = false '), /gatherMoves sets cleanZone/)
+  // scaffold-01show: gather's `scafTown = false` line is gone (gather is priced); the anchor is its dontCreateFlow line
+  assert.match(mut('    gatherMoves.dontCreateFlow = true\n', '    gatherMoves.dontCreateFlow = true; gatherMoves.cleanZone = false\n'), /gatherMoves sets cleanZone/)
 })
