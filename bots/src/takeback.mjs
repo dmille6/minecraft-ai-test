@@ -239,6 +239,18 @@ export function verdictFor (r, { name = null, above = null, body = false, priced
   if (!(digMs <= T.digMsMax)) return { act: 'left', why: 'slow' }
   return { act: 'dig', why: 'ripe' }
 }
+/**
+ * IS THE RECEIPT UNDER ONE OF THE WALK'S OWN STILL-OPEN RECEIPTS? -> bool. Pure. pillars-01show (measured 11-20 on the showcase's
+ * CoreProtect: 104 of the 1,044 walk blocks that stand in lone pillars outside the walls closed `adopted why=built_on` -- the
+ * tower's lower block judged while its own top was still open, out of sight or out of reach, and closed for good): a receipt with
+ * an open receipt of this bot directly over it is not ripe. It waits for its top: dug, the one under it is next (takeOrder); closed
+ * any other way, it is judged as before.
+ */
+export function stackedUnder (r, open) {
+  if (!r?.cell) return false
+  for (const o of open ?? []) if (o !== r && !o.closed && o.cell && o.cell[0] === r.cell[0] && o.cell[2] === r.cell[2] && o.cell[1] === r.cell[1] + 1) return true
+  return false
+}
 /** The order ripe receipts are taken in: the highest first (a tower comes down from its top), then the oldest. Pure. */
 export const takeOrder = list => [...list].sort((a, b) => b.cell[1] - a.cell[1] || a.t - b.t)
 /** May the watcher halt the walk now? -> bool. Pure. halts: this goto's count; recent: the halt times of the last minute. */
@@ -407,7 +419,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   // takebackpath-01show: the active walk's path, kept from the library's own path_update (a halted walk keeps it: it resumes to the same goal)
   // Codex r1 BLOCKER: the take-back's own halt nulls pf.goal, and the walk resumes after it -- so the walk is ON while its call is the owner
   const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null, live: true } }
-  const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow())))
+  const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow()) && !stackedUnder(r, st.open)))   // pillars-01show: a tower from its top
   const held = () => { try { return bodyHeld(bot.__digContext?.()) } catch { return false } }
   const wet = c => [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]].some(d => holdsLiquid(blockAt([c[0] + d[0], c[1] + d[1], c[2] + d[2]])))
   const mark = h => { for (const r of st.open) if (!r.used && overCell(r.cell, h.pos)) r.used = true }
