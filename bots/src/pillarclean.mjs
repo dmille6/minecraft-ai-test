@@ -209,6 +209,19 @@ export function scafLeftPillars (files, now, { skip = () => false, T = SCAFLEFT 
   }
   return out
 }
+/**
+ * DOES A HANDED CELL STAND PROUD? -> bool. Pure over `read`. Air (or a listed cell, taken first) over it and on at least 2 of its 4
+ * sides: a scaffold block a walk left stands out of the ground round it; ground put back level, or into a slope, is flush with
+ * solid round it and is never dug on a bot's own word (review r1, Codex: the hand-off is not CoreProtect's proof).
+ */
+export function handedProud (at, read, listed = new Set()) {
+  const open = (x, y, z) => { const k = `${x},${y},${z}`; if (listed.has(k)) return true; const b = read(x, y, z); return !!b && AIR.test(nm(b)) }
+  const [x, y, z] = at
+  if (!open(x, y + 1, z)) return false
+  let n = 0
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (open(x + dx, y, z + dz)) n++
+  return n >= 2
+}
 /** A list with the hand-off's pillars added (none of its cells already listed) -> a list | null. Pure. */
 export function pillarListWith (list, extra, pool) {
   if (!extra?.length) return list
@@ -251,7 +264,8 @@ export function pillarPassJobs (list, read, { pos = null, aside = () => false, c
       const k = k3(job.at)
       if (!standing.has(k)) continue
       if (aside(k)) { census.aside++; continue }
-      const v = pillarVerdict(job, read, { listed: q => standing.has(q), cells, zone })
+      // scaffold-01show's hand-off (Codex r1 BLOCKER: a handed cell put back as ground with the same block): only while it stands proud
+      const v = p.kind === 'scafleft' && !handedProud(job.at, read, standing) ? 'in_ground' : pillarVerdict(job, read, { listed: q => standing.has(q), cells, zone })
       if (v === 'take' || v === 'above') { cs.push({ at: job.at, kind: 'pillar', name: nm(read(...job.at)), placer: job.placer, pillar: p.id ?? -1 }); continue }
       if (v === 'unread') continue
       census.why[v] = (census.why[v] ?? 0) + 1
@@ -277,6 +291,8 @@ export function pillarClearOk (c, read, { listed = () => false, cells = () => fa
   if (inWater || under.some(k => { const b = read(...k.split(',').map(Number)); return !b || isLiquid(b) })) return false
   if (others.includes(k3(c.at))) return false
   if (under.includes(k3(c.at)) || under.some(k => noFloor(k))) return false
+  // scaffold-01show's hand-off: judged proud again at the dig (Codex r1)
+  if (Number(c.pillar) >= SCAFLEFT.idBase && !handedProud(c.at, read, new Set())) return false
   return pillarVerdict(c, read, { listed: k => listed(k) && isSolid(read(...k.split(',').map(Number))), cells, zone }) === 'take'
 }
 

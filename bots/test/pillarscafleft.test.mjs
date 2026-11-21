@@ -46,6 +46,34 @@ await t('THROUGH THE LAP\'S JOBS: a handed two-block tower is offered top first;
   assert.ok(pj.held.some(h => h.job.at.join(',') === '20,66,-4'), 'something on it: held')
   assert.ok(!pj.take.some(q => q.at.join(',') === '30,66,1'), 'it reads stone now: gone, never dug')
 })
+await t('REVIEW r1 (Codex): a handed cell put back as GROUND with the same block -- flush with the ground round it -- is never taken; the same block standing proud is', () => {
+  const cells = new Map()
+  for (let x = 38; x <= 42; x++) for (let z = -2; z <= 2; z++) cells.set(`${x},64,${z}`, 'dirt')   // level ground at 64: the handed 40,64,0 is part of it
+  cells.set('50,65,0', 'dirt')                                                                          // a step on the ground at 50: proud
+  for (let x = 48; x <= 52; x++) for (let z = -2; z <= 2; z++) cells.set(`${x},64,${z}`, 'grass_block')
+  const read = (x, y, z) => { const n = cells.get(`${x},${y},${z}`) ?? (y <= 63 ? 'stone' : 'air'); return { name: n, boundingBox: n === 'air' ? 'empty' : 'block' } }
+  const ps = PC.scafLeftPillars([{ holder: 'Kite', entries: [E([40, 64, 0]), E([50, 65, 0])] }], NOW)
+  const pj = PC.pillarPassJobs(PC.pillarListWith(null, ps, 'showcase'), read, { pos: { x: 45, y: 65, z: 0 } })
+  assert.deepStrictEqual(pj.take.map(q => q.at.join(',')), ['50,65,0'])
+  assert.ok(pj.held.some(h => h.job.at.join(',') === '40,64,0' && h.why === 'in_ground'), JSON.stringify(pj.held))
+  assert.strictEqual(PC.handedProud([40, 64, 0], read), false); assert.strictEqual(PC.handedProud([50, 65, 0], read), true)
+})
+await t('AT THE DIG: a handed cell that became flush since the lap was planned is refused (pillarClearOk); a listed host pillar is unaffected', () => {
+  const cells = new Map(); for (let x = 38; x <= 42; x++) for (let z = -2; z <= 2; z++) cells.set(`${x},64,${z}`, 'dirt')
+  const read = (x, y, z) => { const n = cells.get(`${x},${y},${z}`) ?? (y <= 63 ? 'stone' : 'air'); return { name: n, boundingBox: n === 'air' ? 'empty' : 'block' } }
+  const job = { at: [40, 64, 0], kind: 'pillar', name: 'dirt', pillar: PC.SCAFLEFT.idBase + 3 }
+  assert.strictEqual(PC.pillarClearOk(job, read, { listed: () => true }), false)
+  cells.set('41,64,0', 'air'); cells.set('39,64,0', 'air')
+  assert.strictEqual(PC.handedProud([40, 64, 0], read), true, 'positive control: proud again')
+})
+await t('MUTANT: the proud test cut -- the ground put back is dug (killed)', async () => {
+  await withMutant(PC_URL, "p.kind === 'scafleft' && !handedProud(job.at, read, standing) ? 'in_ground' : ", '', async M => {
+    const cells = new Map(); for (let x = 38; x <= 42; x++) for (let z = -2; z <= 2; z++) cells.set(`${x},64,${z}`, 'dirt')
+    const read = (x, y, z) => { const n = cells.get(`${x},${y},${z}`) ?? (y <= 63 ? 'stone' : 'air'); return { name: n, boundingBox: n === 'air' ? 'empty' : 'block' } }
+    const pj = M.pillarPassJobs(M.pillarListWith(null, M.scafLeftPillars([{ holder: 'K', entries: [E([40, 64, 0])] }], NOW), 'showcase'), read, { pos: { x: 40, y: 65, z: 0 } })
+    assert.deepStrictEqual(pj.take.map(q => q.at.join(',')), ['40,64,0'])
+  })
+})
 await t('MUTANTS (pillarclean.mjs): the freshness bound and the material rule each let a wrong entry in (killed)', async () => {
   await withMutant(PC_URL, '      if (!(now - e.t <= T.keepMs) || e.t > now + 60_000) continue\n', '', async M => {
     assert.strictEqual(M.scafLeftPillars([{ holder: 'K', entries: [E([1, 70, 1], { t: NOW - M.SCAFLEFT.keepMs - 1 })] }], NOW).length, 1)
