@@ -495,6 +495,45 @@ await t('the bounds: at most haltsPerGoto halts in one goto; a tower comes down 
   assert.strictEqual(g.gotos.length, 2, 'one halt took the whole tower')
   g.arrive(); await q
 })
+// pillars-01show (11-20, the showcase's CoreProtect: 104 lone-pillar blocks outside the walls closed `adopted why=built_on`): the
+// tower's top out of sight (or out of reach) while its lower block is ripe -- the lower one was judged with its own top over it and
+// closed for good. Now it waits for its top.
+await t('stackedUnder: a receipt under an OPEN receipt of the walk is not ripe; a closed or another column\'s top is no matter', () => {
+  const lo = { cell: [3, 64, 0] }, hi = { cell: [3, 65, 0] }
+  assert.strictEqual(TB.stackedUnder(lo, [lo, hi]), true)
+  assert.strictEqual(TB.stackedUnder(hi, [lo, hi]), false, 'the top')
+  assert.strictEqual(TB.stackedUnder(lo, [lo, { ...hi, closed: true }]), false, 'its top closed: judged as before')
+  assert.strictEqual(TB.stackedUnder(lo, [lo, { cell: [4, 65, 0] }]), false, 'a step beside it')
+  assert.strictEqual(TB.stackedUnder(lo, [lo, { cell: [3, 66, 0] }]), false, 'two over: the one between is not the walk\'s')
+  assert.strictEqual(TB.stackedUnder(null, [hi]), false)
+})
+async function towerTopUnseen (M = TB) {
+  const f = fake({ M })
+  const p = f.walk({ id: 'up' })
+  f.place([3, 64, 0], { shape: 'pillar' }); f.place([3, 65, 0], { shape: 'pillar' })
+  f.stand(3, 66, 0); await sleep(3 * T.tickMs)
+  f.bot.canSeeBlock = b => b.position.y !== 65              // its top hidden from where the bot steps off (a ledge's lip)
+  f.cells.set('4,65,0', 'stone'); f.stand(4, 66, 0)
+  await sleep(40 * T.tickMs)
+  return { f, p }
+}
+await t('a tower whose top is out of sight: its lower block WAITS (never adopted built_on), and both come down once the top is seen', async () => {
+  const { f, p } = await towerTopUnseen()
+  assert.ok(!f.out().includes('adopted:built_on'), `the lower block was closed under its own top: ${f.out()}`)
+  assert.strictEqual(f.name(3, 64, 0), 'dirt'); assert.strictEqual(f.name(3, 65, 0), 'dirt')
+  f.bot.canSeeBlock = () => true
+  await until(() => f.bot.dug.length === 2, 3000)
+  f.arrive(); await p.catch(() => {})
+  assert.deepStrictEqual(f.bot.dug, ['3,65,0', '3,64,0'], 'top first, then the one under it')
+  assert.deepStrictEqual(f.out(), ['dug:ripe', 'dug:ripe'])
+})
+await t('MUTANT: the stack rule cut from ripeNow -- the lower block is adopted built_on under its own top (killed)', async () => {
+  await withMutant(' && !stackedUnder(r, st.open)))', '))', async M => {
+    const { f, p } = await towerTopUnseen(M)
+    assert.ok(f.out().includes('adopted:built_on'), `the mutant: ${f.out()}`)
+    f.arrive(); await p.catch(() => {})
+  })
+})
 await t('the instrument hands on only placements that LANDED, in any zone (placeaudit `onPlaced`)', async () => {
   const bot = { entity: { position: { x: 500.5, y: 64, z: 500.5 } }, heldItem: { name: 'dirt' }, pathfinder: { isBuilding: () => true }, movementProfile: 'walk' }
   let n = 0
