@@ -250,7 +250,7 @@ import { trunkGuard } from './buildsite.mjs'   // leaffell-01show r1: the retrof
 import { reservationsStrict } from './buildsite.mjs'   // leaffell-01show r2: ...over reservations whose every input says whether it was read
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
-import { townView as swTownView, stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
+import { SWSTOCK, townView as swTownView, stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
 import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's descent stops above the town mine (owner 11-09)
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
@@ -33178,7 +33178,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
         try { await craft(ctx, { item: 'cobblestone_wall', count: n }, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
         const post = heldMap(bot)
         for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = (crafted[k] ?? 0) + d }
-      } }, { max: STEPWELL_POSTS_CRAFT })
+      } }, { max: STEPWELL_POSTS_CRAFT, timeOk: () => Date.now() < deadline - SWSTOCK.workMs })   // rig 11-21: the tank keeps its share of the clock
     if (countItem(bot, 'torch') < 4 && plan.cells.some(q => q.role === 'light' && !/torch|lantern/.test(read0(...q.at)?.name ?? ''))) await draw({ torch: 8 })
     check(signal)
     const e = stepwellBotEffects(bot, effects, {

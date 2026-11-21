@@ -316,7 +316,7 @@ export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence
 //      the face stone likewise, cobbled_deepslate first (faceFetch: the stone the town has most of, never the tops' cobblestone);
 //   4. a visit that ends without a top block fetches it and goes on (tankWithRemedy); a stamp is written only when the town had none.
 // A face, a body or an under never takes the tops' stone while another stone will do (pickPlaceItem).
-export const SWSTOCK = Object.freeze({ postsMax: 48, wallsBatch: 6, topMax: 128, faceMin: 48, faceDraw: 64, refetch: 2, refetchMs: 60_000 })
+export const SWSTOCK = Object.freeze({ postsMax: 48, wallsBatch: 6, topMax: 128, faceMin: 48, faceDraw: 64, refetch: 2, refetchMs: 60_000, workMs: 60_000 })
 export const TOP_ROLES = Object.freeze(new Set(['trim', 'floor']))
 export const TRIM_FETCH_ORDER = Object.freeze(['stone_bricks', 'cobblestone'])
 export const FACE_FETCH_ORDER = Object.freeze(['cobbled_deepslate', 'cobblestone'])
@@ -387,17 +387,19 @@ export function faceFetch ({ bag = {}, keep = {}, topsOwed = 0, palette = {}, to
  * craft(n) -> Promise (n cobblestone_wall) }: the posts from the town's walls (postsDraw), a craft only from cobblestone above the keep
  * and the owed tops (postsCraft, read AFTER the draw), then the top stone (trimFetch, AFTER the craft), then the face stone (faceFetch).
  */
-export async function stockTank (s, { max = SWSTOCK.postsMax } = {}) {
+export async function stockTank (s, { max = SWSTOCK.postsMax, timeOk = () => true } = {}) {
   const drawn = {}
   const take = async (name, n) => { const got = n0(await s.draw(name, n)); if (got > 0) drawn[name] = (drawn[name] ?? 0) + got; return got }
+  // rig 11-21 (head v2): the town's walk ate the visit's whole clock and the tank got none -- no draw or craft is STARTED once
+  // `timeOk()` says the visit's own share of the deadline is all that is left (skills.mjs: SWSTOCK.workMs before it)
   const wd = postsDraw({ bag: s.bag(), postsLeft: s.postsLeft, max })
-  if (wd > 0) await take('cobblestone_wall', wd)
+  if (wd > 0 && timeOk()) await take('cobblestone_wall', wd)
   const cw = postsCraft({ bag: s.bag(), keep: s.keep, postsLeft: s.postsLeft, topsOwed: s.owed(), max })
-  if (cw > 0) await s.craft(cw)
+  if (cw > 0 && timeOk()) await s.craft(cw)
   const town = s.town()
   for (const fn of [trimFetch, faceFetch]) {
     const tried = []
-    for (let f; (f = fn({ bag: s.bag(), keep: s.keep, topsOwed: s.owed(), palette: s.palette, town, tried })) != null;) { tried.push(f.name); await take(f.name, f.n) }
+    for (let f; timeOk() && (f = fn({ bag: s.bag(), keep: s.keep, topsOwed: s.owed(), palette: s.palette, town, tried })) != null;) { tried.push(f.name); await take(f.name, f.n) }
   }
   return { drawn, crafted: cw }
 }

@@ -175,6 +175,15 @@ await t('tankStamps / tankRemedy: no stamp after a fetch of the missing top ston
   assert.match(V.tankRemedy({ stop: 'no_pickaxe' }), /pickaxe/)
 })
 
+await t('stockTank: no draw or craft is started once the visit\'s own share of the clock is all that is left (rig 11-21)', async () => {
+  const bag = LUMEN(), keep = townKeeps(bag).keep, town = townOf(), crafted = []
+  const st = { bag: () => ({ ...bag }), keep, palette: PAL, postsLeft: 195, owed: () => 151, town: town.view, draw: town.draw(bag), craft: async n => crafted.push(n) }
+  const out = await V.stockTank(st, { timeOk: () => false })
+  assert.deepStrictEqual([out.drawn, crafted, town.order], [{}, [], []])
+  let calls = 0
+  const out2 = await V.stockTank(st, { timeOk: () => ++calls <= 1 })
+  assert.deepStrictEqual(Object.keys(out2.drawn), ['cobblestone_wall'], 'the walls drawn, then the clock is the tank\'s')
+})
 console.log('THE CHAIN (the real visit loop, the real keep)')
 /** THE BASE'S STOCK-UP (d78215c15 skills.mjs buildStepwellRun, the tank's branch), for the positive control: the town draw only under
  *  48 raw stone, the craft from raw cobblestone (walls < 6 and cobblestone >= 48 + 16). */
@@ -325,7 +334,7 @@ await t('MUTANT KILLED: postsCraft from the raw cobblestone (no keep, no owed to
   })
 })
 await t('MUTANT KILLED: the stock-up without the posts draw leaves the posts to the craft (no walls drawn)', async () => {
-  await withMutant(SV_PATH, "  if (wd > 0) await take('cobblestone_wall', wd)\n", '\n', async M => {
+  await withMutant(SV_PATH, "  if (wd > 0 && timeOk()) await take('cobblestone_wall', wd)\n", '\n', async M => {
     const { pre } = await lumenHead(M)
     assert.notStrictEqual(pre.drawn.cobblestone_wall, 48)
   })
@@ -388,6 +397,13 @@ await t('MUTANT KILLED: a fetch no longer spares the stamp', async () => {
   })
 })
 
+await t('MUTANT KILLED: the stock-up ignores the clock', async () => {
+  await withMutant(SV_PATH, '    for (let f; timeOk() && (f = fn(', '    for (let f; (f = fn(', async M => {
+    const bag = LUMEN(), keep = townKeeps(bag).keep, town = townOf()
+    const out = await M.stockTank({ bag: () => ({ ...bag }), keep, palette: PAL, postsLeft: 195, owed: () => 151, town: town.view, draw: town.draw(bag), craft: async () => {} }, { timeOk: () => false })
+    assert.ok(Object.keys(out.drawn).length > 0)
+  })
+})
 console.log('THE WIRING (structural: skills.mjs buildStepwellRun)')
 const SKS = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const RUN = SKS.slice(SKS.indexOf('async function buildStepwellRun ('), SKS.indexOf('async function foundStore ('))
@@ -395,6 +411,7 @@ const WIRES = [
   ['the stock-up runs before the visit', /await swStockTank\(\{ bag: \(\) => heldMap\(bot\), keep, palette: pal, postsLeft, owed: topsOwed, town: swTown, draw: swDraw,/],
   ['the visit runs through the remedy', /const r = await swTankWithRemedy\(\{ now, deadline, back: \(\) => stairWalk\(bot, rec\.exit, STEPWELL_WALK_MS, signal\), stock: \{ bag: \(\) => heldMap\(bot\), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw \}, run: \(\) => runIt\(\(\) => runStepwellVisit\(\{/],
   ['the stamp follows tankStamps', /if \(swTankStamps\(r\)\) \{/],
+  ['the stock-up keeps the tank\'s share of the clock', /\{ max: STEPWELL_POSTS_CRAFT, timeOk: \(\) => Date\.now\(\) < deadline - SWSTOCK\.workMs \}\)/],
   ['the town\'s stock is read through townView', /const swTown = \(\) => \{ try \{ return swTownView\(matsTownStock\(bot\)\) \} catch \{ return null \} \}/],
   ['the remedy follows tankRemedy', /const remedy = swTankRemedy\(r\)/],
   ['the effects count above the keep', /palette: rec\.palette \?\? \{\}, signal, fence, keep,/],
