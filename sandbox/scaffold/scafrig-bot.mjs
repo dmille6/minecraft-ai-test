@@ -55,6 +55,16 @@ for (let n = 1; ; n++) {
   await sleep(1500)                                     // the tp and the give have landed
   const r0 = rows.length, d0 = deaths, dirt0 = dirt()
   const legs = []
+  // the take-back's view, sampled while the legs run (diagnostics: open receipts, ripe ones, the library's state)
+  const trace = []
+  const tick = setInterval(() => {
+    try {
+      const e = bot.entity, op = tb.state.open.filter(r => !r.closed)
+      if (!op.length) return
+      const h = { pos: e.position, feet: TB.feetOf(e.position), onGround: !!e.onGround, inWater: !!e.isInWater }
+      trace.push([Date.now() % 1e6, +e.position.x.toFixed(1), +e.position.y.toFixed(1), +e.position.z.toFixed(1), e.onGround ? 1 : 0, op.length, op.filter(r => TB.ripe(r, h, Date.now())).length, bot.pathfinder.isBuilding() ? 1 : 0, bot.pathfinder.goal ? 1 : 0, op.filter(r => r.used).length, op.filter(r => TB.ripe(r, h, Date.now())).map(r => { const b = bot.blockAt(new Vec3(...r.cell)); return `${r.cell.join(',')}:${b?.name}:see${bot.canSeeBlock(b) ? 1 : 0}:mine${bot.pathfinder.isMining() ? 1 : 0}` }).join(' ')])
+    } catch { /* diagnostics */ }
+  }, 200)
   for (const leg of tr.legs) {
     const t0 = Date.now()
     let ok = 'ok'
@@ -69,7 +79,8 @@ for (let n = 1; ; n++) {
     await sleep(leg.pause ?? 500)
   }
   await sleep(1500)
+  clearInterval(tick)
   const mine = rows.slice(r0)
   const cnt = re => mine.filter(r => re.test(`${r.kind} ${r.detail}`)).length
-  W(`result-${n}.json`, { n, scene: tr.scene, legs, deaths: deaths - d0, dirtUsed: dirt0 - dirt(), dug: cnt(/^takeback outcome=dug/), carried: cnt(/^takeback outcome=carried/), left: cnt(/^takeback outcome=left/), adopted: cnt(/^takeback outcome=adopted/), walks: mine.filter(r => r.kind === 'takeback_walk').map(r => r.detail), outcomes: mine.filter(r => r.kind === 'takeback').map(r => /outcome=(\S+) why=(\S+)/.exec(r.detail)?.slice(1).join(':')) })
+  W(`result-${n}.json`, { n, scene: tr.scene, legs, deaths: deaths - d0, dirtUsed: dirt0 - dirt(), dug: cnt(/^takeback outcome=dug/), carried: cnt(/^takeback outcome=carried/), left: cnt(/^takeback outcome=left/), adopted: cnt(/^takeback outcome=adopted/), walks: mine.filter(r => r.kind === 'takeback_walk').map(r => r.detail), outcomes: mine.filter(r => r.kind === 'takeback').map(r => /outcome=(\S+) why=(\S+)/.exec(r.detail)?.slice(1).join(':')), trace: trace.slice(0, 400) })
 }

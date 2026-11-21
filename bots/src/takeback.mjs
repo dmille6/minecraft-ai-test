@@ -120,6 +120,11 @@ export function holdsLiquid (b) {
 export function inReach (cell, pos, T = TAKEBACK) {
   return Math.hypot(cell[0] + 0.5 - pos.x, cell[1] + 0.5 - (pos.y + T.eye), cell[2] + 0.5 - pos.z) <= T.reach
 }
+/** scaffold-01show: the points a sight test aims at on a block -> six face centres, a hair inside the block. Pure. */
+export function faceTargets (c, inset = 0.02) {
+  const [x, y, z] = c
+  return [[x + 0.5, y + 1 - inset, z + 0.5], [x + 0.5, y + inset, z + 0.5], [x + 1 - inset, y + 0.5, z + 0.5], [x + inset, y + 0.5, z + 0.5], [x + 0.5, y + 0.5, z + 1 - inset], [x + 0.5, y + 0.5, z + inset]]
+}
 /** The four sides of a column. */
 export const SIDES = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]])
 /**
@@ -348,7 +353,25 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     return { pos: e.position, feet: feetOf(e.position), onGround: !!e.onGround, inWater: !!e.isInWater }
   }
   const blockAt = c => { try { return bot.blockAt(new Vec3(c[0], c[1], c[2])) } catch { return null } }
-  const sees = b => { try { return typeof bot.canSeeBlock !== 'function' || !!bot.canSeeBlock(b) } catch { return false } }
+  // scaffold-01show: IN SIGHT IS ANY FACE IN SIGHT (measured in the rig, sandbox2 11-21: a tower's stub in a pit, flush under the
+  // ground, and the foot of a tower against a cliff were RIPE in reach and never taken -- canSeeBlock aims at the block's CENTRE,
+  // and the rim or the cliff's edge is in that ray while the block's top face is in plain view; mineflayer's dig picks a visible
+  // face itself, digFace 'auto'). The centre first, as before; then the six faces (faceTargets), each by the world's own raycast.
+  const sees = b => {
+    try {
+      if (typeof bot.canSeeBlock !== 'function' || bot.canSeeBlock(b)) return true
+      const w = bot.world, e = bot.entity
+      if (typeof w?.raycast !== 'function' || !e?.position || !b?.position) return false
+      const eye = new Vec3(e.position.x, e.position.y + (Number(e.eyeHeight) || T.eye), e.position.z)
+      for (const f of faceTargets([b.position.x, b.position.y, b.position.z])) {
+        const d = new Vec3(f[0] - eye.x, f[1] - eye.y, f[2] - eye.z), len = Math.hypot(d.x, d.y, d.z)
+        if (!(len > 0) || len > T.reach + 1) continue
+        const hit = w.raycast(eye, d.scaled(1 / len), len + 0.05)
+        if (hit?.position && hit.position.x === b.position.x && hit.position.y === b.position.y && hit.position.z === b.position.z) return true
+      }
+    } catch { return false }
+    return false
+  }
   const bodyOn = c => {
     for (const e of Object.values(bot.entities ?? {})) {
       const p = e?.position

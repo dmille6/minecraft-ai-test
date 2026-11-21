@@ -47,6 +47,7 @@ SCENES = {
             [{'goal': {'x': 18, 'y': 1, 'z': 0}}, {'goal': {'x': 18, 'y': 1, 'z': 15}}]),
 }
 ORDER = ['cliff', 'ledge', 'pit', 'tree5', 'tree8', 'sea']
+if len(sys.argv) > 7: ORDER = sys.argv[7].split(',')
 
 def ssh_bh(cmd):
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', BH, cmd], capture_output=True, text=True, timeout=120).stdout
