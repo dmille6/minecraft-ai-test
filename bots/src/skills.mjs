@@ -33116,7 +33116,10 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       if (!Object.keys(need).length) return {}
       let rsv = 30_000
       try { rsv = swDrawReserveMs({ skillDeadline: withdrawClock(ctx).deadline, visitDeadline: t0 + budget - ZIG_VISIT_TAIL_MS }) } catch { rsv = 30_000 }
-      try { const w = await matsWithdraw(ctx, need, signal, rsv, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v; return w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err; return {} }
+      // rig 11-21 (head v5): the town's bricks sat in far containers and the draw spent its 12 visits on the near ones -- the
+      // building draw's exact-name index search (drawshort-01show: the index's positives first), on for this draw only
+      bot.bfShortExtra = true
+      try { const w = await matsWithdraw(ctx, need, signal, rsv, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v; return w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err; return {} } finally { bot.bfShortExtra = false }
     }
     effects = botBuildEffects(bot, {
       acks, keep,

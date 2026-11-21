@@ -423,6 +423,7 @@ const WIRES = [
   ['the stamp follows tankStamps', /if \(swTankStamps\(r\)\) \{/],
   ['the stock-up keeps the tank\'s share of the clock', /\{ max: STEPWELL_POSTS_CRAFT, timeOk: \(\) => Date\.now\(\) < deadline - SWSTOCK\.workMs \}\)/],
   ['every tank draw ends before the visit\'s work share', /rsv = swDrawReserveMs\(\{ skillDeadline: withdrawClock\(ctx\)\.deadline, visitDeadline: t0 \+ budget - ZIG_VISIT_TAIL_MS \}\)/],
+  ['the tank\'s draw searches by exact name, the index\'s positives first (and only for the draw)', /bot\.bfShortExtra = true\n\s*try \{ const w = await matsWithdraw\(ctx, need, signal, rsv, matsReserve\(\)\.table, shopAllow\);[^\n]*finally \{ bot\.bfShortExtra = false \}/],
   ['the town\'s stock is read through townView', /const swTown = \(\) => \{ try \{ return swTownView\(matsTownStock\(bot\)\) \} catch \{ return null \} \}/],
   ['the remedy follows tankRemedy', /const remedy = swTankRemedy\(r\)/],
   ['the effects count above the keep', /palette: rec\.palette \?\? \{\}, signal, fence, keep,/],
