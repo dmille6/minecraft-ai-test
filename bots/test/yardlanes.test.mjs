@@ -212,7 +212,8 @@ await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap i
   await killedBy(YP, Y, '  const stockMin = lanes?.on ? (clear ? 1 : Math.min(YARD_STOCK_MIN, lanes.min)) : YARD_STOCK_MIN', '  const stockMin = YARD_STOCK_MIN', M => assert.equal(M.yardWork({ held: { gravel: 16 }, slots: 20, states: st(), lanes: ON, keeps: {} }).kind, 'stock'))
   const bag = [{ name: 'andesite', count: 40, slot: 9 }, { name: 'egg', count: 12, slot: 11 }, { name: 'cobblestone', count: 64, slot: 12 }, { name: 'cobblestone', count: 64, slot: 13 }]
   await killedBy(WP, W, ').filter(it => !yardHolds(it.name))', ')', M => { try { M.setYardHold(n => n === 'andesite'); assert.deepEqual(M.disposePlan(bag).stacks.map(s => s.name), ['egg']) } finally { M.setYardHold(null) } })
-  await killedBy(WP, W, "(cobbleAtCap || yardFull('cobblestone')) ?", 'cobbleAtCap ?', M => { try { M.setYardFull(() => true); assert.equal(M.disposePlan(bag).stacks.filter(s => s.name === 'cobblestone').length, 1) } finally { M.setYardFull(null) } })
+  // stepwell-04show: the yard's word now rides well.mjs cobbleMayGo
+  await killedBy(WP, W, "((!!atCap && cobbleOwnAtCap(name)) || yardFull('cobblestone'))", '(!!atCap && cobbleOwnAtCap(name))', M => { try { M.setYardFull(() => true); assert.equal(M.disposePlan(bag).stacks.filter(s => s.name === 'cobblestone').length, 1) } finally { M.setYardFull(null) } })
 })
 
 await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' leases; the hold and the full word installed; the over_cap row; the licence row', () => {

@@ -95,6 +95,7 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 // plinthfirst-01: every new junk well is a raised one (its own statement)
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
 import { setWellKeep, setYardHold, setYardFull } from './well.mjs'   // the batch19b fold: the market's keeps
+import { setCobbleOwnCount, cobbleMayGo as wellCobbleMayGo } from './well.mjs'   // stepwell-04show: each cobble name at its own cap
 import { setDepositExtra } from './bankable.mjs'   // the batch19b fold: the market's buys banked
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
@@ -10177,6 +10178,8 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         acc.capLast = cobbleWellCap(bot)
         // buildfirst-01show (Codex r7): a room trip's stack too -- the town's cap, proven at the click
         if (acc.capLast !== 'at_cap') continue
+        // stepwell-04show: and THIS NAME at its own cap (well.mjs cobbleMayGo: cobblestone never judged on the deepslate's count)
+        if (!wellCobbleMayGo(it.name, true)) continue
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
         // A PRUNED COBBLE STACK writes its _stock_prune row like every other group (Claude code r2 P3: prune clicks were
         // under-counted), with stonecap's own numbers: the available floor, the cap, the bot's 64
@@ -22181,11 +22184,27 @@ function yardsWantedNow (bot = null, now = Date.now()) {
     return n
   } catch { return LANES.modules }
 }
+/** stepwell-04show: THE TOWN'S OWN COUNT OF A COBBLE NAME for the well's per-name cap -> n (the town index's known containers: a
+ *  lower bound) | null (no bot, or the index unreadable: the group's proof stands). Read at most every 30 s per name. Never throws. */
+const wellOwnMemo = new Map()
+export function wellOwnCobble (bot, name, now = Date.now()) {
+  try {
+    if (!bot) return null
+    const m = wellOwnMemo.get(name)
+    if (m && now - m.at < 30_000 && now >= m.at) return m.n
+    const ts = matsTownStock(bot)
+    const n = ts && ts.known > 0 ? (Number(ts.stock?.[name]) || 0) : null
+    wellOwnMemo.set(name, { at: now, n })
+    return n
+  } catch { return null }
+}
 /** YARDLANES-01, once per spawn: the well's hold wired (WELL_HOLD), the licence row written. Never throws. */
 export function yardLanesInstall (bot) {
   try { logEvent({ kind: 'refill_mode', status: 'success', snapshot: snapshot(bot), detail: refillModeDetail(REFILL_ON, REFILL) }) } catch { /* telemetry */ }
   try { logEvent({ kind: 'compact_mode', status: 'success', snapshot: snapshot(bot), detail: compactModeDetail(COMPACT) }) } catch { /* telemetry */ }
   try { if (LANES.on) setYardsWanted(() => yardsWantedNow(activeMem?.bot ?? null)) } catch { /* the setting's count */ }
+  // stepwell-04show: the well's per-name cobble cap reads the town index (wellOwnCobble); on every bot, whatever the lanes
+  try { setCobbleOwnCount(name => wellOwnCobble(activeMem?.bot ?? null, name)) } catch { /* the group's proof alone, as before */ }
   try { if (LANES.on && wellHoldOn()) { setYardHold(yardHoldNow); setYardFull(name => { const b = activeMem?.bot ?? null; return !!b && yardKindNow(b, name).over }) } } catch { /* the well as before */ }
   // warehouse-01 r3 (rig defect A): the deposit PLANS what a column has room for (towndeposit.mjs column layer) -- the same reading the
   // lanes' keep and the well's hold use (whRoomNow), so a kind held for its column is always a kind the deposit banks
