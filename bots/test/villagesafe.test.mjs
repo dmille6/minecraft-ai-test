@@ -82,7 +82,7 @@ test('NOVA (19:28Z): pillar_out\'s placement against the trapdoor under her feet
   assert.equal(refusals[0].purpose, 'survival', 'POSITIVE CONTROL: survival, the escape -- the case the old rule let through')
 })
 
-test('NOVA at the PACKET: a block_place AT the trapdoor is never sent, from the escape, with any hand -- unless sneaking places at the face', () => {
+test('NOVA at the PACKET: a block_place AT the trapdoor is never sent, from the escape, with any hand', () => {
   for (const held of ['cobbled_deepslate', null, 'stick']) {
     const { bot, sent } = botAt(NOVA, { held })
     survival(() => zoneEscapePlace(() => bot._client.write('block_place', { location: V(82, 73, -5), direction: 1 })))
@@ -130,12 +130,23 @@ test('THE CHAIN DOES NOT DEAD-END: at Nova\'s spot the escape keeps a dig, anoth
   assert.equal(overFootprint(Z[0], { x: +m[1], z: +m[3] }), false, 'the goto ends outside the zone')
 })
 
+test('Codex r1: SNEAKING with an empty hand still uses the block -- the packet at the trapdoor is not sent; a DEEP village door is still the village\'s', () => {
+  const { bot, sent } = botAt(NOVA, { held: null, sneak: true })
+  bot._client.write('block_place', { location: V(82, 73, -5), direction: 1 })
+  assert.deepEqual(sent, [], 'sneaking, empty hand: not sent')
+  // the deep exemption (feet AND cell under floor_y) opens ordinary cells -- never a toggling block's use
+  const ZD = [{ ...Z[0], floorY: 54 }]
+  assert.ok(zoneDecision({ zones: ZD, op: 'use', cell: { x: 82, y: 30, z: -5 }, name: 'oak_door', purpose: 'survival', feet: { x: 82.5, y: 30, z: -4.5 }, held: null })?.toggle)
+  // POSITIVE CONTROL: the same deep cell, an ordinary block, an empty-hand survival use: the exemption still opens it
+  assert.equal(zoneDecision({ zones: ZD, op: 'use', cell: { x: 82, y: 30, z: -5 }, name: 'stone', purpose: 'survival', feet: { x: 82.5, y: 30, z: -4.5 }, held: null }), null)
+})
+
 test('MUTANTS (anchored): the toggle rule cut from zoneDecision; the packet\'s toggle check cut; the packet\'s struct check cut', async () => {
   await withMutant(PZ_URL, "  if ((op === 'use' || (op === 'place' && role === 'ref')) && togglesOnUse(name)) {", '  if (false) {', async M => {
     const r = M.zoneDecision({ zones: Z, op: 'place', cell: { x: 82, y: 73, z: -5 }, role: 'ref', name: 'spruce_trapdoor', purpose: 'survival', held: 'cobbled_deepslate', escape: true })
     assert.equal(r, null, 'the mutant lets Nova\'s placement through')
   })
-  await withMutant(PZ_URL, "            const tz = !sneak && togglesOnUse(refName) ? blocked(list, L.x, L.y, L.z, feet, true) : null", '            const tz = null', async M => {
+  await withMutant(PZ_URL, "            const tz = togglesOnUse(refName) ? blocked(list, L.x, L.y, L.z, null, true) : null", '            const tz = null', async M => {
     const { bot, sent } = botAt(NOVA, { mod: M })
     survival(() => M.zoneEscapePlace(() => bot._client.write('block_place', { location: V(82, 73, -5), direction: 1 })))
     assert.deepEqual(sent, ['block_place@82,73,-5'], 'the mutant sends the toggle')

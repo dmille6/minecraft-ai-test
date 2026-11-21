@@ -539,7 +539,7 @@ export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, ro
   if (!cell) return null
   // VILLAGESAFE-01SHOW: a block that toggles on a click, inside a zone, is never used nor a placement's reference -- any purpose
   if ((op === 'use' || (op === 'place' && role === 'ref')) && togglesOnUse(name)) {
-    const t = blocked(zones, cell.x, cell.y, cell.z, feet, true)
+    const t = blocked(zones, cell.x, cell.y, cell.z, null, true)   // Codex r1 BLOCKER 1: no deep exemption -- a village door underground is still the village's
     if (t) return { zone: t, struct: true, toggle: true }
   }
   // ZONEGUARD-01SHOW 1: THE TRIPWIRE'S CELLS, before the deep exemption and before the survival pass -- never changed by a bot
@@ -863,7 +863,8 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
             try { sneak = typeof bot.getControlState === 'function' ? !!bot.getControlState('sneak') : !!bot.controlState?.sneak } catch { sneak = true }
             // VILLAGESAFE-01SHOW: a click on a block that toggles (a door, a trapdoor, a lever ...), not sneaking, inside a zone: never
             // sent, whatever the hand or the purpose -- it would toggle the block (Nova's trapdoor, 11-21 19:28Z)
-            const tz = !sneak && togglesOnUse(refName) ? blocked(list, L.x, L.y, L.z, feet, true) : null
+            // Codex r1 BLOCKERS 1-2: sneaking with an empty hand still uses the block (vanilla), and no deep exemption for it
+            const tz = togglesOnUse(refName) ? blocked(list, L.x, L.y, L.z, null, true) : null
             if (tz) {
               noteProtectZone(bot, 'struct_refused')
               try { onRefuse({ op: 'use', zone: tz.id, at: { x: L.x, y: L.y, z: L.z }, purpose: purposeOf().purpose, by: purposeOf().by, struct: true,

@@ -6492,7 +6492,9 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     bot.setControlState('jump', true)
     await sleep(300)
     if (!alive()) { bot.setControlState('jump', false); return 'preempted' }   // airpocket-01 (Codex r3): never place after a yield
-    try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch { /* mistimed */ }
+    // villagesafe-01show (Codex r1 BLOCKER 3): a placement a protected zone REFUSED is no mistimed try -- every retry would be
+    // refused the same way (Nova 11-21: the reference under her was the village's trapdoor). The guarded branch walks the bot out.
+    try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch (e) { if (e?.code === 'protected_zone') { bot.setControlState('jump', false); return ESCAPE_GUARDED } }
     bot.setControlState('jump', false)
     await sleep(250)
 
@@ -6911,7 +6913,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
         bot.setControlState('jump', true)
         await sleep(300)
         if (!alive()) { bot.setControlState('jump', false); return 'preempted' }
-        try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch {}
+        try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch (e) { if (e?.code === 'protected_zone') { bot.setControlState('jump', false); return ESCAPE_GUARDED } }   // villagesafe-01show: as pillarOut
         bot.setControlState('jump', false)
         await sleep(200)
       } else {
