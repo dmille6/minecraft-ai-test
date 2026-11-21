@@ -9,6 +9,7 @@ import importlib.util
 import io
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -130,6 +131,30 @@ def t_prune(S):
         check('prune: the node_modules cache is kept even beside an old DONE .nm-cache.log', '.nm-cache' in left, left)
     finally:
         shutil.rmtree(home, ignore_errors=True)
+
+
+def t_testlogs(S):
+    """11-21: a run's /tmp/mcbot-test-logs-* are removed after it, but never while another suite holds the host's lock,
+    and never a fresh one. Runs the real shell command against a temp root."""
+    root = tempfile.mkdtemp(prefix='sr-tl-')
+    try:
+        lock = os.path.join(root, 'suite.lock'); open(lock, 'w').close()
+        for d in ('mcbot-test-logs-old1', 'mcbot-test-logs-old2', 'mcbot-test-logs-fresh', 'keepme'):
+            os.makedirs(os.path.join(root, d))
+        t = time.time() - 3600
+        for d in ('mcbot-test-logs-old1', 'mcbot-test-logs-old2', 'keepme'):
+            os.utime(os.path.join(root, d), (t, t))
+        held = subprocess.Popen(['flock', lock, 'sleep', '30'], start_new_session=True)   # its sleep inherits the lock
+        time.sleep(0.3)
+        subprocess.run(['bash', '-c', S.testlogs_prune_cmd(root, lock)], check=True)
+        check('testlogs: another suite holds the lock -> nothing removed', len(os.listdir(root)) == 5, sorted(os.listdir(root)))
+        os.killpg(held.pid, signal.SIGKILL); held.wait()
+        subprocess.run(['bash', '-c', S.testlogs_prune_cmd(root, lock)], check=True)
+        left = sorted(os.listdir(root))
+        check('testlogs: the old test-log dirs go', 'mcbot-test-logs-old1' not in left and 'mcbot-test-logs-old2' not in left, left)
+        check('testlogs: a fresh one and other dirs stay', 'mcbot-test-logs-fresh' in left and 'keepme' in left, left)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def t_relay(_S=None):
@@ -386,6 +411,8 @@ MUTANTS = [
     ("        bad = one_line(bad)\n", "", t_try),
     ("        bad = one_line(seed(src, host) if src else '')", "        bad = seed(src, host) if src else ''", t_try),
     ('case "$d" in ./.nm-cache|./.git-mirror.git) continue;; esac; ', '', t_prune),
+    ('flock -n {lock} find', 'find', t_testlogs),
+    ('-mmin +1 ', '', t_testlogs),
 ]
 
 RELAY_SRC = os.path.join(HERE, 'autorebase-suite-relay.py')
@@ -425,7 +452,7 @@ def relay_mutants():
 
 def main():
     S = load()
-    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_relay, t_plan, t_plan_ci34, t_suite_env, t_probe, t_try, t_seed, t_relay_retry):
+    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_testlogs, t_relay, t_plan, t_plan_ci34, t_suite_env, t_probe, t_try, t_seed, t_relay_retry):
         t(S)
     base = list(FAILS)
     for f in base:

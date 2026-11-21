@@ -552,9 +552,17 @@ def prepare(host, wt, a, sha_full, sha, label, dest):
     return git_ctx, ''
 
 
+def testlogs_prune_cmd(root='/tmp', lock='~/suite.lock'):
+    """11-21: ci2's root disk sat above 85% for 11 h; 3,693 /tmp/mcbot-test-logs-* dirs (3.9 GB) left by the suites' test files.
+    After a run, under a NON-blocking take of the host's suite lock (another suite holding it keeps its own logs), remove this
+    user's test-log dirs over a minute old. Never fails the run."""
+    return (f'flock -n {lock} find {root} -maxdepth 1 -name "mcbot-test-logs-*" -user "$(id -un)" -mmin +1 '
+            f'-exec rm -rf {{}} + 2>/dev/null; true')
+
+
 def run_suite(host, a, label, dest, rlog, llog, git_ctx):
     filt = (' ' + shlex.quote(a.filter)) if a.filter else ''
-    cleanup = '' if a.keep else f'; rm -rf ~/{dest}/bots/node_modules'
+    cleanup = '' if a.keep else f'; rm -rf ~/{dest}/bots/node_modules; {testlogs_prune_cmd()}'
     lock_s, suite_s = a.lock_wait_min * 60, a.suite_min * 60
     inner = (f'export PATH=$HOME/coopb5/node22/bin:$PATH; cd ~/{dest}/bots && '
              f'flock -w {lock_s} -E {LOCK_TIMEOUT_RC} ~/suite.lock timeout -k 60 {suite_s} nice -n 19 env {suite_env(host)} '
