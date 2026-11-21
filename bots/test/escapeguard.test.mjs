@@ -469,5 +469,48 @@ await t('MUTANT KILLED: a guarded ceiling not sidestepped -> the Frost bot stays
   })
 })
 
+// VILLAGESAFE-01SHOW (Codex r1 BLOCKER 3; Nova 11-21 19:28Z): a placement a protected zone REFUSES is no mistimed try. Every
+// retry is refused the same way (the reference under her was the village's trapdoor), so pillarOut -- and digStraightUp, its
+// fallback -- returns ESCAPE_GUARDED at once, the route that walks the bot out under the zone's side. Before: three swallowed
+// tries, then digStraightUp placing against the same reference.
+function zoneRefusingBot () {
+  const w = world({ '0,0,0': 'air', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'air', '0,4,0': 'air', '0,5,0': 'air' })
+  const bot = makeBot(w, { inv: [PICK(100), COBBLE(64)] })
+  let tries = 0
+  bot.placeBlock = async () => { tries++; const e = new Error('protected zone: the taiga village -- cell is part of the structure itself'); e.code = 'protected_zone'; throw e }
+  return { bot, tries: () => tries }
+}
+await t('VILLAGESAFE: a zone-refused pillar placement returns ESCAPE_GUARDED on the first try -- no retries, no dig-up placing against it', async () => {
+  const { bot, tries } = zoneRefusingBot()
+  const out = await pillarOut(bot, climbNeedAbove((x, y, z) => bot.blockAt(V(x, y, z)), bot.entity.position))
+  assert.strictEqual(out, ESCAPE_GUARDED)
+  assert.strictEqual(climbOutcomeRoute(out), 'guarded', 'the guarded branch (the walk out) is the next step')
+  assert.strictEqual(tries(), 1)
+  // POSITIVE CONTROL: any other placement failure is still a mistimed try (the loop goes on; not guarded)
+  const w = world({ '0,0,0': 'air', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'air', '0,4,0': 'air', '0,5,0': 'air' })
+  const b2 = makeBot(w, { inv: [PICK(100), COBBLE(64)] })
+  let n2 = 0
+  b2.placeBlock = async () => { n2++; throw new Error('blockUpdate timeout') }
+  const out2 = await pillarOut(b2, climbNeedAbove((x, y, z) => b2.blockAt(V(x, y, z)), b2.entity.position))
+  assert.notStrictEqual(out2, ESCAPE_GUARDED)
+  assert.ok(n2 > 1, `a timeout is retried (${n2})`)
+})
+await t('MUTANT KILLED (anchored): pillarOut swallows the zone refusal again -> not guarded, retried', async () => {
+  const old = "    try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch (e) { if (e?.code === 'protected_zone') { bot.setControlState('jump', false); return ESCAPE_GUARDED } }\n"
+  await withMutant(REFLEX_PATH, old, "    try { await zoneEscapePlace(() => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch { /* mistimed */ }\n", async M => {
+    const { bot, tries } = zoneRefusingBot()
+    const out = await M.pillarOut(bot, climbNeedAbove((x, y, z) => bot.blockAt(V(x, y, z)), bot.entity.position))
+    assert.ok(tries() > 1, `the mutant retries the refused placement (${tries()} tries, out ${out})`)
+  })
+})
+await t('VILLAGESAFE WIRING (Codex r2, comments stripped): pillarOut\'s other callers send a guarded climb to guardBranch -- the escape lattice\'s pillar_up and the unstick oscillation (Nova\'s branch)', () => {
+  const src = stripComments(readFileSync(REFLEX_PATH, 'utf8'))
+  const pu = src.slice(src.indexOf('  pillar_up: async bot => {'), src.indexOf('  surface_swim: bot => surfaceSwim(bot),'))
+  assert.ok(pu.includes('if (out === ESCAPE_GUARDED) {') && pu.includes("const g = await guardBranch(bot, { handler: 'pillar_up' })"), 'pillar_up routes guarded')
+  const un = src.slice(src.indexOf('let pout = null'), src.indexOf('reflex: could not pillar out either, falling through'))
+  assert.ok(un.includes('pout = await pillarOut(bot)') && un.includes('if (pout === ESCAPE_GUARDED) {') && un.includes("g = await guardBranch(bot, { handler: 'unstick' })"), 'unstick routes guarded')
+  assert.strictEqual(src.split("const g = await guardBranch(bot, { handler: 'pillar_up' })").length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

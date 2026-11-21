@@ -216,6 +216,8 @@ const REQUIRED = [
   'bots/test/homesearch.test.mjs',
   // scaffold-01show (11-20, owner: "fix the movement code and remove all the pillars"): the wild price, gather priced, carried receipts
   'bots/test/scaffold01.test.mjs',
+  // villagesafe-01show (owner 11-21): no toggling block used or clicked as a reference in a zone; the packet keeps the tripwire's cells
+  'bots/test/villagesafe.test.mjs',
   // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
   'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',
