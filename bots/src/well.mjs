@@ -41,7 +41,7 @@ import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTA
 import { sameWorld } from './composter.mjs'   // wellsite-01 (its own statement)
 import { chainPeak } from './craftroom.mjs'
 import { foodSkipActive } from './foodskip.mjs'
-import { groupOf, isProtected, isToolGroup, TOWN_COBBLE_CAP } from './stocktarget.mjs'
+import { groupOf, isProtected, isToolGroup } from './stocktarget.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
 // junkout-01 (its own statement): the visit latch, the visit id and the JUNK_VISIT switch (bagallowance.mjs, a leaf)
 import { JUNK_VISIT, visitId, visitLatchIssue, visitArmed } from './bagallowance.mjs'
@@ -186,41 +186,15 @@ export const swordGoes = (name, peaceful) => unwantedSword({ name }, peaceful)
 export const COBBLE_WELL_RESERVE = 64
 const WELL_COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
 export const isWellCobble = name => WELL_COBBLE.has(name)
-/**
- * stepwell-04show (control session 11-21): EACH NAME AT ITS OWN CAP. The cap's proof (cobblecap.mjs wellCobbleSwitch) counts the
- * group `cobble` -- cobblestone and cobbled_deepslate SUMMED -- so the showcase's 2,002 deepslate read the town "full" at 46
- * cobblestone, and the well threw 3,068 cobble from 11-20 09:51Z while the step well starved for trim. A stack now goes only when
- * the group's proof says at_cap AND ITS OWN NAME's town count (the town index's lower bound: unknown containers add >= 0) is at
- * TOWN_COBBLE_CAP: cobblestone is judged on cobblestone alone; cobbled_deepslate keeps its own cap (the same 1000) on its own count.
- * `cobbleOwnOf(name)` -> the town's count of that name, or null when the index cannot say (then the group's proof stands for it, as
- * before); unset (no install): both names as before. Set at install (skills.mjs yardLanesInstall). A hook that throws: null.
- */
-let cobbleOwnOf = null
-export function setCobbleOwnCount (fn) { cobbleOwnOf = typeof fn === 'function' ? fn : null }
-/** Does this name's own town count hold its cap? -> bool. Pure over `own` (a count or null: null holds -- the group's proof stands). */
-export const ownAtCap = (own, cap = TOWN_COBBLE_CAP) => own == null || !Number.isFinite(Number(own)) || Number(own) >= cap
-/** The well's per-name rule now (the hook). Never throws. */
-export function cobbleOwnAtCap (name, cap = TOWN_COBBLE_CAP) {
-  if (!WELL_COBBLE.has(name)) return false
-  if (!cobbleOwnOf) return true
-  let own = null
-  try { own = cobbleOwnOf(name) } catch { own = null }
-  return ownAtCap(own, cap)
-}
-/** May a cobble stack of this name go (the plan's rule, and the click's) -> bool: the chest cap proven AND the name at its own cap, or
- *  the yard's cobblestone lanes full (yardlanes-01, as before). */
-export const cobbleMayGo = (name, atCap) => WELL_COBBLE.has(name) && ((!!atCap && cobbleOwnAtCap(name)) || yardFull('cobblestone'))
 /** The cobble stacks the well may take at the cap -> [{ slot, name, count }]: whole stacks, smallest first, while the bag
- *  keeps COBBLE_WELL_RESERVE of the two names. Pure (the same choice as bankable.mjs cobbleBankStacks, with no credit cap).
- *  stepwell-04show `names`: the names that may go (default both); the reserve still counts both. */
-export function cobbleWellStacks (items = [], { reserve = COBBLE_WELL_RESERVE, names = null } = {}) {
+ *  keeps COBBLE_WELL_RESERVE of the two names. Pure (the same choice as bankable.mjs cobbleBankStacks, with no credit cap). */
+export function cobbleWellStacks (items = [], { reserve = COBBLE_WELL_RESERVE } = {}) {
   // yarduse-01: `reserve` (never below COBBLE_WELL_RESERVE) -- the yard's share kept for its stock visit (yard.mjs yardWellKeep)
   const keep = Math.max(COBBLE_WELL_RESERVE, Number(reserve) || 0)
   const list = (Array.isArray(items) ? items : []).filter(it => it && WELL_COBBLE.has(it.name) && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
   let left = list.reduce((t, it) => t + (Number(it.count) || 0), 0)
-  const may = names == null ? () => true : n => [names].flat().includes(n)
   const out = []
-  for (const it of [...list].filter(x => may(x.name)).sort((a, b) => a.count - b.count || a.slot - b.slot)) {
+  for (const it of [...list].sort((a, b) => a.count - b.count || a.slot - b.slot)) {
     if (left - it.count < keep) break
     out.push({ slot: it.slot, name: it.name, count: it.count }); left -= it.count
   }
@@ -309,9 +283,7 @@ export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swo
   const all = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const list = (kept.size ? all.filter(it => !kept.has(it.name)) : all).filter(it => !yardHolds(it.name))   // yardlanes-01: the yard's hold
   // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
-  // stepwell-04show: at the chest cap, each name only at its OWN cap (cobbleOwnAtCap); the yard's full cobblestone lanes as before
-  const capNames = [...WELL_COBBLE].filter(n => cobbleMayGo(n, cobbleAtCap))
-  const cobble = capNames.length ? cobbleWellStacks(list, { reserve: cobbleReserve, names: capNames }) : []   // yardlanes-01: the yard's cap too
+  const cobble = (cobbleAtCap || yardFull('cobblestone')) ? cobbleWellStacks(list, { reserve: cobbleReserve }) : []   // yardlanes-01: the yard's cap too
   // AT-TARGET SURPLUS of every other targeted group (stocktarget), chosen with it (none of them is reserve stone)
   for (const st of (stock ? stockWellStacks(list, stock) : [])) cobble.push(st)
   const cobbleSlots = new Set(cobble.map(c => c.slot))
