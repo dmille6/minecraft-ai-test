@@ -249,6 +249,7 @@ import { trunkGuard } from './buildsite.mjs'   // leaffell-01show r1: the retrof
 import { reservationsStrict } from './buildsite.mjs'   // leaffell-01show r2: ...over reservations whose every input says whether it was read
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
+import { stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
 import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's descent stops above the town mine (owner 11-09)
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
@@ -33090,10 +33091,11 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
     bag0 = heldMap(bot)
     const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    // stepwell-04show: a draw answers what it took ({ name: n })
     const draw = async want => {
       const need = Object.fromEntries(Object.entries(want).filter(([, n]) => n > 0))
-      if (!Object.keys(need).length) return
-      try { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      if (!Object.keys(need).length) return {}
+      try { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v; return w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err; return {} }
     }
     effects = botBuildEffects(bot, {
       acks, keep,
@@ -33142,21 +33144,26 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     // felldone-01: the stair's state named once a generation for this connection (the tank's visits are many)
     if (fellDoneOn() && bot.swFellDoneGen !== rh.head.gen) { bot.swFellDoneGen = rh.head.gen; swFellDoneRow(bot, rec, rh.head.gen) }
     const plan = planOfRecord(rec)
-    if (stairLiningCount(bot) < 48) await draw({ cobblestone: 64 })
+    // stepwell-04show (LIVE 11-21: `no trim block in the bag at y 62` -- the posts crafted from the kept cobblestone, the fetch skipped
+    // on the raw stone count before the craft): stepwellvisit.mjs postsDraw / postsCraft / trimFetch / faceFetch, every one judged on
+    // what is held ABOVE the visit's keep (`keep`), in this order: the posts from the town's walls, a craft only from cobblestone above
+    // the keep and the next layer's owed tops, then the top stone (stone_bricks first), then the face stone (cobbled_deepslate first)
+    const pal = rec.palette ?? {}
     const postsLeft = plan.cells.filter(q => q.role === 'post' && !/_wall$/.test(read0(...q.at)?.name ?? '')).length
-    const walls = () => (bot.inventory?.items?.() ?? []).filter(i => /_wall$/.test(i.name)).reduce((n, i) => n + i.count, 0)
-    // the walls a visit may place (it lays at most a layer's posts): up to STEPWELL_POSTS_CRAFT, never more than are left
-    const wallsWant = Math.min(postsLeft, STEPWELL_POSTS_CRAFT)
-    if (postsLeft > 0 && walls() < Math.min(postsLeft, 6) && countItem(bot, 'cobblestone') >= wallsWant + 16) {
-      const pre = heldMap(bot)
-      try { await craft(ctx, { item: 'cobblestone_wall', count: Math.ceil(wallsWant / 6) * 6 }, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
-      const post = heldMap(bot)
-      for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = (crafted[k] ?? 0) + d }
-    }
+    const swTown = () => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } }
+    const topsOwed = () => { try { return swNextTopsOwed(stairRead(bot), plan).n } catch { return 0 } }
+    const swDraw = async (name, n) => (await draw({ [name]: n }))[name] ?? 0
+    await swStockTank({ bag: () => heldMap(bot), keep, palette: pal, postsLeft, owed: topsOwed, town: swTown, draw: swDraw,
+      craft: async n => {
+        const pre = heldMap(bot)
+        try { await craft(ctx, { item: 'cobblestone_wall', count: n }, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+        const post = heldMap(bot)
+        for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = (crafted[k] ?? 0) + d }
+      } }, { max: STEPWELL_POSTS_CRAFT })
     if (countItem(bot, 'torch') < 4 && plan.cells.some(q => q.role === 'light' && !/torch|lantern/.test(read0(...q.at)?.name ?? ''))) await draw({ torch: 8 })
     check(signal)
     const e = stepwellBotEffects(bot, effects, {
-      palette: rec.palette ?? {}, signal, fence,
+      palette: rec.palette ?? {}, signal, fence, keep,   // stepwell-04show: the keep B.has counts above (pickPlaceItem's spare)
       walk: cell => stairWalk(bot, cell, STEPWELL_WALK_MS, signal),
       occupied: cell => otherBodyOnCell(bot, cell),
       log: (op, d) => {
@@ -33175,7 +33182,8 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     const now = () => Date.now()
     const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
     const swAside = swAsideOn() ? swAsideLoad(dir, key) : null
-    const r = await runIt(() => runStepwellVisit({
+    // stepwell-04show: a run that ends without a top block fetches it (outside the stair claim) and runs again (tankWithRemedy)
+    const r = await swTankWithRemedy({ now, deadline, stock: { bag: () => heldMap(bot), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw }, run: () => runIt(() => runStepwellVisit({
       plan, exit: rec.exit, share, aside: swAside,   // stepwell-03show: the crew's set-aside proofs (swAsideLoad)
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
@@ -33190,22 +33198,23 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
         }, { by: me })
         if (done && !rec.structure_complete) { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'complete', kind: STEPWELL_BLUEPRINT, gen: '-' }) }) } catch { /* telemetry */ } }
       },
-    }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 }))
+    }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 })) })
     bot.shopDamage = null
     if (swAside) { bot.stepwellAside = swAside; swAsideSave(dir, key, me, swAside) }   // stepwell-03show: this visit's proofs for the crew
     if (r.placed > 0 || r.dug > 0) { try { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key) } catch { /* the clock */ } }
-    stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}${r.aside ? `/aside${r.aside}` : ''}`, ms: Date.now() - t0, gen: rh.head.gen })
+    stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}${r.aside ? `/aside${r.aside}` : ''}${r.runs > 1 ? `/runs${r.runs}` : ''}${Object.keys(r.fetched ?? {}).length ? `/fetched${Object.entries(r.fetched).map(([k, v]) => `${k}:${v}`).join('+')}` : ''}`, ms: Date.now() - t0, gen: rh.head.gen })
     const status = r.placed > 0 || r.dug > 0 ? 'success' : 'no_effect'
     // A VISIT THAT DID NOTHING AND STOPPED ON A FAILURE waits the project behind the others (the stair's rule: else it takes a free bot
     // every 2 min and starves the next projects)
     // stepwell-03show: the stamp names the cells passed and the code version that wrote it (projStuckLive: stale on another version, or
     // once its cells read done)
-    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'].includes(r.stop)) {
+    // stepwell-04show: never after a fetch of the missing top stone (tankStamps: the next visit lays it)
+    if (swTankStamps(r)) {
       const at = Date.now()
       const cells = swAsideOn() ? Object.fromEntries((r.passed ?? []).map(k => [k, { visits: 1, firstAt: at, lastAt: at, by: me }])) : {}
       try { projStuckWrite(dir, key, me, cells, { stuckAt: at, ...(swAsideOn() ? { code: config.code?.version ?? null } : {}) }) } catch { /* the order asks again */ }
     }
-    const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town; walls are crafted from it)', passed: ' -- the cells passed are tried again from other stands next visit', unsealed: ' -- the water is sealed from another stand next visit (nothing is cut beside it until then)' }[r.stop] ?? ''
+    const remedy = swTankRemedy(r)   // stepwell-04show: the remedy the bot performs from where it is
     return out(status, r.stop, `${r.why ?? r.stop} at y ${r.y ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}`, { stop: r.stop, placed: r.placed, cleared: r.dug, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (err) {
     if (err?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw err }
