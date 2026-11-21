@@ -316,6 +316,11 @@ const REQUIRED = [
   'bots/test/warehouse.test.mjs',
   'bots/src/whsite.mjs',  // whsite-01 (bagfix-03show, 11-17): the new storehouse's ground -- the site switch, the record, the quadrants
   'bots/test/whsite.test.mjs',
+  'bots/src/pit.mjs',  // pit-01show (owner 11-19): the town's dirt borrow pit -- the plan, the sea-breach guard, the layer gate, the demand
+  'bots/src/pitsitefile.mjs',  // pit-01show: the pit's site from the town's site file
+  'bots/test/pit.test.mjs',
+  'scripts/host/pitplan.mjs',  // pit-01show: the pit plan over a region copy
+  'scripts/host/pitpic.py',  // pit-01show: the plan's pictures
   'scripts/host/useledger.py',
   'bots/src/refill.mjs',  // refill-01 (bagfix-02show, 11-16): no gathering for stock -- a refill is a job raised on evidence of use
   'bots/test/refill.test.mjs',
