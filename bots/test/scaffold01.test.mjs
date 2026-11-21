@@ -577,6 +577,37 @@ await t('an unfenced goto (the library\'s own, no withTimeout) is never deferred
   f.arrive(); await p
 })
 
+await t('IN SIGHT IS ANY FACE IN SIGHT (rig, sandbox2 11-21): a pit tower\'s stub flush under the ground, its centre behind the rim and its top face in view, is taken back; positive control: with no face in view it is not', async () => {
+  assert.deepStrictEqual(TB.faceTargets([0, 0, 0])[0], [0.5, 0.98, 0.5], 'the top face first')
+  /** a fake world whose ray reaches the block only when it is aimed at its top face (y > cell + 0.9): the rim blocks the centre */
+  const pitWorld = (f, cell, open = true) => ({ raycast: (from, dir, range) => {
+    const to = { x: from.x + dir.x * range, y: from.y + dir.y * range, z: from.z + dir.z * range }
+    return open && to.y > cell[1] + 0.9 && Math.floor(to.x) === cell[0] && Math.floor(to.z) === cell[2] ? { position: { x: cell[0], y: cell[1], z: cell[2] } } : { position: { x: cell[0] + 1, y: cell[1] + 1, z: cell[2] } }
+  } })
+  for (const open of [true, false]) {
+    const f = fake()
+    f.bot.canSeeBlock = () => false                          // the centre ray: the rim is in the way
+    f.bot.world = pitWorld(f, [0, 63, 0], open)
+    const p = f.walk({ id: 'out', x: 40, y: 64, z: 0 })
+    f.place([0, 63, 0]); f.stand(0, 64, 0); await sleep(3 * T.tickMs)   // the stub at the pit's top, the bot on it
+    f.stand(2, 64, 0)                                        // out on the floor beside the pit
+    if (open) { await until(() => f.name(0, 63, 0) === 'air'); await until(() => f.gotos.length === 2) } else await sleep(20 * T.tickMs)
+    assert.strictEqual(f.name(0, 63, 0), open ? 'air' : 'dirt', open ? 'taken back' : 'positive control: unseen, never dug')
+    f.arrive(); await p.catch(() => {})
+  }
+})
+await t('MUTANT: the face rays cut (the centre only, as before) -- the stub stays (killed)', async () => {
+  await withMutant(TB_URL, [['      for (const f of faceTargets([b.position.x, b.position.y, b.position.z])) {', '      for (const f of []) {']], async M => {
+    const f = fake({ M })
+    f.bot.canSeeBlock = () => false
+    f.bot.world = { raycast: (from, dir, range) => ({ position: { x: 0, y: 63, z: 0 } }) }
+    const p = f.walk({ id: 'out', x: 40, y: 64, z: 0 })
+    f.place([0, 63, 0]); f.stand(0, 64, 0); await sleep(3 * T.tickMs); f.stand(2, 64, 0)
+    await sleep(20 * T.tickMs)
+    assert.strictEqual(f.name(0, 63, 0), 'dirt', 'the mutant never sees it')
+    f.arrive(); await p.catch(() => {})
+  })
+})
 // ---- the wiring (source, comments stripped) -------------------------------------------------------------------------------
 await t('WIRING features.mjs: the take-back gets the scafleft file (io) -- and the mutant without it is caught', () => {
   const src = strip(readFileSync(FEAT_URL, 'utf8'))
