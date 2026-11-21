@@ -293,6 +293,7 @@ import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } 
 import { botBuildEffects } from './buildbot.mjs'
 import { floatcleanOn, floatGuardOf, floorKeys, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
+import { pillarcleanOn, pillarListOk, pillarListNewer, scafLeftPillars, pillarListWith, pillarPassJobs, pillarClearOk, pillarDetail, pillarGuardOf, pillarFloorKeys, pillarAsideAfter, pillarAsideNow, sameBlock as samePillarBlock, PL, PILLARCLEAN_PLOT } from './pillarclean.mjs'   // pillars-01show
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
@@ -30325,6 +30326,141 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
     try { effects?.close() } catch { /* gone */ }
   }
 }
+// ================================================================================================================================
+// PILLARS-01show (owner 11-20: "remove them, all of them. i want a clean manicured landscape"; pillarclean.mjs): the lone pillars
+// bots left outside the walls -- the host survey's list (bots/src/pillarclean/<pool>.json, or a newer `pillarclean.json` the host
+// drops in the pool), CoreProtect-proven bot placements over the neighbourhood's median -- taken down to that level by every tidy
+// visitor, a lap at the head of its visit at most every PL.everyMs (a lap that dug keeps the next one due at once). floatclean's machinery
+// and memory shape: no scaffold walk, a dig stand on the town's walk nodes, each pillar top down, the pillars nearest the bot first,
+// no stand on a listed block nor on a floor with liquid under it (the sea guard), the cell judged again at the dig (pillarClearOk).
+// PILLARCLEAN=off: no lap.
+// ================================================================================================================================
+const PL_ON = pillarcleanOn()
+const plDocs = new Map()
+/** The bundled list and the pool's own `pillarclean.json` (read again at most every 5 min) -> the newer valid one | null. Never throws. */
+function pillarListNow (pool, dir) {
+  if (!/^[a-z0-9-]+$/.test(String(pool))) return null
+  if (!plDocs.has(pool)) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(new URL(`./pillarclean/${pool}.json`, import.meta.url), 'utf8')), pool) } catch { d = null } plDocs.set(pool, d) }
+  const k = `${pool}|${dir}`
+  let c = plDocs.get(k)
+  if (!c || Date.now() - c.at > 5 * 60_000) { let d = null; try { d = pillarListOk(JSON.parse(fs.readFileSync(path.join(dir, 'pillarclean.json'), 'utf8')), pool) } catch { d = null } c = { at: Date.now(), d, sl: scafLeftFiles(dir) }; plDocs.set(k, c) }
+  // scaffold-01show's hand-off: every bot's scafleft-<bot>.json (fresh entries only; judged again at the dig) on top of the list
+  const list = pillarListNewer(plDocs.get(pool), c.d)
+  const named = new Set((list?.pillars ?? []).flatMap(p => p.take.map(t => `${t[0]},${t[1]},${t[2]}`)))
+  return pillarListWith(list, scafLeftPillars(c.sl, Date.now(), { skip: q => named.has(q) }), pool)
+}
+/** scaffold-01show: every `scafleft-<bot>.json` in the pool's directory -> [{ holder, entries }]. An unreadable file hands nothing. */
+function scafLeftFiles (dir) {
+  const out = []
+  let names = []
+  try { names = fs.readdirSync(dir).filter(n => /^scafleft-[A-Za-z0-9_.-]+\.json$/.test(n)) } catch { return out }
+  for (const n of names) { try { const j = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if (Array.isArray(j?.entries)) out.push({ holder: String(j.holder ?? n.slice(9, -5)), entries: j.entries }) } catch { /* unreadable: nothing */ } }
+  return out
+}
+export const pillarcleanDue = (mem, now = Date.now()) => PL_ON && now >= (Number(mem?.plNextAt) || 0)
+/** pillars-01show (floatclean-01show's guard, carried here: Codex r1 BLOCKER 2 there): THE LAP'S GUARD -> (k) -> bool | null. Every
+ *  guarded project's record read STRICTLY (one unreadable or with a rejected generation: null, no lap) -- every [x,y,z] its record
+ *  lists anywhere, the bridges' planned cells, and every town plan plot's columns. */
+function pillarGuardStrict (bot) {
+  try {
+    const dir = townDir()
+    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : []), STEPWELL_PLOT, UPKEEP_PLOT, PIT_PLOT])]   // restack onto pit-01show: the pit's record guarded too, as floatclean's
+    const records = []
+    for (const pl of plots) {
+      const hd = recordHead(dir, projKeyOf(pl))
+      if (!hd.ok || (hd.rejected?.length ?? 0) > 0) return null
+      if (hd.head?.rec) records.push(hd.head.rec)
+    }
+    const bs = exBridgeSitesStrict()
+    if (bs === null || bs === undefined) return null
+    const ph = townPlanHead(bot)
+    if (!ph.ok || !ph.head?.plan) return null
+    return pillarGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })
+  } catch { return null }
+}
+/** The cells under this bot's body, and under every OTHER body within 12 blocks (players, mobs; never items, orbs, arrows) -> ['x,y,z']
+ *  (floatclean-01show's rig 11-20: Kite dug the block under Juno). Never throws. */
+const plKeysOf = e => { try { return pillarFloorKeys(e.position, e.width) } catch { return [] } }
+const plBodyKeys = bot => plKeysOf(bot.entity)
+function plOthersKeys (bot) {
+  try {
+    const me = bot.entity?.position
+    return Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && (!me || e.position.distanceTo(me) <= 12)).flatMap(plKeysOf)
+  } catch { return [] }
+}
+/** One lap -> { tried, status, why, cleared, stop }. `tried` false: nothing walked to or dug (no list, nothing take-able near). */
+async function pillarcleanLap (ctx, signal, { deadline = Date.now() + PL.passMs } = {}) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const no = why => ({ tried: false, why })
+  const dir = townDir(), me = bot.username ?? 'bot', home = planHomeP()
+  const list = pillarListNow(config.memory.pool, dir)
+  if (!list?.pillars?.length) return no('no_list')
+  if (deadline - t0 < PL.passMinMs) return no('late')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return no('zones_unknown')
+  const guard = pillarGuardStrict(bot)   // every guarded project's cells and clears and the plan's plots, read strictly
+  const row = (op, status, d) => { try { logEvent({ kind: 'pillarclean', status, snapshot: snapshot(bot), detail: pillarDetail({ op, ...d }) }) } catch { /* telemetry */ } }
+  if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }
+  const zb = (c.zones ?? []).map(z => z?.box).filter(b => Array.isArray(b) && b.length === 6)
+  const zone = (x, y, z) => zb.some(b => x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5])
+  let gAt = Date.now(), gLast = guard
+  const cellsNow = k => { if (Date.now() - gAt >= 2_000) { gLast = pillarGuardStrict(bot); gAt = Date.now() } return !gLast || gLast(k) }
+  const mem = (procMem(bot).pillarclean ??= { tries: {}, until: {}, rows: {} })
+  const rowDueFor = (k, now = Date.now()) => { if (now - (Number(mem.rows[k]) || 0) < PL.rowMs) return false; mem.rows[k] = now; return true }
+  const key = projKeyOf(PILLARCLEAN_PLOT)
+  const slot = takeSlot(dir, key, me, PL.builders)
+  if (!slot.ok) return no('slots_full')
+  const slotRef = { gen: slot.gen }
+  const rd0 = tidyRead(bot)
+  const pj = pillarPassJobs(list, rd0, { pos: bot.entity?.position ?? null, aside: k => pillarAsideNow(mem, k), cells: guard, zone, max: PL.passMax, part: slot.slot - 1, parts: PL.builders })
+  row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, pillars_done: `${pj.census.done}/${pj.census.pillars}`, standing: pj.census.standing, take: pj.census.take, unread: pj.census.unread, aside: pj.census.aside, held: pj.census.why })
+  for (const h of pj.held) { const k = h.job.at.join(','); if (rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-', pillar: h.job.pillar }) }
+  const take = new Map(pj.take.map(q => [q.at.join(','), q]))
+  let effects = null, cleared = 0
+  try {
+    if (!pj.take.length) return no(pj.census.standing ? 'nothing_takeable' : 'list_done')
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    effects = botBuildEffects(bot, {
+      acks,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => {
+        try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: PILLARCLEAN_PLOT, ...d }) : buildRowDetail({ project: PILLARCLEAN_PLOT, ...d }) }) } catch { /* telemetry */ }
+        if (kind === '_build' && d?.op === 'clear' && d?.kind === 'pillar' && Array.isArray(d.cell)) { const q = take.get(d.cell.join(',')); row('dig', 'success', { at: d.cell.join(','), block: d.block, placer: q?.placer ?? '-', pillar: q?.pillar ?? '-' }) }
+      },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const stood = stoodRead(dir, stoodKey(), home)
+    const record = { v: 1, blueprint: 'pillarclean@1', plot: PILLARCLEAN_PLOT, kind: 'pillarclean', home, cells: [], clear: pj.take, segments: [], zones: [], palette: {}, structure_complete: false }
+    const lease = `seg-clear-${String(me).replace(/[^A-Za-z0-9]/g, '')}`
+    const considered = new Set()
+    const r = await runVisit({ dir, key, me, home, stood, record, recordGen: 0, palette: {}, res: null, resFailed: false,
+      slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.plStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
+      domain: () => true, walkR: PL.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
+      clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
+      clearOk: (q, rd) => { considered.add(q.at.join(',')); return pillarClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: plBodyKeys(bot), noFloor: k => pj.floor.has(k), others: plOthersKeys(bot), inWater: !!bot.entity?.isInWater }) } },
+    effects, { deadline: Math.min(deadline, t0 + PL.passMs), maxSteps: 200 })
+    cleared = r.cleared ?? 0
+    const read2 = tidyRead(bot)
+    const after = pillarAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || samePillarBlock(b.name, take.get(k).name) }, considered: k => considered.has(k) && !visitGone(bot, signal) })
+    mem.tries = after.mem.tries; mem.until = after.mem.until
+    for (const a of after.aside) row('aside', 'no_effect', { at: a.k, why: 'unreached', tries: a.tries, block: take.get(a.k)?.name ?? '-', pillar: take.get(a.k)?.pillar ?? '-', until_min: Math.round(PL.asideMs / 60_000) })
+    const done = pj.pillars.filter(p => p.take.every(t => { const b = read2(t[0], t[1], t[2]); return !!b && !samePillarBlock(b.name, t[3]) })).length
+    const status = cleared > 0 ? 'success' : 'no_effect'
+    row('pass', status, { cleared, offered: take.size, pillars: pj.pillars.length, pillars_cleared: done, pillars_done: `${pj.census.done + done}/${pj.census.pillars}`, aside: after.aside.length, stop: r.stop, ms: Date.now() - t0 })
+    return { tried: true, status, why: `lone pillars: ${cleared} of ${take.size} blocks taken down, ${done} of ${pj.pillars.length} pillars level (${r.stop})`, cleared, stop: r.stop }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('pass', 'failed', { stop: 'error', why: String(e?.message ?? e) })
+    return { tried: true, status: 'failed', failClass: 'other', why: String(e?.message ?? e).slice(0, 100), cleared, stop: 'error' }
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
 const LITTER_ON = litterOn()   // litter-01
 /** litter-01: every bot's handed blocks for a survey (litter.mjs litterIntake; buildproj.mjs litterRead) -> [{ at, block, t, shape,
  *  by }], a cell another project's record names marked `claimed` (`records`: the survey's own, tidyInputs'); [] under LITTER=off or
@@ -30795,6 +30931,13 @@ async function buildTidyVisit (ctx, args, signal) {
     const fl = await floatcleanLap(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
     if (!clientEnded(bot)) procMem(bot).fcNextAt = Date.now() + (fl.tried && fl.cleared > 0 ? 0 : FC.everyMs)
     if (fl.tried) return out(fl.status, 'floatclean', fl.why, { stop: 'floatclean', cleared: fl.cleared }, fl.failClass ?? null)
+  }
+  // PILLARS-01show: the lone pillars outside the walls, a lap at the head of any crew bot's visit (keeper or helper) when due; a lap
+  // that took nothing (nothing take-able near, no slot) goes on to the grounds; one that dug keeps the next lap due at once
+  if (pillarcleanDue(procMem(bot))) {
+    const pl = await pillarcleanLap(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+    if (!clientEnded(bot)) procMem(bot).plNextAt = Date.now() + (pl.tried && pl.cleared > 0 ? 0 : PL.everyMs)
+    if (pl.tried) return out(pl.status, 'pillarclean', pl.why, { stop: 'pillarclean', cleared: pl.cleared }, pl.failClass ?? null)
   }
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
   const gkNext = lane === 'inside' && GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStageCycle(rh.head.rec) : null

@@ -226,6 +226,8 @@ const REQUIRED = [
   'bots/test/homesearch.test.mjs',
   // scaffold-01show (11-20, owner: "fix the movement code and remove all the pillars"): the wild price, gather priced, carried receipts
   'bots/test/scaffold01.test.mjs',
+  // scaffold-01show x pillars-01show (11-21): the pillar lap reads the take-back's scafleft hand-off files
+  'bots/test/pillarscafleft.test.mjs',
   // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
   'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',
@@ -562,6 +564,17 @@ const REQUIRED = [
   'bots/test/reccache.test.mjs',
   // spentpick-01show (11-16): a placement never clicks a block that opens (Frost's table); the rebuild rule is in craftroom.mjs
   'bots/src/placeref.mjs',
+  'bots/src/pillarclean.mjs',   // pillars-01show (11-20): bots take down the lone pillars bots left outside the walls
+  'bots/src/pillarclean/showcase.json',   // pillars-01show: the showcase's pillar list (host survey, CoreProtect-proven)
+  'bots/test/pillarclean.test.mjs',   // pillars-01show
+  'bots/scripts/pillar-colscan.mjs',   // pillars-01show: the column scan (the vision render's pillar rule) over a region copy
+  'bots/scripts/pillar-render.mjs',   // pillars-01show: the before/after pictures
+  'scripts/host/pillar_survey.py',   // pillars-01show: outside the walls, CoreProtect-proven bodies, the bot's list
+  'scripts/host/pillar_source.py',   // pillars-01show: which bot and skill placed each proven pillar block (log copies)
+  'scripts/host/floatclean_cp.py',   // floatclean-01show (carried by pillars-01show): the bots' last placements from a CoreProtect copy
+  'sandbox/pillars/plrig.mjs',   // pillars-01show: the Paper rig driver
+  'sandbox/pillars/plrigworld.sh',   // pillars-01show: the rig world load/snap/restore
+  'docs/reports/pillars/pillars-2026-11-20.md',   // pillars-01show: the report (survey, sources, rig, pictures)
   // zoneplant-01show (11-18): no placement of any purpose in a protected zone; no planting within GROWTH_MARGIN of one
   'bots/test/zoneplant.test.mjs',
   'docs/reports/zoneplant-2026-11-18.md',
