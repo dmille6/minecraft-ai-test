@@ -608,6 +608,38 @@ await t('MUTANT: the face rays cut (the centre only, as before) -- the stub stay
     f.arrive(); await p.catch(() => {})
   })
 })
+const PA_URL = new URL('../src/placeaudit.mjs', import.meta.url)
+/** placeaudit over a bot whose placeBlock rejects as mineflayer's does on a tower step (no update within its 5 s) */
+async function lateBot (mod) {
+  const bot = new EventEmitter()
+  Object.assign(bot, { entity: { position: { x: 500.5, y: 64, z: 500.5 } }, heldItem: { name: 'dirt' }, pathfinder: { isBuilding: () => true }, movementProfile: 'walk' })
+  bot.placeBlock = async () => { throw new Error('Event blockUpdate:(501, 64, 500) did not fire within timeout of 5000ms') }
+  const got = []
+  let clock = 1000
+  const pa = mod.attachPlaceAudit(bot, { home: { x: 0, y: 64, z: 0 }, emitPlace: () => {}, emitSummary: () => {}, onPlaced: r => got.push(r), timers: false, now: () => clock })
+  await bot.placeBlock({ position: { x: 501, y: 63, z: 500 } }, { x: 0, y: 1, z: 0 }).catch(() => {}); await sleep(2)
+  const land = (name, at = [501, 64, 500]) => bot.emit('blockUpdate', { name: 'air' }, { name, position: { x: at[0], y: at[1], z: at[2] } })
+  return { bot, got, pa, land, tick: ms => { clock += ms } }
+}
+await t('A PLACEMENT THAT "FAILED" AND LANDED LATER (rig 11-21: every tower block beside the cliff) gets its receipt -- once, only its own block, only within LATE_MS', async () => {
+  const PA = await import('../src/placeaudit.mjs')
+  const a = await lateBot(PA)
+  assert.deepStrictEqual(a.got, [], 'positive control: a rejected placement is not handed on at once')
+  a.land('stone', [502, 64, 500]); a.land('cobblestone'); assert.deepStrictEqual(a.got, [], 'another cell, another block: nothing')
+  a.tick(5_500); a.land('dirt')
+  assert.strictEqual(a.got.length, 1); assert.deepStrictEqual(a.got[0].cell, [501, 64, 500]); assert.strictEqual(a.got[0].late, true)
+  assert.strictEqual(TB.receiptFor(a.got[0]), true, 'a receipt the take-back takes')
+  a.land('dirt'); assert.strictEqual(a.got.length, 1, 'once')
+  const b = await lateBot(PA)
+  b.tick(PA.LATE_MS + 1); b.land('dirt'); assert.deepStrictEqual(b.got, [], 'too late: not the bot\'s by this evidence')
+})
+await t('MUTANT: the late watch cut -- the tower block that landed late gets no receipt (killed)', async () => {
+  await withMutant(PA_URL, [['      if (err) watchLate(rec)', '      if (false) watchLate(rec)']], async M => {
+    const a = await lateBot(M)
+    a.tick(5_500); a.land('dirt')
+    assert.deepStrictEqual(a.got, [])
+  })
+})
 // ---- the wiring (source, comments stripped) -------------------------------------------------------------------------------
 await t('WIRING features.mjs: the take-back gets the scafleft file (io) -- and the mutant without it is caught', () => {
   const src = strip(readFileSync(FEAT_URL, 'utf8'))

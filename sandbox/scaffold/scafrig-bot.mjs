@@ -43,7 +43,14 @@ gather.canDig = true; gather.allow1by1towers = true; gather.dontCreateFlow = tru
 if (ST.scafProfileFlags) Object.assign(gather, ST.scafProfileFlags('gather')); else gather.scafTown = false   // the base: gather exempt
 bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk'
 const tb = TB.installTakeback(bot, { emit, timers: true })
-PA.attachPlaceAudit(bot, { home: HOME, onPlaced: r => tb?.note(r), emitPlace: () => {}, emitSummary: () => {}, timers: false })
+const sums = []
+const placed = []
+bot.on('blockPlaced', (o, n) => placed.push(`${n?.position}:${n?.name}`))
+const pa = PA.attachPlaceAudit(bot, { home: HOME, onPlaced: r => tb?.note(r), emitPlace: () => {}, emitSummary: ({ detail }) => sums.push(detail), timers: false })
+const perr = []
+{ const inner = bot.placeBlock; bot.placeBlock = async function (ref, face) { const t0 = Date.now(); const dest = ref.position.plus(face); try { return await inner.call(this, ref, face) } catch (e) { const at = bot.blockAt(dest)?.name; perr.push({ dest: `${dest}`, ms: Date.now() - t0, err: String(e?.message).slice(0, 80), atFail: at }); const k = `blockUpdate:${dest}`; const rec = perr.at(-1); const on = (o, n) => { rec.late = `${n?.name}@${Date.now() - t0}` }; bot.once(k, on); setTimeout(() => bot.removeListener(k, on), 8000); throw e } } }
+const resets = []
+bot.on('path_reset', why => resets.push(why))
 const code = (() => { try { return fs.readFileSync(path.join(ROOT, 'COMMIT'), 'utf8').trim() } catch { return '?' } })()
 W('ready.json', { pid: process.pid, code, wild: price.wildCost ?? 0, gatherPriced: gather.scafTown !== false })
 const goalOf = g => (g.near ? new goals.GoalNear(g.x, g.y, g.z, g.near) : new goals.GoalBlock(g.x, g.y, g.z))
@@ -80,7 +87,10 @@ for (let n = 1; ; n++) {
   }
   await sleep(1500)
   clearInterval(tick)
+  try { pa.flush() } catch { /* diagnostics */ }
+  await sleep(3000)
+  const audit = sums.splice(0), events = placed.splice(0), why = resets.splice(0), fails = perr.splice(0)
   const mine = rows.slice(r0)
   const cnt = re => mine.filter(r => re.test(`${r.kind} ${r.detail}`)).length
-  W(`result-${n}.json`, { n, scene: tr.scene, legs, deaths: deaths - d0, dirtUsed: dirt0 - dirt(), dug: cnt(/^takeback outcome=dug/), carried: cnt(/^takeback outcome=carried/), left: cnt(/^takeback outcome=left/), adopted: cnt(/^takeback outcome=adopted/), walks: mine.filter(r => r.kind === 'takeback_walk').map(r => r.detail), outcomes: mine.filter(r => r.kind === 'takeback').map(r => /outcome=(\S+) why=(\S+)/.exec(r.detail)?.slice(1).join(':')), trace: trace.slice(0, 400) })
+  W(`result-${n}.json`, { n, scene: tr.scene, legs, deaths: deaths - d0, dirtUsed: dirt0 - dirt(), dug: cnt(/^takeback outcome=dug/), carried: cnt(/^takeback outcome=carried/), left: cnt(/^takeback outcome=left/), adopted: cnt(/^takeback outcome=adopted/), walks: mine.filter(r => r.kind === 'takeback_walk').map(r => r.detail), outcomes: mine.filter(r => r.kind === 'takeback').map(r => /outcome=(\S+) why=(\S+)/.exec(r.detail)?.slice(1).join(':')), trace: trace.slice(0, 400), audit, blockPlaced: events, resets: why, fails })
 }
