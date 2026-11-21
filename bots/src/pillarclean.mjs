@@ -232,8 +232,10 @@ export function pillarPassJobs (list, read, { pos = null, aside = () => false, c
  * judged: it must read `take` NOW. Never a block under this bot or under another body (floatclean's rules, rig 11-20), never while
  * this bot stands on a listed block or on a floor with liquid under it (`noFloor(k)`: the lap's floor set).
  */
-export function pillarClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], noFloor = () => false, others = [] } = {}) {
+export function pillarClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], noFloor = () => false, others = [], inWater = false } = {}) {
   if (c?.kind !== 'pillar') return true
+  // rig 11-20 (6db0cb11, Delta at 89,60,-63): never a dig while the bot is in water at all, its floor a liquid -- it gets out first
+  if (inWater || under.some(k => { const b = read(...k.split(',').map(Number)); return !b || isLiquid(b) })) return false
   if (others.includes(k3(c.at))) return false
   if (under.includes(k3(c.at)) || under.some(k => noFloor(k))) return false
   return pillarVerdict(c, read, { listed: k => listed(k) && isSolid(read(...k.split(',').map(Number))), cells, zone }) === 'take'

@@ -30246,7 +30246,7 @@ async function pillarcleanLap (ctx, signal, { deadline = Date.now() + PL.passMs 
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.plStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
       domain: () => true, walkR: PL.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
       clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
-      clearOk: (q, rd) => { considered.add(q.at.join(',')); return pillarClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: plBodyKeys(bot), noFloor: k => pj.floor.has(k), others: plOthersKeys(bot) }) } },
+      clearOk: (q, rd) => { considered.add(q.at.join(',')); return pillarClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: plBodyKeys(bot), noFloor: k => pj.floor.has(k), others: plOthersKeys(bot), inWater: !!bot.entity?.isInWater }) } },
     effects, { deadline: Math.min(deadline, t0 + PL.passMs), maxSteps: 200 })
     cleared = r.cleared ?? 0
     const read2 = tidyRead(bot)

@@ -253,6 +253,16 @@ await t('the other body\'s block waits (pillarClearOk `others`), and the bot\'s 
   await killedBy(PC_PATH, PC, [["  if (under.includes(k3(c.at)) || under.some(k => noFloor(k))) return false\n", "  if (under.some(k => noFloor(k))) return false\n"]], M => assert.strictEqual(M.pillarClearOk(c, read, { under: ['0,65,0'] }), false, 'the block under the bot'))
 })
 
+await t('RIG 11-20 (6db0cb11): never a dig while the bot is in water -- swimming, or its floor a liquid (killed mutant)', async () => {
+  const read = W({ '0,65,0': 'dirt', '5,64,5': 'water' })
+  const c = { at: [0, 65, 0], kind: 'pillar', name: 'dirt' }
+  await killedBy(PC_PATH, PC, [["  if (inWater || under.some(k => { const b = read(...k.split(',').map(Number)); return !b || isLiquid(b) })) return false\n", '\n']], M => {
+    assert.strictEqual(M.pillarClearOk(c, read, { under: ['3,64,3'] }), true, 'the positive control: on stone')
+    assert.strictEqual(M.pillarClearOk(c, read, { inWater: true }), false, 'swimming')
+    assert.strictEqual(M.pillarClearOk(c, read, { under: ['5,64,5'] }), false, 'its floor is water')
+  })
+})
+
 console.log('THE WIRING (structural: the lap passes the options the chain above was proved with; comments stripped)')
 await t('skills.mjs pillarcleanLap: clearKeepOrder, clearNoFloor of the lap\'s floor (the sea guard in it), pillarClearOk at the dig; the visit head calls it after floatclean', () => {
   const src = fs.readFileSync(SKILLS_PATH, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
@@ -260,7 +270,7 @@ await t('skills.mjs pillarcleanLap: clearKeepOrder, clearNoFloor of the lap\'s f
   assert.ok(i > 0)
   const body = src.slice(i, src.indexOf('\n}\n', i))
   assert.ok(body.includes('clearKeepOrder: true, clearNoFloor: pj.floor,'))
-  assert.ok(body.includes('clearOk: (q, rd) => { considered.add(q.at.join(\',\')); return pillarClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: plBodyKeys(bot), noFloor: k => pj.floor.has(k), others: plOthersKeys(bot) }) } },'))
+  assert.ok(body.includes('clearOk: (q, rd) => { considered.add(q.at.join(\',\')); return pillarClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: plBodyKeys(bot), noFloor: k => pj.floor.has(k), others: plOthersKeys(bot), inWater: !!bot.entity?.isInWater }) } },'))
   assert.ok(body.includes('considered: k => considered.has(k) && !visitGone(bot, signal) })'), 'a try only for a cell the visit got to')
   assert.ok(body.includes('const guard = pillarGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
   assert.strictEqual(body.split('releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)').length, 2, 'the slot released once, in the finally')
