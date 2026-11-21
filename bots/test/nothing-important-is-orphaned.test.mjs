@@ -298,6 +298,7 @@ const REQUIRED = [
   'bots/test/stepwell03.test.mjs',  // stepwell-03 (11-05): the siting reaches its site (reservations first, the wall's gap)
   'bots/test/stepwell-aside.test.mjs', 'bots/scripts/stepwell-trace.mjs', 'bots/scripts/stepwell-visit-replay.mjs', 'bots/scripts/stepwell-render.mjs',   // stepwell-03show: the set-aside's tests and the trace's replays
   'bots/test/stepwell04.test.mjs',   // stepwell-04show: the tank's stock (posts from the town's walls, trim fetched above the keep)
+  'bots/test/wellcap-own.test.mjs',   // stepwell-04show: the junk well judges each cobble name on its own count
   'docs/reports/stepwell-trace-2026-11-20.md',   // stepwell-03show: the trace
   'bots/src/bagroom.mjs',  // bagroom-01 (11-06): the build's room -- the well's band dispose, the share bank
   'bots/test/bagroom.test.mjs',
