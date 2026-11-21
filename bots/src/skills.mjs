@@ -250,7 +250,7 @@ import { trunkGuard } from './buildsite.mjs'   // leaffell-01show r1: the retrof
 import { reservationsStrict } from './buildsite.mjs'   // leaffell-01show r2: ...over reservations whose every input says whether it was read
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
-import { SWSTOCK, townView as swTownView, stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
+import { SWSTOCK, drawReserveMs as swDrawReserveMs, townView as swTownView, stockTank as swStockTank, nextTopsOwed as swNextTopsOwed, tankWithRemedy as swTankWithRemedy, tankStamps as swTankStamps, tankRemedy as swTankRemedy } from './stepwellvisit.mjs'   // stepwell-04show: the tank's stock
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
 import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's descent stops above the town mine (owner 11-09)
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
@@ -33110,11 +33110,13 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
     bag0 = heldMap(bot)
     const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
-    // stepwell-04show: a draw answers what it took ({ name: n })
+    // stepwell-04show: a draw answers what it took ({ name: n }), and ends SWSTOCK.workMs before the visit's deadline (drawReserveMs)
     const draw = async want => {
       const need = Object.fromEntries(Object.entries(want).filter(([, n]) => n > 0))
       if (!Object.keys(need).length) return {}
-      try { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v; return w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err; return {} }
+      let rsv = 30_000
+      try { rsv = swDrawReserveMs({ skillDeadline: withdrawClock(ctx).deadline, visitDeadline: t0 + budget - ZIG_VISIT_TAIL_MS }) } catch { rsv = 30_000 }
+      try { const w = await matsWithdraw(ctx, need, signal, rsv, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v; return w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err; return {} }
     }
     effects = botBuildEffects(bot, {
       acks, keep,
