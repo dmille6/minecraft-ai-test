@@ -382,6 +382,8 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     if (v.act === 'deferred') { r.tries++; if (r.tries > T.tries) row(r, 'deferred', v.why); return false }
     if (v.act !== 'dig') { row(r, v.act, v.why); return true }
     if (ext()) return false
+    // review r2 (Codex, reproduced): the equip above awaited -- the cell may have changed meanwhile; judged again at the dig
+    if (r.changed || r.unwatched || blockAt(r.cell)?.name !== r.block) { row(r, r.unwatched ? 'left' : 'adopted', r.unwatched ? 'unwatched' : 'changed'); return true }
     const t0 = now()
     try {
       await withDigScope(bot, { purpose: 'takeback', by: 'takeback' }, () => bot.dig(b))
@@ -431,6 +433,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
         try { digMs = Number(bot.digTime?.(b)) || 0 } catch { digMs = 0 }
         try { if (typeof b.canHarvest === 'function') harvest = !!b.canHarvest(bot.heldItem ? bot.heldItem.type : null) } catch { harvest = true }
         if (!harvest || !(digMs <= T.digMsMax)) break
+        if (r.changed || r.unwatched || blockAt(c)?.name !== r.block) break   // review r2: judged again after the equip's await
         await withDigScope(bot, { purpose: 'takeback', by: 'takeback' }, () => bot.dig(b))
         const after = blockAt(c)
         if (!after || !AIRY(after.name)) break
