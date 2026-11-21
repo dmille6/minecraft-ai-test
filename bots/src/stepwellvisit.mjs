@@ -338,6 +338,11 @@ export function nextTopsOwed (read, plan) {
   for (const u of plan?.units ?? []) { const n = topsOwedIn(read, plan, u); if (n > 0) return { y: u.y, n } }
   return { y: null, n: 0 }
 }
+/** THE TOWN'S STOCK AS THE FETCH READS IT -> { name: n } | null (unknown: every source is asked). Pure over skills.mjs matsTownStock's
+ *  reading. Only a scan whose every container the index knows is a proof of what the town holds (rig 11-21: an index 12 h stale read
+ *  `known` 0 and an empty stock, and the fetch skipped the town's 308 stone_bricks as "none"); a stale or partial one is unknown --
+ *  the withdraw's own search (its skip_zero_stock) asks the containers. */
+export const townView = ts => (ts && ts.known > 0 && Number(ts.coverage) >= 1 && ts.stock && typeof ts.stock === 'object' ? ts.stock : null)
 /** RULE 1: the posts to draw from the town's walls before any is crafted -> n. Pure. */
 export function postsDraw ({ bag = {}, postsLeft = 0, max = SWSTOCK.postsMax } = {}) {
   return Math.max(0, Math.min(n0(postsLeft), max) - wallsHeld(bag))
