@@ -209,6 +209,17 @@ def t_halt(H):
     check('reports: a stale read keeps the open keys (no false CLEARED) and pages trip:stale', st.get('report:S6 H1') == 'x' and 'trip:stale' in st, st)
     check('reports: a stale read during a stop is by design (no trip:stale)', 'trip:stale' not in H.showcase_reports(old, T, True, {}))
     check('reports: tier 1 (source showtrip pages)', H.AL.tier_of('showtrip', 'report:S6 H1') == H.AL.TIER_PAGE)
+    # tripstale-02 (owner 11-21): a crashed read pages at once; a TRIP / zone exit code does not; never during a stop
+    fresh = dict(trip, reports=[])
+    check('crash: a fresh report + last rc=1 pages trip:crashed', 'trip:crashed' in H.showcase_reports(fresh, T, False, {}, last_rc=1))
+    check('crash: rc 0 / 2 / 3 / 4 page nothing', all('trip:crashed' not in H.showcase_reports(fresh, T, False, {}, last_rc=rc) for rc in (0, 2, 3, 4)))
+    check('crash: during a stop no crash page', 'trip:crashed' not in H.showcase_reports(fresh, T, True, {}, last_rc=1))
+    check('crash: a stale read + rc=1 pages both', {'trip:crashed', 'trip:stale'} <= set(H.showcase_reports(old, T, False, {}, last_rc=1)))
+    check('stale: 76 min old is stale, 70 is not', 'trip:stale' in H.showcase_reports(dict(trip, t=(T - H.dt.timedelta(minutes=76)).strftime('%Y-%m-%dT%H:%M:%SZ')), T, False, {})
+          and 'trip:stale' not in H.showcase_reports(dict(trip, t=(T - H.dt.timedelta(minutes=70)).strftime('%Y-%m-%dT%H:%M:%SZ')), T, False, {}))
+    lg = os.path.join(tempfile.mkdtemp(), 'trip.log')
+    open(lg, 'w').write('===== 2026-11-19T10:35:01Z rc=0\nVERDICT WATCH\n===== 2026-11-19T11:35:01Z rc=1\nTraceback\n')
+    check('crash: last_trip_rc reads the NEWEST run', H.last_trip_rc(lg) == 1 and H.last_trip_rc(lg + '.none') is None)
     fu = {f'mcbot@b{i}.service': 'active' for i in range(80)}
     fu['mcbot@b0.service'] = 'failed'
     check('fleet: one failed unit is no halt', H.judge_fleet([], fu, T)[0] is None)
@@ -623,6 +634,9 @@ MUTANTS = [
     ('goalwatch.py', "    if idle < stall:\n        return None\n", "    if idle > stall:\n        return None\n", t_goal),
     ('goalwatch.py', "        return status == 'success' and d.get('op') in PROGRESS_OPS", "        return d.get('op') in PROGRESS_OPS", t_goal),
     ('haltwatch.py', "        if age < g:\n", "        if age < g * 0:\n", t_halt),
+    ('haltwatch.py', "    if last_rc is not None and last_rc not in TRIP_OK_RC and not stop_open:", "    if False:", t_halt),
+    ('haltwatch.py', "    return int(hits[-1]) if hits else None", "    return int(hits[0]) if hits else None", t_halt),
+    ('haltwatch.py', "TRIP_STALE = dt.timedelta(minutes=75) ", "TRIP_STALE = dt.timedelta(minutes=130) ", t_halt),
     # phase 1 item 4
     ('haltwatch.py', "        elif ev == 'activated' and (r.get('running_bots') or 0) > 0 and r.get('cause') != 'auto-rollback':",
      "        elif ev == 'activated' and r.get('cause') != 'auto-rollback':", t_halt),

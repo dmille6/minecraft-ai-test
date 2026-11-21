@@ -34,6 +34,7 @@ import datetime as dt
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -156,7 +157,8 @@ def judge_showcase(deploy_rows, unit_states, now, grace=GRACE):
 
 # ------------------------------------------------------------------------------------------------ the tripwire's pages
 EVENT_KINDS = ('auto-rollback', 'auto-rollback-start', 'quarantine')
-TRIP_STALE = dt.timedelta(minutes=130)        # the read runs hourly at :35
+TRIP_STALE = dt.timedelta(minutes=75)         # the read runs hourly at :35 (tripstale-02: 130 -> 75, the dashboard tile's line)
+TRIP_OK_RC = (0, 2, 3, 4)                     # trip-cron.sh: read 0 / 2 TRIP; zones-compare 3 BREACH, 4 blind -- anything else crashed
 
 
 def showcase_events(deploy_rows, cursor):
@@ -189,16 +191,34 @@ def showcase_events(deploy_rows, cursor):
     return out, new_cur
 
 
-def showcase_reports(trip, now, stop_open, prev_active):
+def last_trip_rc(log_path, tail_bytes=65536):
+    """The exit code of the newest run in trip.log (`===== <ISO> rc=N`, trip-cron.sh), or None."""
+    try:
+        with open(log_path, 'rb') as f:
+            f.seek(0, 2); f.seek(max(0, f.tell() - tail_bytes))
+            tail = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return None
+    hits = re.findall(r'^===== \S+ rc=(-?\d+)\s*$', tail, re.M)
+    return int(hits[-1]) if hits else None
+
+
+def showcase_reports(trip, now, stop_open, prev_active, last_rc=None):
     """PURE. trip: trip-last.json or None. -> {key: line}: one tier-1 key per REPORT gate (plan conformance: paged, never a
     stop), with its new items. A Z1 quarantine is paged by its event instead. A stale read (> TRIP_STALE, bots running)
     keeps the previous report keys (no false CLEARED) and adds trip:stale; during a stop the read is skipped by design."""
     t = _ts((trip or {}).get('t'))
+    crashed = {}
+    if last_rc is not None and last_rc not in TRIP_OK_RC and not stop_open:
+        # tripstale-02 (owner 11-21 "Yes, add it"): page the FIRST crashed run, not 130 min later (11-19: crashed 11:35-13:35Z)
+        crashed['trip:crashed'] = (f'the showcase tripwire read CRASHED (rc={last_rc}): nothing is judging the showcase -- '
+                                   f'see the traceback at the end of /srv/showcase/ops/trip.log')
     if t is None or now - t > TRIP_STALE:
         out = dict(prev_active or {})
         if not stop_open:
             out['trip:stale'] = (f'the showcase tripwire read is {"missing" if t is None else "%.1f h old" % ((now - t).total_seconds() / 3600)}'
                                  f' (it runs hourly at :35): nothing is judging the showcase -- check root cron and /srv/showcase/ops/trip.log')
+        out.update(crashed)
         return out
     items = (trip or {}).get('new_items') or {}
     out = {}
@@ -211,6 +231,7 @@ def showcase_reports(trip, now, stop_open, prev_active):
         out[f'report:{p[0]} {p[1]}'] = (f'REPORT (no stop) {r}; new items {sample[:3]}{" +%d" % (len(sample) - 3) if len(sample) > 3 else ""}'
                                          f' -- the tripwire\'s plan-conformance defect, read at {trip.get("t")}; acknowledge in ACK.json '
                                          f'(showcase_trip.py ack) or silence the page (pager.py ack showtrip \'report:*\')')
+    out.update(crashed)
     return out
 
 
@@ -267,7 +288,8 @@ def page_showcase(rows, a, sd, now):
         except (OSError, ValueError, AttributeError):
             prev = {}
         stop_open = showcase_lifecycle(rows, now)['stop'] is not None
-        rep = showcase_reports(trip, now, stop_open, {k: v for k, v in prev.items() if k.startswith('report:')})
+        rep = showcase_reports(trip, now, stop_open, {k: v for k, v in prev.items() if k.startswith('report:')},
+                               last_trip_rc(getattr(a, 'trip_log', None) or os.path.join(os.path.dirname(a.trip_json), 'trip.log')))
         print('showtrip reports: %s' % (sorted(rep) or 'none'))
         if not a.no_state:
             AL.raise_alarms('showtrip', rep, now, st_path, log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
@@ -292,6 +314,7 @@ def main(argv=None):
     ap.add_argument('--label', required=True, choices=['fleet', 'showcase'])
     ap.add_argument('--deploy-log', default='/srv/showcase/ops/deploy.jsonl')
     ap.add_argument('--trip-json', default='/srv/showcase/ops/trip-last.json', help="showcase: the tripwire's newest read")
+    ap.add_argument('--trip-log', default=None, help='showcase: trip.log (default: beside --trip-json)')
     ap.add_argument('--incidents', default='/var/lib/mcai-tripper')
     ap.add_argument('--manifest', default='/srv/mcbots/bot-manifest.json', help="the tripper's bot -> unit map")
     ap.add_argument('--state-dir', default='~/digest')
