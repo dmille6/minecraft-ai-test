@@ -816,6 +816,8 @@ const REQUIRED = [
   'infra/testworld/install.sh', 'infra/testworld/push-world.sh', 'infra/testworld/mctest@.service', 'infra/testworld/testworld-paper.service', 'infra/testworld/testworld.slice',
   'infra/testworld/testworld-sample.service', 'infra/testworld/testworld-sample.timer',
   'infra/testworld/testworld-leaseprune.service', 'infra/testworld/testworld-leaseprune.timer', 'infra/testworld/leaseprune4h.py',
+  // rigguard (11-21): sandbox worlds are stopped/swapped only through rigworld.sh, which asserts the caller holds the lock
+  'sandbox/rigworld.sh', 'bots/test/rigguard.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

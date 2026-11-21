@@ -3,6 +3,7 @@
 #
 #   sandbox/sbxlock.sh take    <server|all> <tag> [note...]   e.g. take sandbox6 kitshrink "agent-ac33 Paper drill"
 #   sandbox/sbxlock.sh release <server|all> <tag>
+#   sandbox/sbxlock.sh assert  <server> <tag>             exit 0 only if <tag> holds <server> (rigworld.sh calls it)
 #   sandbox/sbxlock.sh status
 #
 # <server> takes ONE sandbox: /tmp/mcai-sandbox.lock.<server>. `all` takes the GLOBAL lock /tmp/mcai-sandbox.lock,
@@ -94,6 +95,21 @@ case "$CMD" in
     [[ -z "$extra" ]] || { echo "REFUSED: $T holds more than its owner file ($extra); remove those, then release again. Nothing changed."; exit 1; }
     rm -f "$T/owner"; rmdir "$T" || { echo "STUCK: $T lost its owner file but could not be removed; remove it by hand"; exit 1; }
     echo "RELEASED $T" ;;
+  assert)
+    # rigguard (2026-11-21): exit 0 ONLY when <server>'s own lock is held by <tag> (owner file's first word) and no
+    # other tag holds the global lock. Anything that stops, swaps or restores a sandbox world calls this first
+    # (sandbox/rigworld.sh). 11-21 01:56Z: a failed take, hidden by `| tail`, let one agent stop another's sandbox3.
+    S="${1:?server}"; TAG="${2:?tag}"
+    [[ "$S" != all ]] || { echo "ASSERT needs one server, not all"; exit 2; }
+    T="$(target_of "$S")"
+    [[ -d "$T" ]] || { echo "NOT HELD $T: take it first (sbxlock.sh take $S $TAG)"; exit 1; }
+    first="$(owner_of "$T" | awk '{print $1}')"
+    [[ "$first" == "$TAG" ]] || { echo "NOT YOURS $T: held by $(owner_of "$T")"; exit 1; }
+    if [[ -d "$G" ]]; then
+      gfirst="$(owner_of "$G" | awk '{print $1}')"
+      [[ "$gfirst" == "$TAG" ]] || { echo "NOT YOURS: the global lock $G is held by $(owner_of "$G")"; exit 1; }
+    fi
+    echo "OWNED $T by $TAG" ;;
   status)
     any=0
     for T in "$G" $(for n in $NAMES; do echo "$G.$n"; done); do
@@ -101,5 +117,5 @@ case "$CMD" in
     done
     [[ "$any" == 1 ]] || echo "all sandbox locks free"
     mode_warn all ;;
-  *) echo "usage: $0 take <server|all> <tag> [note] | release <server|all> <tag> | status"; exit 2 ;;
+  *) echo "usage: $0 take <server|all> <tag> [note] | release <server|all> <tag> | assert <server> <tag> | status"; exit 2 ;;
 esac
