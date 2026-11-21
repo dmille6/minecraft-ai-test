@@ -513,6 +513,9 @@ async function towerTopUnseen (M = TB) {
   f.place([3, 64, 0], { shape: 'pillar' }); f.place([3, 65, 0], { shape: 'pillar' })
   f.stand(3, 66, 0); await sleep(3 * T.tickMs)
   f.bot.canSeeBlock = b => b.position.y !== 65              // its top hidden from where the bot steps off (a ledge's lip)
+  // restack onto scaffold-01show: a hidden top whose cell above is AIR is taken anyway (scaffold's bare-top rule, tested below), so this
+  // fixture's top is the case the stack rule guards: no sight line to it AND its cell above not read (the lip's unloaded column)
+  const ba = f.bot.blockAt; f.bot.blockAt = v => (v.x === 3 && v.y === 66 && v.z === 0 ? null : ba(v)); f.reveal = () => { f.bot.blockAt = ba; f.bot.canSeeBlock = () => true }
   f.cells.set('4,65,0', 'stone'); f.stand(4, 66, 0)
   await sleep(40 * T.tickMs)
   return { f, p }
@@ -521,11 +524,23 @@ await t('a tower whose top is out of sight: its lower block WAITS (never adopted
   const { f, p } = await towerTopUnseen()
   assert.ok(!f.out().includes('adopted:built_on'), `the lower block was closed under its own top: ${f.out()}`)
   assert.strictEqual(f.name(3, 64, 0), 'dirt'); assert.strictEqual(f.name(3, 65, 0), 'dirt')
-  f.bot.canSeeBlock = () => true
+  f.reveal()
   await until(() => f.bot.dug.length === 2, 3000)
   f.arrive(); await p.catch(() => {})
   assert.deepStrictEqual(f.bot.dug, ['3,65,0', '3,64,0'], 'top first, then the one under it')
   assert.deepStrictEqual(f.out(), ['dug:ripe', 'dug:ripe'])
+})
+await t('scaffold x pillars: a tower whose top is out of sight but BARE (air over it) comes down at once, top first, nothing adopted', async () => {
+  const f = fake({})
+  const p = f.walk({ id: 'up' })
+  f.place([3, 64, 0], { shape: 'pillar' }); f.place([3, 65, 0], { shape: 'pillar' })
+  f.stand(3, 66, 0); await sleep(3 * T.tickMs)
+  f.bot.canSeeBlock = b => b.position.y !== 65
+  f.cells.set('4,65,0', 'stone'); f.stand(4, 66, 0)
+  await until(() => f.bot.dug.length === 2, 3000)
+  f.arrive(); await p.catch(() => {})
+  assert.deepStrictEqual(f.bot.dug, ['3,65,0', '3,64,0'], 'top first, then the one under it')
+  assert.ok(!f.out().includes('adopted:built_on'), f.out())
 })
 await t('MUTANT: the stack rule cut from ripeNow -- the lower block is adopted built_on under its own top (killed)', async () => {
   await withMutant(' && !stackedUnder(r, st.open)))', '))', async M => {
