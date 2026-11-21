@@ -484,7 +484,7 @@ const WIRES = [
   ['skills: a standing stepwell judges its own cells (its damage is a repair)', SKS, /if \(r\.blueprint === STEPWELL_BLUEPRINT\) return stepwellDamaged\(stairRead\(bot\), r\) != null/],
   ['skills: an unsited stepwell whose siting found no site waits town-wide', SKS, /if \(p\.plot === STEPWELL_PLOT && !rec && Date\.now\(\) < siteWaitUntil\(STEPWELL_PLOT, dir\)\) return/],
   ['skills: the felling runs on the felling view (runVisit: replants first, G5 rows)', SKS, /const r = await runVisit\(\{ dir, key, me, home, stood, record: fellView\(rec\), recordGen: rh\.head\.gen, palette: FELL_PALETTE/],
-  ['skills: the tank runs the tested loop (under the stair claim when it has a descent)', SKS, /const r = await runIt\(\(\) => runStepwellVisit\(\{/],
+  ['skills: the tank runs the tested loop (under the stair claim when it has a descent)', SKS, /run: \(\) => runIt\(\(\) => runStepwellVisit\(\{/],   // stepwell-04show: inside tankWithRemedy's run
   ['skills: a stop publishes the stopped record (never a deeper cut)', SKS, /onStop: async \(y, why\) => \{ publishRecord\(dir, key, cur => \(cur && cur\.blueprint === STEPWELL_BLUEPRINT && cur\.state !== 'stopped' \? stepwellStopped\(cur/],
   ['shop: the stepwell in the project list, one builder', SHS, /Object\.freeze\(\{ plot: STEPWELL_PLOT, blueprint: STEPWELL_BLUEPRINT, builders: STEPWELL_BUILDERS \}\)/],
   ['shop: a sited stepwell stays guarded whatever its switch', SHS, /for \(const p of PROJECTS\) if \(p\.plot === STEPWELL_PLOT && !out\.some\(q => q\.plot === p\.plot\)\) out\.push\(p\)/],
