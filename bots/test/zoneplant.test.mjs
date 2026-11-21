@@ -61,7 +61,9 @@ test('THE CHAIN DOES NOT DEAD-END: the same marooned bot may still DIG (the ramp
   const { bot, calls } = maroonedBot()
   assert.equal(await bot.dig(blk(123, 69, -6, 'dirt')), 'dig-ok', 'a survival dig in the zone still passes (not a baseline cell)')
   const empty = maroonedBot({ held: null })
-  assert.equal(await empty.bot.activateBlock(blk(123, 68, -7, 'spruce_door')), 'use-ok', 'an empty-handed survival use passes (a door)')
+  assert.equal(await empty.bot.activateBlock(blk(123, 68, -7, 'stone')), 'use-ok', 'an empty-handed survival use of an ordinary block passes')
+  // VILLAGESAFE-01SHOW (owner 11-21): a door, trapdoor, gate or lever in a zone is never used, empty hand or not (Nova's trapdoor)
+  await assert.rejects(empty.bot.activateBlock(blk(123, 68, -7, 'spruce_door')), ProtectedZoneError, 'a door in the zone: refused')
   assert.deepEqual(calls, ['dig'])
 })
 

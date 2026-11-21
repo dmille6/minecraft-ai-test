@@ -504,6 +504,15 @@ export const SURVIVAL_OPS = new Set(['dig', 'use'])
 /** ZONEPLANT-01SHOW: a survival `use` inside a zone passes only with a hand that cannot change the block: empty, a pickaxe, a
  *  sword, a stick. With a block, a sapling, seeds, bone meal, a hoe, a shovel, an axe, a bucket or flint in hand, Paper treats
  *  use-item-on as a placement or a conversion (bone meal grows a sapling into a tree; a block in hand is placed). Pure. */
+/** VILLAGESAFE-01SHOW (owner 11-21 "i approve"; S4 TRIP 19:35Z, village-taiga-6_1): a block that CHANGES STATE when clicked -- a door,
+ *  a trapdoor, a fence gate, a lever, a button, a repeater, a bell ... showcase-Nova's pillar_out (reflex.mjs) placed with the block
+ *  under its feet as the REFERENCE, and that block was the village's worldgen spruce_trapdoor at 82,73,-5: mineflayer sends a
+ *  use-item-on AT the reference, Paper toggled the trapdoor three times (CoreProtect action 2, 19:28-19:29Z), and the update turned
+ *  the dirt_path under it to dirt. A placement's reference "changes nothing" only when it is not one of these. Inside a zone such a
+ *  block is never used and never a reference, whatever the purpose, whatever the hand (an empty hand toggles it too). The remedy is
+ *  another reference, another move, or the walk around (zoneRemedy). Iron doors and trapdoors open by redstone only. Pure. */
+export const TOGGLES = /^(?!iron_)(\w+_)?(door|trapdoor|fence_gate|button)$|^(lever|repeater|comparator|daylight_detector|note_block|bell|lectern|jukebox|cake|(\w+_)?candle_cake|(\w+_)?candle|respawn_anchor|composter|chiseled_bookshelf|decorated_pot)$/
+export const togglesOnUse = name => TOGGLES.test(bare(name ?? ''))
 export const USE_SAFE_HELD = /^(|(wooden|stone|iron|golden|diamond|netherite)_(pickaxe|sword)|stick)$/
 export const useHeldSafe = held => USE_SAFE_HELD.test(bare(held ?? ''))
 /** ZONEPLANT-01SHOW (Claude r1): AIR FIRST. A drowning bot's air pocket (airpocket.mjs) is placements; the owner's rule is that
@@ -528,6 +537,11 @@ export const reflexTickScope = () => { const s = currentDigScope(); return s?.pu
  */
 export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, role = null, name = null, nameRule = true, held = null, air = false, escape = false }) {
   if (!cell) return null
+  // VILLAGESAFE-01SHOW: a block that toggles on a click, inside a zone, is never used nor a placement's reference -- any purpose
+  if ((op === 'use' || (op === 'place' && role === 'ref')) && togglesOnUse(name)) {
+    const t = blocked(zones, cell.x, cell.y, cell.z, feet, true)
+    if (t) return { zone: t, struct: true, toggle: true }
+  }
   // ZONEGUARD-01SHOW 1: THE TRIPWIRE'S CELLS, before the deep exemption and before the survival pass -- never changed by a bot
   const mask = structMask(op, role)
   const s = mask ? structAt(zones, cell.x, cell.y, cell.z, mask) : null
@@ -820,9 +834,9 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     // ZONEGUARD-01SHOW: each cell's ROLE -- the reference changes nothing (old rule only), the destination may not be a baseline
     // cell or a path's cover, the cell above it not a baseline cell
     const tag = (c, role) => (c ? { ...c, role } : null)
-    return [tag(cellOf(ref), 'ref'), tag(cellOf(d), 'dest'), tag(cellOf({ position: { x: d.position.x, y: d.position.y + 1, z: d.position.z } }), 'above')]
+    return [tag(cellOf(ref) ? { ...cellOf(ref), name: ref?.name ?? null } : null, 'ref'), tag(cellOf(d), 'dest'), tag(cellOf({ position: { x: d.position.x, y: d.position.y + 1, z: d.position.z } }), 'above')]
   })
-  wrap('activateBlock', 'use', b => [cellOf(b)])
+  wrap('activateBlock', 'use', b => { const c = cellOf(b); return [c ? { ...c, name: b?.name ?? null } : null] })   // villagesafe-01show: the name (togglesOnUse)
   wrap('openBlock', 'open', b => [cellOf(b)], { approve: true })
   wrap('sleep', 'sleep', b => [cellOf(b)], { approve: true })
   wrap('craft', 'craft', (_r, _n, table) => [cellOf(table)], { approve: true })
@@ -847,6 +861,26 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
             // ...unless the bot sneaks (Codex r6): a sneaking click on a chest PLACES the held block at the face's cell
             let sneak = true
             try { sneak = typeof bot.getControlState === 'function' ? !!bot.getControlState('sneak') : !!bot.controlState?.sneak } catch { sneak = true }
+            // VILLAGESAFE-01SHOW: a click on a block that toggles (a door, a trapdoor, a lever ...), not sneaking, inside a zone: never
+            // sent, whatever the hand or the purpose -- it would toggle the block (Nova's trapdoor, 11-21 19:28Z)
+            const tz = !sneak && togglesOnUse(refName) ? blocked(list, L.x, L.y, L.z, feet, true) : null
+            if (tz) {
+              noteProtectZone(bot, 'struct_refused')
+              try { onRefuse({ op: 'use', zone: tz.id, at: { x: L.x, y: L.y, z: L.z }, purpose: purposeOf().purpose, by: purposeOf().by, struct: true,
+                remedy: zoneRemedy(tz, 'use', { x: L.x, y: L.y, z: L.z }, feet, { struct: true }) }) } catch { /* telemetry */ }
+              return false
+            }
+            // VILLAGESAFE-01SHOW: THE TRIPWIRE'S CELLS AT THE PACKET. A placement's destination on a baseline cell or a path's cover is
+            // never sent, whatever route reached the packet and whatever the purpose or hand (S4, 03:03:44Z: showcase-Delta's
+            // maroon_escape cobblestone landed at 105,67,-8 over the baseline dirt_path 105,66,-8 -- an S_COVER cell)
+            const dx = L.x + f[0], dy = L.y + f[1], dz = L.z + f[2]
+            const sz = (sneak || !OPENS.test(refName)) ? structAt(list, dx, dy, dz, PLACE_MASK) : null
+            if (sz) {
+              noteProtectZone(bot, 'struct_refused')
+              try { onRefuse({ op: 'place', zone: sz.id, at: { x: dx, y: dy, z: dz }, purpose: purposeOf().purpose, by: purposeOf().by, struct: true,
+                remedy: zoneRemedy(sz, 'place', { x: dx, y: dy, z: dz }, feet, { struct: true }) }) } catch { /* telemetry */ }
+              return false
+            }
             const z = blocked(list, L.x, L.y, L.z, feet, true) || ((sneak || !OPENS.test(refName)) && blocked(list, L.x + f[0], L.y + f[1], L.z + f[2], feet, true))
             if (z) {
               let held = null
