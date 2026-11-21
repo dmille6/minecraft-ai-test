@@ -408,10 +408,11 @@ export function pickPlaceItem (role, palette = {}, spare = () => 0, { topsOwed =
   return have.find(n => !tops.includes(n) || topSpare > n0(topsOwed)) ?? have[0]
 }
 /** THE STUCK STAMP'S RULE -> bool. Pure. A visit that did nothing and stopped on a failure waits the project (the 6 h stamp) -- but
- *  never one whose missing top stone it fetched (the next visit lays it). */
+ *  never one that fetched stone for the tank, whatever its last run's stop (Codex r1 BLOCKER: a rerun from the town chest can read
+ *  the tank unloaded and end `unknown`; the stone is in the bag and the next visit lays it). */
 export const TANK_STAMP_STOPS = Object.freeze(['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'])
 export function tankStamps (r = {}) {
-  if (!(r.placed > 0 || r.dug > 0) && TANK_STAMP_STOPS.includes(r.stop)) return !(r.stop === 'no_material' && Object.values(r.fetched ?? {}).some(v => v > 0))
+  if (!(r.placed > 0 || r.dug > 0) && TANK_STAMP_STOPS.includes(r.stop)) return !Object.values(r.fetched ?? {}).some(v => v > 0)
   return false
 }
 /** THE REMEDY A VISIT'S END NAMES -> text: one the bot performs from where it is. Pure. */
@@ -430,9 +431,11 @@ export function tankRemedy (r = {}) {
  * `run()` -> one runStepwellVisit; a run that ends `no_material` on a top (trim or floor) fetches the top stone (trimFetch, the
  * town read again: stone_bricks first, then cobblestone) and runs again, at most `refetch` times and only while `refetchMs` of the
  * deadline is left; a fetch that took nothing ends it (the stamp's case). `stock` = { bag() -> { name: n }, keep, palette, town() ->
- * { name: n } | null, owed() -> the next layer's owed tops, draw(name, n) -> Promise<n taken> }.
+ * { name: n } | null, owed() -> the next layer's owed tops, draw(name, n) -> Promise<n taken> }. `back()` (Codex r1 BLOCKER): the walk
+ * from the town's chests back to the tank before the next run (its chunks loaded again); a walk that fails still runs (the run's own
+ * stands walk, or it ends `unknown` -- never stamped after a fetch, tankStamps).
  */
-export async function tankWithRemedy ({ run, stock, now = () => Date.now(), deadline = Infinity, refetch = SWSTOCK.refetch, refetchMs = SWSTOCK.refetchMs }) {
+export async function tankWithRemedy ({ run, stock, back = null, now = () => Date.now(), deadline = Infinity, refetch = SWSTOCK.refetch, refetchMs = SWSTOCK.refetchMs }) {
   const sum = { placed: 0, dug: 0, ops: 0, skipped: 0, aside: 0, passed: [], fetched: {}, runs: 0 }
   let r = null
   const add = x => { r = x; sum.runs++; for (const k of ['placed', 'dug', 'ops', 'skipped', 'aside']) sum[k] += n0(x[k]); for (const k of x.passed ?? []) if (!sum.passed.includes(k)) sum.passed.push(k) }
@@ -447,6 +450,7 @@ export async function tankWithRemedy ({ run, stock, now = () => Date.now(), dead
       if (n > 0) { sum.fetched[f.name] = (sum.fetched[f.name] ?? 0) + n; took += n }
     }
     if (!took || now() >= deadline - refetchMs) break
+    if (back) { try { await back() } catch (err) { if (err?.aborted) throw err } }
     add(await run())
   }
   return { ...r, ...sum, tiers: r.tiers }

@@ -149,7 +149,9 @@ await t('tankStamps / tankRemedy: no stamp after a fetch of the missing top ston
   assert.strictEqual(V.tankStamps({ stop: 'no_material', role: 'trim', placed: 0, dug: 0 }), true)
   assert.strictEqual(V.tankStamps({ stop: 'no_material', role: 'trim', placed: 0, dug: 0, fetched: { stone_bricks: 117 } }), false)
   assert.strictEqual(V.tankStamps({ stop: 'no_material', placed: 3, dug: 0 }), false)
-  assert.strictEqual(V.tankStamps({ stop: 'passed', placed: 0, dug: 0, fetched: { stone_bricks: 4 } }), true)
+  assert.strictEqual(V.tankStamps({ stop: 'passed', placed: 0, dug: 0, fetched: { stone_bricks: 4 } }), false, 'a fetch: never stamped')
+  assert.strictEqual(V.tankStamps({ stop: 'unknown', placed: 0, dug: 0, fetched: { stone_bricks: 128 } }), false, 'Codex r1: unloaded after the fetch')
+  assert.strictEqual(V.tankStamps({ stop: 'passed', placed: 0, dug: 0, fetched: {} }), true)
   assert.strictEqual(V.tankStamps({ stop: 'time', placed: 0, dug: 0 }), false)
   assert.match(V.tankRemedy({ stop: 'no_material', role: 'trim', fetched: { stone_bricks: 117 } }), /fetched 117 stone_bricks from town/)
   assert.match(V.tankRemedy({ stop: 'no_material', role: 'trim' }), /town gives no stone_bricks or cobblestone: mine cobblestone/)
@@ -235,6 +237,41 @@ await t('RULE 4, the town without top stone: one run, the stamp, and the remedy 
   assert.strictEqual(V.tankStamps(r), true)
   assert.match(V.tankRemedy(r), /mine cobblestone/)
 })
+/** CODEX r1 BLOCKER's case: the bag's stone all under the keep (the first run does nothing), the withdraw walks the bot to the town's
+ *  chests where the tank reads UNLOADED (null), and `back()` walks it to the exit again (the tank loaded). */
+async function farTown (M = V, { withBack = true } = {}) {
+  const P = S.planTank(SITE), w = world(), i = RIM(P)
+  builtAbove(w, P, i)
+  for (const c of P.units[i].tops) w.set(c, 'air')
+  const bag = { cobblestone: 64, torch: 8 }, keep = townKeeps(bag).keep, town = townOf(), log = []
+  let far = false, backs = 0
+  const e = bagBot(w, bag, keep, { start: START, log })
+  const spare = n => (bag[n] ?? 0) - (keep[n] ?? 0)
+  Object.defineProperty(e, 'read', { get: () => (far ? () => null : w.read) })
+  e.place = async (c, role, at = {}) => {
+    const item = M.pickPlaceItem(role, PAL, spare, { topsOwed: at?.topsOwed ?? 0 })
+    if (!item) return 'no_material'
+    bag[item] -= 1; w.set(c, item); log.push(['place', c, role, item]); return 'confirmed'
+  }
+  const draw0 = town.draw(bag)
+  const stock = { bag: () => ({ ...bag }), keep, palette: PAL, owed: () => M.nextTopsOwed(w.read, P).n, town: town.view, draw: async (n, k) => { far = true; return draw0(n, k) } }
+  const r = await M.tankWithRemedy({ run: () => M.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 400, lights: () => false }), stock, now: () => 0,
+    ...(withBack ? { back: async () => { backs++; far = false } } : {}) })
+  return { r, log, backs }
+}
+await t('CODEX r1 BLOCKER: after a fetch at the town\'s chests the visit walks back to the tank (back) and lays the trim; never a stamp', async () => {
+  const { r, log, backs } = await farTown()
+  assert.ok(backs >= 1, 'walked back')
+  assert.ok(placedOf(log, 'trim').length > 0, `trim laid after the walk back: ${r.stop}`)
+  assert.strictEqual(V.tankStamps(r), false)
+})
+await t('CODEX r1 BLOCKER (control): with no walk back the rerun reads the tank unloaded (unknown) -- and still no stamp after the fetch', async () => {
+  const { r, log } = await farTown(V, { withBack: false })
+  assert.strictEqual(r.stop, 'unknown')
+  assert.strictEqual(placedOf(log, 'trim').length, 0)
+  assert.ok(Object.values(r.fetched).some(v => v > 0))
+  assert.strictEqual(V.tankStamps(r), false)
+})
 /** A layer with faces and tops (below the rim): the bag's cobblestone above the keep is exactly the tops owed; deepslate for the faces. */
 async function facesLayer (M = V) {
   const P = S.planTank(SITE), w = world(), i = RIM(P) + 1
@@ -316,8 +353,21 @@ await t('MUTANT KILLED: the visit loop stops passing the owed tops to the placem
     assert.strictEqual(r.y, u.y)
   })
 })
+await t('MUTANT KILLED: the walk back before a rerun dropped -> the rerun reads the tank unloaded', async () => {
+  await withMutant(SV_PATH, '    if (back) { try { await back() } catch (err) { if (err?.aborted) throw err } }\n', '\n', async M => {
+    const { r, log } = await farTown(M)
+    assert.strictEqual(r.stop, 'unknown')
+    assert.strictEqual(placedOf(log, 'trim').length, 0)
+  })
+})
+await t('MUTANT KILLED: a fetch spares the stamp only on no_material (the base of Codex r1\'s blocker)', async () => {
+  await withMutant(SV_PATH, 'return !Object.values(r.fetched ?? {}).some(v => v > 0)', "return !(r.stop === 'no_material' && Object.values(r.fetched ?? {}).some(v => v > 0))", async M => {
+    const { r } = await farTown(M, { withBack: false })
+    assert.strictEqual(M.tankStamps(r), true)
+  })
+})
 await t('MUTANT KILLED: a fetch no longer spares the stamp', async () => {
-  await withMutant(SV_PATH, "return !(r.stop === 'no_material' && Object.values(r.fetched ?? {}).some(v => v > 0))", 'return true', async M => {
+  await withMutant(SV_PATH, 'return !Object.values(r.fetched ?? {}).some(v => v > 0)', 'return true', async M => {
     assert.strictEqual(M.tankStamps({ stop: 'no_material', role: 'trim', placed: 0, dug: 0, fetched: { stone_bricks: 117 } }), true)
   })
 })
@@ -327,7 +377,7 @@ const SKS = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'u
 const RUN = SKS.slice(SKS.indexOf('async function buildStepwellRun ('), SKS.indexOf('async function foundStore ('))
 const WIRES = [
   ['the stock-up runs before the visit', /await swStockTank\(\{ bag: \(\) => heldMap\(bot\), keep, palette: pal, postsLeft, owed: topsOwed, town: swTown, draw: swDraw,/],
-  ['the visit runs through the remedy', /const r = await swTankWithRemedy\(\{ now, deadline, stock: \{ bag: \(\) => heldMap\(bot\), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw \}, run: \(\) => runIt\(\(\) => runStepwellVisit\(\{/],
+  ['the visit runs through the remedy', /const r = await swTankWithRemedy\(\{ now, deadline, back: \(\) => stairWalk\(bot, rec\.exit, STEPWELL_WALK_MS, signal\), stock: \{ bag: \(\) => heldMap\(bot\), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw \}, run: \(\) => runIt\(\(\) => runStepwellVisit\(\{/],
   ['the stamp follows tankStamps', /if \(swTankStamps\(r\)\) \{/],
   ['the remedy follows tankRemedy', /const remedy = swTankRemedy\(r\)/],
   ['the effects count above the keep', /palette: rec\.palette \?\? \{\}, signal, fence, keep,/],

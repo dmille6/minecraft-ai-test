@@ -33202,7 +33202,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
     const swAside = swAsideOn() ? swAsideLoad(dir, key) : null
     // stepwell-04show: a run that ends without a top block fetches it (outside the stair claim) and runs again (tankWithRemedy)
-    const r = await swTankWithRemedy({ now, deadline, stock: { bag: () => heldMap(bot), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw }, run: () => runIt(() => runStepwellVisit({
+    const r = await swTankWithRemedy({ now, deadline, back: () => stairWalk(bot, rec.exit, STEPWELL_WALK_MS, signal), stock: { bag: () => heldMap(bot), keep, palette: pal, town: swTown, owed: topsOwed, draw: swDraw }, run: () => runIt(() => runStepwellVisit({
       plan, exit: rec.exit, share, aside: swAside,   // stepwell-03show: the crew's set-aside proofs (swAsideLoad)
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
