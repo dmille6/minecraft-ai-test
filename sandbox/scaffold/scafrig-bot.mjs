@@ -49,6 +49,8 @@ bot.on('blockPlaced', (o, n) => placed.push(`${n?.position}:${n?.name}`))
 const pa = PA.attachPlaceAudit(bot, { home: HOME, onPlaced: r => tb?.note(r), emitPlace: () => {}, emitSummary: ({ detail }) => sums.push(detail), timers: false })
 const perr = []
 { const inner = bot.placeBlock; bot.placeBlock = async function (ref, face) { const t0 = Date.now(); const dest = ref.position.plus(face); try { return await inner.call(this, ref, face) } catch (e) { const at = bot.blockAt(dest)?.name; perr.push({ dest: `${dest}`, ms: Date.now() - t0, err: String(e?.message).slice(0, 80), atFail: at }); const k = `blockUpdate:${dest}`; const rec = perr.at(-1); const on = (o, n) => { rec.late = `${n?.name}@${Date.now() - t0}` }; bot.once(k, on); setTimeout(() => bot.removeListener(k, on), 8000); throw e } } }
+const ups = []
+bot.on('blockUpdate', (o, n) => { if (o?.name === 'dirt' || n?.name === 'dirt') ups.push(`${Date.now() % 1e6} ${n?.position} ${o?.name}->${n?.name}`) })
 const resets = []
 bot.on('path_reset', why => resets.push(why))
 const code = (() => { try { return fs.readFileSync(path.join(ROOT, 'COMMIT'), 'utf8').trim() } catch { return '?' } })()
@@ -89,8 +91,8 @@ for (let n = 1; ; n++) {
   clearInterval(tick)
   try { pa.flush() } catch { /* diagnostics */ }
   await sleep(3000)
-  const audit = sums.splice(0), events = placed.splice(0), why = resets.splice(0), fails = perr.splice(0)
+  const audit = sums.splice(0), events = placed.splice(0), why = resets.splice(0), fails = perr.splice(0), dirtUps = ups.splice(0)
   const mine = rows.slice(r0)
   const cnt = re => mine.filter(r => re.test(`${r.kind} ${r.detail}`)).length
-  W(`result-${n}.json`, { n, scene: tr.scene, legs, deaths: deaths - d0, dirtUsed: dirt0 - dirt(), dug: cnt(/^takeback outcome=dug/), carried: cnt(/^takeback outcome=carried/), left: cnt(/^takeback outcome=left/), adopted: cnt(/^takeback outcome=adopted/), walks: mine.filter(r => r.kind === 'takeback_walk').map(r => r.detail), outcomes: mine.filter(r => r.kind === 'takeback').map(r => /outcome=(\S+) why=(\S+)/.exec(r.detail)?.slice(1).join(':')), trace: trace.slice(0, 400), audit, blockPlaced: events, resets: why, fails })
+  W(`result-${n}.json`, { n, scene: tr.scene, legs, deaths: deaths - d0, dirtUsed: dirt0 - dirt(), dug: cnt(/^takeback outcome=dug/), carried: cnt(/^takeback outcome=carried/), left: cnt(/^takeback outcome=left/), adopted: cnt(/^takeback outcome=adopted/), walks: mine.filter(r => r.kind === 'takeback_walk').map(r => r.detail), outcomes: mine.filter(r => r.kind === 'takeback').map(r => /outcome=(\S+) why=(\S+)/.exec(r.detail)?.slice(1).join(':')), trace: trace.slice(0, 400), audit, blockPlaced: events, resets: why, fails, dirtUps })
 }
