@@ -628,6 +628,23 @@ await t('A PLACEMENT THAT "FAILED" AND LANDED LATER (rig 11-21: every tower bloc
   a.land('dirt'); assert.strictEqual(a.got.length, 1, 'once')
   const b = await lateBot(PA)
   b.tick(PA.LATE_MS + 1); b.land('dirt'); assert.deepStrictEqual(b.got, [], 'too late: not the bot\'s by this evidence')
+  // Codex r4: another bot in reach of the cell when it lands -- it may be theirs: no receipt; one far away does not matter
+  const c = await lateBot(PA)
+  c.bot.entities = { 1: c.bot.entity, 2: { type: 'player', position: { x: 503, y: 64, z: 500 } } }
+  c.land('dirt'); assert.deepStrictEqual(c.got, [], 'another player 2 blocks away: not ours')
+  const d = await lateBot(PA)
+  d.bot.entities = { 2: { type: 'mob', name: 'enderman', position: { x: 501, y: 65, z: 501 } } }
+  d.land('dirt'); assert.deepStrictEqual(d.got, [], 'an enderman beside it: not ours')
+  const e = await lateBot(PA)
+  e.bot.entities = { 2: { type: 'player', position: { x: 520, y: 64, z: 500 } }, 3: { type: 'mob', name: 'cow', position: { x: 501, y: 65, z: 501 } } }
+  e.land('dirt'); assert.strictEqual(e.got.length, 1, 'a player 19 away and a cow beside it: ours')
+})
+await t('MUTANT: the other-actor check cut -- a block another bot laid there is claimed (killed)', async () => {
+  await withMutant(PA_URL, [['      if (otherNear(w.rec.cell)) {', '      if (false) {']], async M => {
+    const c = await lateBot(M)
+    c.bot.entities = { 2: { type: 'player', position: { x: 503, y: 64, z: 500 } } }
+    c.land('dirt'); assert.strictEqual(c.got.length, 1)
+  })
 })
 await t('MUTANT: the late watch cut -- the tower block that landed late gets no receipt (killed)', async () => {
   await withMutant(PA_URL, [['      if (err) watchLate(rec)', '      if (false) watchLate(rec)']], async M => {
