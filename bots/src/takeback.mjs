@@ -54,15 +54,18 @@
 // 32 another 479), and ~490 never closed at all (prune ran only when the next block was placed, and nothing closed the receipts a
 // bot still held when it disconnected: no row, no hand-off). In pillars-01show's CoreProtect join those are the 481 `expired` and
 // the 326 with no row. Four changes, none of them a new refusal:
-//   1. CARRIED, NOT GIVEN UP. A receipt past ttlMs, or past the open bound, is CARRIED (`_takeback outcome=carried`) instead of
-//      closed: it stays in the list for carryMs (3 h, litter.mjs keepMs's reasoning: a cell's name is believed only while the claim
-//      is fresh), at most maxCarry, and any later walk of this bot that passes it in reach takes it back exactly as a fresh one
-//      (`dug why=later`). The town's and the margin's are handed to litter at that moment, as before (onLeft why=expired). A
-//      carried receipt older than carryMs closes `left why=old`.
-//   2. KEPT ACROSS A RESTART, AND HANDED ON. The carried list is this bot's file (`io.save`/`io.load`: features.mjs writes
-//      scafleft-<bot>.json in the pool's state directory) -- the pillar list's intake (pillars-01show's pillarclean.json, a host
-//      merge) reads it; the bot itself loads it at install and takes them back as it passes. final() carries every open receipt
-//      (`carried why=ended`) instead of dropping it.
+//   1. CARRIED, NOT GIVEN UP. A receipt OUTSIDE the town and its margin past ttlMs, or past the open bound, is CARRIED
+//      (`_takeback outcome=carried`) instead of closed: it stays open for carryMs (3 h), at most maxCarry, and any later walk of
+//      this bot that passes it in reach takes it back exactly as a fresh one (`dug why=later`) -- ONLY WHILE THE BOT HAS WATCHED THE
+//      CELL WITHOUT A BREAK (review r1, Codex and Claude, both reproduced: a cell unseen can hold a same-named replacement): a block
+//      update at the cell to anything else closes it `adopted why=changed`, its chunk unloading closes it `left why=unwatched`.
+//      ONE OWNER A CELL (review r1, Claude): a town or margin receipt that runs out is closed `left why=expired` and handed to
+//      litter as before -- the keeper digs it with its own record checks -- never carried as well.
+//   2. HANDED ON, ACROSS A RESTART. Every out-of-town receipt carried, left unwatched or left old goes on this bot's hand-off
+//      file (`io.save`/`io.load`: features.mjs writes scafleft-<bot>.json in the pool's state directory, kept 24 h) for the
+//      pillar survey (pillars-01show's pillarclean.json, a host merge that proves each cell by CoreProtect before it is listed).
+//      The file is a LIST, never this bot's permission to dig: a reloaded entry is only kept on the file. final() carries every
+//      open receipt (`carried why=ended`; in the town: `left why=expired`, litter's) instead of dropping it.
 //   3. PRUNED ON A CLOCK (pruneMs): expiry is judged on time, not only when the next block is placed.
 //   4. A WALK THAT STARTS ON ITS OWN TOWER COMES DOWN IT (ownTowerUnder, descentWanted): before the library walks, a fenced walk
 //      whose bot stands on a FREE-STANDING tower of its own open receipts (no side of the top block a ledge, a wall or a rim: a
@@ -82,8 +85,9 @@ export const TAKEBACK = Object.freeze({
   haltsPerGoto: 4, haltsPerMin: 12, budgetMs: 6_000, digMsMax: 3_000, tries: 2, reuseMs: 120_000, minHealth: 10,
   sumMs: 600_000,
   // scaffold-01show: carried receipts (3 h, at most 256), the clock prune, the descent of a walk's own tower
-  carryMs: 3 * 60 * 60_000, maxCarry: 256, pruneMs: 10_000, saveMs: 30_000,
-  descendMin: 2, descendMax: 24, descendMs: 12_000, descendNearR: 4, landMs: 1_500,
+  carryMs: 3 * 60 * 60_000, maxCarry: 256, pruneMs: 10_000, saveMs: 30_000, handKeepMs: 24 * 60 * 60_000, maxHanded: 512,
+  descendMin: 2, descendMax: 24, descendMs: 8_000, descendNearR: 4, landMs: 1_500,
+  litterZones: ['town', 'margin'],   // litter.mjs LITTER.zones: a receipt there that runs out is the cleanup crew's, never carried
   // the profiles whose scaffold is a WALK's (index.mjs): the escapes' profiles (ascend, descend, deck, water) keep theirs (piece 3)
   profiles: ['walk', 'composter_walk', 'gather', 'town_deposit_walk'],
 })
@@ -246,35 +250,49 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   try { emit('takeback_mode', 'success', `phase=mode v=1 on=${on ? 1 : 0} reach=${T.reach} unused_ms=${T.unusedMs} halts=${T.haltsPerGoto}/${T.haltsPerMin} budget_ms=${T.budgetMs} reuse_ms=${T.reuseMs}`) } catch { /* telemetry */ }
   const pf = bot?.pathfinder
   if (!on || !pf || typeof pf.goto !== 'function' || pf.goto.__takeback) return null
-  const st = { open: [], busy: false, digger: null, owner: null, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false, dirty: false }
+  const st = { open: [], busy: false, digger: null, owner: null, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false, dirty: false, handed: new Map() }
   const row = (r, outcome, why, ms = null) => {
     r.closed = true
-    if (r.carried) st.dirty = true                                  // scaffold-01show: the carried file changes
+    // scaffold-01show: a block gone, changed or dug is off the hand-off file
+    if ((outcome === 'dug' || outcome === 'adopted') && st.handed.delete(K(r.cell))) st.dirty = true
     // scaffold-01show: the walk that took it (st.digger during a take-back) counts it on its `_takeback_walk` row
     if (outcome === 'dug' && st.digger?.acct) { st.digger.acct.taken++; if (r.carried || r.call !== st.digger) st.digger.acct.later++; if (why === 'descend') st.digger.acct.descend++ }
     st.sum.by[outcome] = (st.sum.by[outcome] ?? 0) + 1
     try { emit('takeback', outcome === 'dug' ? 'success' : outcome === 'failed' ? 'failed' : 'no_effect', takebackDetail({ outcome, why, cell: r.cell, block: r.block, shape: r.shape, zone: r.zone, age: now() - r.t, ms })) } catch { /* telemetry */ }
     // litter-01 (`onLeft`): a receipt that closes `left` is handed on with its cell and its block (litter.mjs: the cleanup crew's)
-    if (outcome === 'left') handOff(r, why)
+    if (outcome === 'left') {
+      handOff(r, why === 'unwatched' ? 'expired' : why)            // unwatched: still standing where the bot left it, as far as it knows
+      if (!T.litterZones.includes(String(r.zone))) hand(r)         // scaffold-01show: outside the town, on the hand-off file
+    }
   }
   // ONE hand-off for a receipt closed `left` and for one carried (scaffold-01show): litter takes the town's and the margin's
   const handOff = (r, why) => { if (onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } } }
-  // scaffold-01show: CARRIED, NOT GIVEN UP (header 1). The receipt stays open for any later walk in reach; the town's and the
-  // margin's go to litter as they did at `left why=expired`; the row says so, the file keeps it.
+  // scaffold-01show: CARRIED, NOT GIVEN UP (header 1). ONE OWNER A CELL (review r1, both engines): a town or margin receipt that
+  // runs out is litter's, closed `left` as before (the keeper digs it with its record checks); one outside them is carried --
+  // open, for any later walk in reach, ONLY while this bot has watched its cell without a break (a block update there or its chunk
+  // unloading closes it: watch below) -- and it goes on the hand-off file.
+  const hand = r => {
+    st.handed.set(K(r.cell), carryEntry(r)); st.dirty = true
+    if (st.handed.size > T.maxHanded) { const [k] = st.handed.keys(); st.handed.delete(k) }
+  }
   const carry = (r, why) => {
     if (r.closed || r.carried) return
-    r.carried = true; r.used = true; st.dirty = true
+    if (T.litterZones.includes(String(r.zone))) { row(r, 'left', why === 'overflow' ? 'overflow' : 'expired'); return }
+    r.carried = true; r.used = true
+    hand(r)
     st.sum.by.carried = (st.sum.by.carried ?? 0) + 1
     try { emit('takeback', 'no_effect', takebackDetail({ outcome: 'carried', why, cell: r.cell, block: r.block, shape: r.shape, zone: r.zone, age: now() - r.t })) } catch { /* telemetry */ }
-    handOff(r, 'expired')
   }
   const prune = () => {
     const t = now()
     for (const r of st.open) {
       if (r.closed) continue
-      if (!r.carried && t - r.t > T.ttlMs) carry(r, 'expired')
+      if (r.changed) row(r, 'adopted', 'changed')                   // seen to change since it was placed: never ours again
+      else if (r.unwatched) row(r, 'left', 'unwatched')             // its chunk unloaded: what happened there is unseen
+      else if (!r.carried && t - r.t > T.ttlMs) carry(r, 'expired')
       else if (r.carried && t - r.t > T.carryMs) row(r, 'left', 'old')
     }
+    for (const [k, e] of st.handed) if (!(t - e.t <= T.handKeepMs)) { st.handed.delete(k); st.dirty = true }
     st.open = st.open.filter(r => !r.closed)
     const fresh = st.open.filter(r => !r.carried)
     while (fresh.length > T.maxOpen) carry(fresh.shift(), 'overflow')
@@ -283,16 +301,34 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     st.open = st.open.filter(r => !r.closed)
     for (const [k, at] of st.taken) if (t - at > T.reuseMs) st.taken.delete(k)
   }
-  const persist = () => {
+  // the hand-off file: what this bot left outside the town (carried, unwatched, old) -- a LIST for the pillar survey, which proves
+  // each cell by CoreProtect before it is dug; never this bot's permission to dig (review r1: a cell unseen may hold a replacement)
+  const persist = (sync = false) => {
     if (!st.dirty || !io || typeof io.save !== 'function') return
     st.dirty = false
-    try { io.save(st.open.filter(r => r.carried && !r.closed).map(carryEntry)) } catch { st.dirty = true }
+    try { io.save([...st.handed.values()], { sync }) } catch { st.dirty = true }
   }
-  // scaffold-01show: what this bot carried before a restart comes back (header 2)
+  // scaffold-01show: the list kept before a restart stays on the file (header 2); nothing in it is dug by this bot
   if (io && typeof io.load === 'function') {
-    try { for (const e of io.load() ?? []) { const r = carriedFrom(e, now(), T); if (r && !st.open.some(o => K(o.cell) === K(r.cell))) st.open.push(r) } } catch { /* an unreadable file carries nothing */ }
-    prune()
+    try { for (const e of io.load() ?? []) { const r = carriedFrom(e, now(), { ...T, carryMs: T.handKeepMs }); if (r) st.handed.set(K(r.cell), carryEntry(r)) } } catch { /* an unreadable file hands nothing */ }
   }
+  // WATCHED WITHOUT A BREAK (review r1): any block update at a receipt's cell that is not its block, and its chunk unloading, end
+  // the receipt's claim; prune closes it (`adopted why=changed`, `left why=unwatched`). A take-back's own dig sets `changed` after
+  // its row is written, which is harmless (closed already).
+  const onBlock = (_o, n) => {
+    try {
+      const p = n?.position
+      if (!p) return
+      for (const r of st.open) if (!r.closed && r.cell[0] === p.x && r.cell[1] === p.y && r.cell[2] === p.z && n.name !== r.block) r.changed = true
+    } catch { /* a watch never breaks a bot */ }
+  }
+  const onUnload = corner => {
+    try {
+      const cx = Math.floor(Number(corner?.x) / 16), cz = Math.floor(Number(corner?.z) / 16)
+      for (const r of st.open) if (!r.closed && Math.floor(r.cell[0] / 16) === cx && Math.floor(r.cell[2] / 16) === cz) r.unwatched = true
+    } catch { /* a watch never breaks a bot */ }
+  }
+  if (typeof bot.on === 'function') { bot.on('blockUpdate', onBlock); bot.on('chunkColumnUnload', onUnload) }
   const note = rec => {
     try {
       if (st.closed || !receiptFor(rec, T)) return
@@ -332,6 +368,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
 
   /** One ripe receipt: closed with its row, or left open for a later pass. -> true when it took a turn (a dig or a closing). */
   const closeOne = async (r, ext) => {
+    if (r.changed || r.unwatched) { row(r, r.changed ? 'adopted' : 'left', r.changed ? 'changed' : 'unwatched'); return true }   // scaffold-01show
     const b = blockAt(r.cell)
     if (b && r.block === b.name && !sees(b)) { r.tries++; if (r.tries > T.tries) row(r, 'left', 'unseen'); return false }
     const up = blockAt([r.cell[0], r.cell[1] + 1, r.cell[2]])
@@ -376,7 +413,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   }
   /** scaffold-01show (header 4): dig the bot's own free-standing tower from under its feet, top first, one block a fall. -> blocks dug. */
   const solidAt = c => { const b = blockAt(c); return !!b && b.boundingBox === 'block' && !holdsLiquid(b) }
-  const ownAt = c => { const b = blockAt(c); return !!b && st.open.some(r => !r.closed && r.cell[0] === c[0] && r.cell[1] === c[1] && r.cell[2] === c[2] && r.block === b.name) }
+  const ownAt = c => { const b = blockAt(c); return !!b && st.open.some(r => !r.closed && !r.changed && !r.unwatched && r.cell[0] === c[0] && r.cell[1] === c[1] && r.cell[2] === c[2] && r.block === b.name) }
   const descend = async (call, cells) => {
     const t0 = now()
     let n = 0
@@ -386,7 +423,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
         if (call.gone || st.owner !== call || held() || now() - t0 > T.descendMs || !((bot.health ?? 20) >= T.minHealth)) break
         const h = here()
         if (!h || !h.onGround || h.inWater || h.feet[1] !== c[1] + 1 || !overlapsColumn(c, h.pos)) break   // still standing on this one
-        const r = st.open.find(o => !o.closed && K(o.cell) === K(c))
+        const r = st.open.find(o => !o.closed && !o.changed && !o.unwatched && K(o.cell) === K(c))
         const b = blockAt(c)
         if (!r || !b || b.name !== r.block || priced(b) || wet(c) || bodyOn(c)) break
         try { const tool = pf.bestHarvestTool?.(b) ?? null; if (tool) await bot.equip(tool, 'hand') } catch { /* by hand */ }
@@ -473,10 +510,15 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     try {
       // scaffold-01show: withTimeout fences the promise just after goto returns it; one turn later the pre-walk pass may run. Only
       // when one of this bot's blocks is near (preWanted): every other goto reaches the library synchronously, exactly as before.
-      if (preWanted()) {
-        await null
-        try { await preWalk(call, goal) } catch { /* the pass never breaks a walk */ }
+      if (!held() && preWanted()) {
+        call.deferring = true
+        try {
+          await null
+          try { await preWalk(call, goal) } catch { /* the pass never breaks a walk */ }
+        } finally { call.deferring = false }
+        // review r1 (both engines): a newer goto, or a reflex that took the body meanwhile, wins -- as the library's own setGoal would
         if (call.gone) throw gotoError(call.gone)
+        if (st.owner !== call || held()) throw gotoError('GoalChanged')
       }
       for (;;) {
         call.due = false
@@ -508,6 +550,8 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     // THE CALLER GAVE UP (skills.mjs withTimeout's timer; the listeners above): never walked again, a dig under way is stopped
     call.giveUp = why => { call.gone ??= (why === 'PathStopped' ? 'PathStopped' : 'GoalChanged'); try { if (st.busy && st.digger === call) bot.stopDigging?.() } catch { /* not digging */ } }
     try { call.escape = issuedByEscape(String(new Error().stack ?? '').split('\n').slice(1, 8)) } catch { /* unknown: a walk */ }
+    // review r1: a goto still deferred (its pre-walk pass) is ended by a newer one, exactly as the library's setGoal ends a walk
+    try { if (st.owner && st.owner !== call && st.owner.deferring) st.owner.giveUp('GoalChanged') } catch { /* never breaks a goto */ }
     st.owner = call                                                 // the newest goto is the one walk that is watched
     const p = run(this, call, goal, rest)
     p.__takeback = call                                             // withTimeout fences it (rule 1)
@@ -530,8 +574,9 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   // scaffold-01show: a bot that ends carries what it still holds (`carried why=ended`), into its file, instead of dropping it
   const final = () => {
     if (st.closed) return
-    try { for (const r of st.open) if (!r.closed && !r.carried) carry(r, 'ended'); prune(); persist() } catch { /* telemetry */ }
+    try { for (const r of st.open) if (!r.closed && !r.carried) carry(r, 'ended'); prune(); persist(true) } catch { /* telemetry */ }
     flush(); st.closed = true; if (timer) clearInterval(timer); if (pruner) clearInterval(pruner)
+    try { bot.removeListener?.('blockUpdate', onBlock); bot.removeListener?.('chunkColumnUnload', onUnload) } catch { /* gone */ }
   }
   return { note, state: st, flush, final, takeBack, prune, persist }
 }

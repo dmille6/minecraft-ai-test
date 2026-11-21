@@ -339,7 +339,7 @@ await t('CARRIED: a block the walk left out of reach is no longer given up at tt
   assert.ok(f.walkRow().some(d => /placed=0 taken=1 later=1 /.test(d)), f.walkRow().join(' | '))
 })
 await t('POSITIVE CONTROL + MUTANT: with expiry as before (left at ttl) the block is never taken on the way back (killed)', async () => {
-  await withMutant(TB_URL, [["      if (!r.carried && t - r.t > T.ttlMs) carry(r, 'expired')", "      if (!r.carried && t - r.t > T.ttlMs) row(r, 'left', 'expired')"]], async M => {
+  await withMutant(TB_URL, [["      else if (!r.carried && t - r.t > T.ttlMs) carry(r, 'expired')", "      else if (!r.carried && t - r.t > T.ttlMs) row(r, 'left', 'expired')"]], async M => {
     const f = fake({ M })
     const p = f.walk({ id: 'a', x: 40, y: 64, z: 0 })
     f.place([1, 64, 0], { shape: 'step' }); f.stand(1, 65, 0); await sleep(3 * T.tickMs); f.stand(30, 64, 0); f.arrive(); await p
@@ -370,7 +370,7 @@ await t('MUTANT: the clock prune removed -- nothing is carried until another blo
     f.tb.final()
   })
 })
-await t('A RESTART: final() carries what is still open (`carried why=ended`) into the file; the next install loads it and its first walk past takes it back', async () => {
+await t('A RESTART: final() carries what is open (`carried why=ended`) onto the hand-off file; the next install keeps it ON THE FILE but never digs it (review r1: unseen, it may be a replacement)', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'scafleft-'))
   try {
     const { scafLeftIo } = await import('../src/features.mjs')
@@ -380,20 +380,22 @@ await t('A RESTART: final() carries what is still open (`carried why=ended`) int
     f.place([1, 64, 0]); f.stand(1, 65, 0); await sleep(3 * T.tickMs); f.stand(30, 64, 0); f.arrive(); await p
     f.tb.final()
     assert.deepStrictEqual(f.out(), ['carried:ended'])
-    await until(() => existsSync(io.file))
-    assert.deepStrictEqual(JSON.parse(readFileSync(io.file, 'utf8')).entries.map(e => e.at), [[1, 64, 0]])
+    assert.deepStrictEqual(JSON.parse(readFileSync(io.file, 'utf8')).entries.map(e => e.at), [[1, 64, 0]], 'written at once (sync)')
     const g = fake({ io: scafLeftIo(dir, 'showcase-Kite') })
-    g.cells.set('1,64,0', 'dirt')                          // the world still holds it
-    assert.strictEqual(g.tb.state.open.length, 1, 'loaded as carried')
-    g.stand(30, 64, 0)                                     // it came back up somewhere else
+    g.cells.set('1,64,0', 'dirt')                          // a dirt block stands there: the bot's, or someone's since
+    assert.strictEqual(g.tb.state.open.length, 0, 'no receipt: the file is a list, not a permission')
+    assert.strictEqual(g.tb.state.handed.size, 1, 'kept on the file')
+    g.stand(30, 64, 0)
     const q = g.walk({ id: 'b', x: -40, y: 64, z: 0 }); g.stand(3, 64, 0)
-    await until(() => g.name(1, 64, 0) === 'air')
-    await until(() => g.gotos.length === 2); g.arrive(); await q
-    assert.deepStrictEqual(g.out(), ['dug:later'])
+    await sleep(20 * T.tickMs)
+    assert.strictEqual(g.name(1, 64, 0), 'dirt', 'never dug'); assert.strictEqual(g.gotos.length, 1)
+    g.arrive(); await q
+    g.tb.final()
+    assert.deepStrictEqual(JSON.parse(readFileSync(io.file, 'utf8')).entries.map(e => e.at), [[1, 64, 0]], 'still on the file for the survey')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 await t('MUTANT: final() without the carry -- the open receipt is lost at a restart (killed)', async () => {
-  await withMutant(TB_URL, [["try { for (const r of st.open) if (!r.closed && !r.carried) carry(r, 'ended'); prune(); persist() }", 'try { prune(); persist() }']], async M => {
+  await withMutant(TB_URL, [["try { for (const r of st.open) if (!r.closed && !r.carried) carry(r, 'ended'); prune(); persist(true) }", 'try { prune(); persist(true) }']], async M => {
     const saved = []
     const f = fake({ M, io: { load: () => [], save: e => saved.push(e) } })
     const p = f.walk({ id: 'a', x: 40, y: 64, z: 0 })
@@ -401,6 +403,90 @@ await t('MUTANT: final() without the carry -- the open receipt is lost at a rest
     f.tb.final()
     assert.deepStrictEqual(saved, [], 'the mutant wrote nothing')
   })
+})
+/** A carried receipt at 1,64,0 (placed, walked out of reach, ttl passed). */
+async function carried (o = {}) {
+  const f = fake(o)
+  const p = f.walk({ id: 'a', x: 40, y: 64, z: 0 })
+  f.place([1, 64, 0], o.rec ?? {}); f.stand(1, 65, 0); await sleep(3 * T.tickMs); f.stand(30, 64, 0); f.arrive(); await p
+  await sleep(T.ttlMs + 20); f.tb.prune()
+  return f
+}
+const update = (f, cell, name) => { f.cells.set(cell.join(','), name); f.bot.emit('blockUpdate', { name: 'dirt' }, { name, position: { x: cell[0], y: cell[1], z: cell[2] } }) }
+await t('WATCHED WITHOUT A BREAK (review r1): the cell dug and dirt put back while the bot looked on -- the receipt is closed `adopted changed`, the new dirt never dug', async () => {
+  const f = await carried()
+  assert.deepStrictEqual(f.out(), ['carried:expired'])
+  update(f, [1, 64, 0], 'air'); update(f, [1, 64, 0], 'dirt')    // someone took it and laid their own
+  const q = f.walk({ id: 'b', x: -40, y: 64, z: 0 }); f.stand(3, 64, 0)
+  await sleep(20 * T.tickMs)
+  assert.strictEqual(f.name(1, 64, 0), 'dirt', 'the replacement stands'); assert.deepStrictEqual(f.bot.dug, [])
+  f.arrive(); await q
+  f.tb.prune()
+  assert.deepStrictEqual(f.out(), ['carried:expired', 'adopted:changed'])
+  assert.strictEqual(f.tb.state.handed.size, 0, 'and off the hand-off file')
+})
+await t('MUTANT: the block-update watch cut -- the replacement is dug (killed)', async () => {
+  await withMutant(TB_URL, [['n.name !== r.block) r.changed = true', 'n.name !== r.block) void 0']], async M => {
+    const f = await carried({ M })
+    update(f, [1, 64, 0], 'air'); update(f, [1, 64, 0], 'dirt')
+    const q = f.walk({ id: 'b', x: -40, y: 64, z: 0 }); f.stand(3, 64, 0)
+    await until(() => f.bot.dug.length === 1)
+    f.arrive(); await q.catch(() => {})
+  })
+})
+await t('ITS CHUNK UNLOADS: the claim ends (`left why=unwatched`), the block goes on the hand-off file, and it is never dug from memory', async () => {
+  const f = await carried()
+  f.bot.emit('chunkColumnUnload', { x: 0, z: 0 })
+  const q = f.walk({ id: 'b', x: -40, y: 64, z: 0 }); f.stand(3, 64, 0)
+  await sleep(20 * T.tickMs)
+  assert.deepStrictEqual(f.bot.dug, []); f.arrive(); await q
+  f.tb.prune()
+  assert.deepStrictEqual(f.out(), ['carried:expired', 'left:unwatched'])
+  assert.deepStrictEqual([...f.tb.state.handed.values()].map(e => e.at), [[1, 64, 0]])
+  const g = await carried()
+  g.bot.emit('chunkColumnUnload', { x: 16, z: 0 })               // another chunk: the claim stands
+  g.tb.prune(); assert.deepStrictEqual(g.out(), ['carried:expired'])
+})
+await t('ONE OWNER A CELL (review r1): a town receipt that runs out is litter\'s -- closed `left expired` and handed on, never carried', async () => {
+  const left = []
+  const f = await carried({ rec: { zone: 'margin' } })
+  assert.deepStrictEqual(f.out(), ['left:expired'])
+  assert.strictEqual(f.tb.state.open.length, 0); assert.strictEqual(f.tb.state.handed.size, 0)
+  const g = fake({}); g.tb.state // no-op: the onLeft hand-off itself is litter.test.mjs's chain
+  void left
+})
+await t('THE DEFERRAL YIELDS (review r1, Codex\'s reproduction): goto A then goto B in one turn with a block near -- A rejects GoalChanged, B is the goal walked', async () => {
+  const f = fake()
+  f.place([1, 64, 0])                                         // a fresh receipt near: both gotos would defer
+  const a = f.walk({ id: 'A', x: 40, y: 64, z: 0 }), b = f.walk({ id: 'B', x: -40, y: 64, z: 0 })
+  await assert.rejects(a, e => e.name === 'GoalChanged')
+  await until(() => f.gotos.length >= 1)
+  assert.strictEqual(f.bot.pathfinder.goal?.id, 'B'); assert.ok(f.gotos.every(g => g.goal.id === 'B'), f.gotos.map(g => g.goal.id).join(','))
+  f.arrive(); await b
+})
+await t('MUTANT: the deferred owner not ended by the newer goto -- A walks and B is rejected (killed)', async () => {
+  await withMutant(TB_URL, [["try { if (st.owner && st.owner !== call && st.owner.deferring) st.owner.giveUp('GoalChanged') }", 'try { void 0 }'],
+                            ['        if (st.owner !== call || held()) throw gotoError(\'GoalChanged\')\n', '']], async M => {
+    const f = fake({ M })
+    f.place([1, 64, 0])
+    const a = f.walk({ id: 'A', x: 40, y: 64, z: 0 }), b = f.walk({ id: 'B', x: -40, y: 64, z: 0 })
+    await assert.rejects(b, e => e.name === 'GoalChanged')
+    assert.strictEqual(f.bot.pathfinder.goal?.id, 'A', 'the mutant walks the stale goal and rejects the newer one')
+    f.arrive(); await Promise.allSettled([a, b])
+  })
+})
+await t('a reflex that takes the body during the deferral wins: the walk rejects GoalChanged and the library is never asked', async () => {
+  const f = fake()
+  f.place([1, 64, 0])
+  let reflex = null
+  f.bot.__digContext = () => ({ reflex, holder: null, skill: 'goto' })
+  const a = f.walk({ id: 'A', x: 40, y: 64, z: 0 })
+  reflex = 'air'                                              // the air reflex starts before the next turn
+  await assert.rejects(a, e => e.name === 'GoalChanged')
+  assert.strictEqual(f.gotos.length, 0)
+  reflex = null
+  const b = f.walk({ id: 'B', x: 40, y: 64, z: 0 })
+  await until(() => f.gotos.length === 1); f.arrive(); await b
 })
 await t('THE DESCENT: a walk that starts on its own free-standing tower digs it from under its feet, top first, then walks; its row says so', async () => {
   const f = fake()
