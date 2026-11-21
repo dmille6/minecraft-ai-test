@@ -56,6 +56,18 @@ def check(m):
     ok(m.pick_control([], env) is None, 'no bots -> no control')
     pick = m.pick_control([{'bot': 'board-a-Zed', 'version': 'V'}], env)
     ok(pick is None, 'a board bot with no env file is not the control')
+    # feedprompts-01: an empty live llm log falls back to the rotated copies, newest first (11-21: brain replay 0/0)
+    d = tempfile.mkdtemp(); llm = os.path.join(d, 'llm-b.jsonl')
+    open(llm, 'w').close()
+    P = lambda i: json.dumps({'@timestamp': 'T%d' % i, 'prompt': {'system_hash': 'h', 'text': 'x\nsaw_end: END-A%d' % i}})
+    with gzip.open(llm + '-20261119.gz', 'wt') as f:
+        f.write(P(1) + '\n' + P(2) + '\n')
+    open(llm + '-20261120', 'w').write(P(3) + '\n')
+    chunks = list(m.prompt_sources(llm))
+    flat = [json.loads(x)['@timestamp'] for c in chunks for x in c if x.strip()]
+    ok(flat == ['T3', 'T1', 'T2'], f'live (empty) then the newest rotated copy first: got {flat}')
+    open(llm, 'w').write('\n'.join(P(i) for i in (7, 8, 9)) + '\n')
+    ok(len(list(m.prompt_sources(llm, max_rotated=0))) == 1, 'max_rotated=0 reads only the live log')
     return fails
 
 
@@ -66,6 +78,10 @@ MUTANTS = [
      "                    if line.strip() and last is None:\n                        last = line\n"),
     ('board-only rule dropped', "if c.get('version') == major and c['bot'].startswith('board-') and os.path.isfile(p):",
      "if c.get('version') == major and os.path.isfile(p):"),
+    ('rotated prompt copies never read', "    for rp in sorted(glob.glob(path + '-*'), reverse=True)[:max_rotated]:",
+     "    for rp in sorted(glob.glob(path + '-*'), reverse=True)[:0]:"),
+    ('rotated prompt copies oldest first', "    for rp in sorted(glob.glob(path + '-*'), reverse=True)[:max_rotated]:",
+     "    for rp in sorted(glob.glob(path + '-*'))[:max_rotated]:"),
 ]
 
 

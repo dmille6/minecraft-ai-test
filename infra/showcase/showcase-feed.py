@@ -12,7 +12,7 @@ every declared canary pool whose newest row reports the majority control build -
 policy knobs from a bot verifiably running them; and up to 60 of that bot's newest whole llm prompts (the brain replay).
 Design: docs/reports/showcase-2026-10-20.md section 3.
 """
-import glob, gzip, hashlib, json, os, re, sys
+import collections, glob, gzip, hashlib, json, os, re, sys
 
 SENTINEL = re.compile(r'saw_end: (END-[A-Z0-9]+)')
 HARNESS = '/srv/mcbots/harness'
@@ -110,28 +110,56 @@ def recent_prompts(bot, n=60, chunk=4_000_000):
     """Up to n of the bot's newest llm prompts that are WHOLE: prompt.text under the logger's 6000-char cut and still
     carrying its `saw_end: END-...` sentinel line. For the showcase's brain replay (design section 2)."""
     path = os.path.join('/var/log/mcai', bot, f'llm-{bot}.jsonl')
+    out = []
+    for lines in prompt_sources(path, chunk):
+        for line in reversed(lines):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            p = r.get('prompt') or {}
+            text = p.get('text') or ''
+            m = SENTINEL.search(text)
+            if m and len(text) < 6000:
+                out.append({'ts': r.get('@timestamp'), 'system_hash': p.get('system_hash'), 'text': text,
+                            'sentinel': m.group(1)})
+            if len(out) >= n:
+                return out
+    return out
+
+
+ROTATED_PROMPT_FILES = 7
+ROTATED_KEEP_LINES = 2000   # a whole prompt is < 6000 chars: at most ~12 MB held per file
+
+
+def prompt_sources(path, chunk=4_000_000, max_rotated=ROTATED_PROMPT_FILES):
+    """feedprompts-01 (11-21: the showcase restart after a trip was refused, 'brain replay 0/0': the bench is stopped, so
+    the control bot's live llm log is empty after the nightly rotation). Yields line lists, newest first: the tail of the
+    live log, then each rotated copy (path-YYYYMMDD or .gz), newest first, at most max_rotated of them. The caller stops
+    as soon as it has its n prompts, so a live log with enough prompts reads nothing else (the old behaviour)."""
     try:
         with open(path, 'rb') as f:
             f.seek(0, 2)
             f.seek(max(0, f.tell() - chunk))
-            lines = f.read().splitlines()[1:]
+            yield f.read().splitlines()[1:]
     except OSError:
-        return []
-    out = []
-    for line in reversed(lines):
+        pass
+    for rp in sorted(glob.glob(path + '-*'), reverse=True)[:max_rotated]:
         try:
-            r = json.loads(line)
-        except ValueError:
+            if rp.endswith('.gz'):
+                # streamed: only the newest ROTATED_KEEP_LINES lines are held (Codex r1: no whole-file read into memory)
+                with gzip.open(rp, 'rb') as f:
+                    tail = collections.deque(f, maxlen=ROTATED_KEEP_LINES)
+                yield list(tail)
+            else:
+                with open(rp, 'rb') as f:
+                    f.seek(0, 2)
+                    start = max(0, f.tell() - chunk)
+                    f.seek(start)
+                    lines = f.read().splitlines()
+                yield lines[1:] if start else lines   # a partial first line only when the read began mid-file
+        except (OSError, EOFError):
             continue
-        p = r.get('prompt') or {}
-        text = p.get('text') or ''
-        m = SENTINEL.search(text)
-        if m and len(text) < 6000:
-            out.append({'ts': r.get('@timestamp'), 'system_hash': p.get('system_hash'), 'text': text,
-                        'sentinel': m.group(1)})
-        if len(out) >= n:
-            break
-    return out
 
 
 def main():
