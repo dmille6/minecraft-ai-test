@@ -52,6 +52,27 @@ Skill learning starts with **compositions of existing skills**. Code generated i
 with a test sandbox, versioning, a critic check before a skill is stored, and retirement by success rate.
 Distillation into the small model uses **verified successful trajectories only**.
 
+## Navigation: Baritone's ideas on our pathfinder (OWNER 11-22: "option A")
+
+Problem (fleet, 69.6 h, 80 bots): about 60 `_path_noPath` per bot-hour, plus 25 `_path_no_legal_move`, 18 `_path_timeout`, 9 `_entombed` and 8
+`_watchdog_rescue`. Some of these rows are internal retries rather than separate failures. Over 7 days, `gather` also has 21.7k unreachable or no-path failures. Everyday travel runs with `canDig = false`
+(`bots/src/index.mjs:445`), and about 20 escape and stuck modules (~4,800 lines) have grown around that.
+
+Decision: keep `mineflayer-pathfinder` as the A* core and rebuild Baritone's **ideas** (not its code; check its license
+before reading it closely):
+1. **Costs in ticks**, with digging and placing as priced moves (break time by tool). Travel may dig, and ships **together with clean-up**:
+   it fills its own short tunnels and towers back in, and routes used often get promoted to permanent paths and stairs (the owner's rule against scars).
+2. **Plan while walking**: the best partial path so far, walked while the next segment is planned, then joined.
+3. **A cached chunk map** of passable blocks for long routes. It is also the bots' long-range memory of the world and the base of a learned route network.
+4. **Re-check the path while walking**; re-plan from the current spot, preferring to go back the way it came to stop flip-flopping.
+5. **Goals that combine** (stand on, get near, within reach of, run away from, any of several) and a reachability check (`canReach`, nearest standable cell, route cost) that skills use before acting.
+6. **Typed results** (arrived / partial with where it stopped / blocked by what / interrupted). The mind decides what to do next; most escape modules retire.
+   A small reflex set stays: air, lava, falling, and zero movement for N seconds.
+7. **Tested by replaying real stuck spots** taken from ELK (the 11-14 well-replay method), run before any navigation change ships.
+
+Rejected: running real Baritone in headless Java clients (it is a platform switch and we lose mineflayer, telemetry and tests), and
+JavaScript ports (maturity not checked; read only for ideas). Navigation is the **first skill contract** in M0.
+
 ## Multiple bots (last)
 
 Keep chatter to a minimum. MINDcraft measured up to a 15% drop when agents must explain detailed plans to each other.
