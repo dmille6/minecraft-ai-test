@@ -35659,7 +35659,7 @@ async function bucketSkill (ctx, args, signal) {
     if (args?._walked) return { status: 'failed', failClass: 'bucket_fill', detail: `walked to the known source water and still nothing within reach to fill from ${seen}` }
     const spot = findFillSpot(bot, { skip: q => { try { return !!zoneWithin(bot.protectZones?.() ?? [], q, BUCKET_ZONE_REACH + 4) } catch { return false } } })   // the arrival (goto range 3, one above the source) must clear the bucket's own zone reach on every axis (Codex r1, r2)
     if (!spot) {
-      return { status: 'failed', failClass: 'bucket_fill', detail: `nothing within reach to fill from ${seen}, and no scoopable source water within 24 blocks of here: walk to a lake or river first (water to stand beside), or carry a water bucket and pour a source (bucket action=pour) where you are` }
+      return { status: 'failed', failClass: 'bucket_fill', detail: `nothing within reach to fill from ${seen}, and no scoopable source water within 24 blocks of here: explore 32+ blocks (toward open, low ground) and bucket fill again there -- the scan looks 24 blocks round wherever you stand` }
     }
     check(signal)
     try { await goto(ctx, { x: spot.pos.x, y: spot.pos.y + 1, z: spot.pos.z, range: BUCKET_REACH - 1.5 }, signal, { until: Date.now() + 25_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
