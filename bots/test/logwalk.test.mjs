@@ -166,8 +166,8 @@ await ta('FIXTURE: the cave logs are floors over a drop (the cave rule skips the
   assert.ok(!cf.skip(new Vec3(3, 31, 0)), 'a house log is not a cave floor')
 })
 await ta('BASE SHAPE (no atlas, no walk possible): built + cave floors -> the cave refusal, no dig (what the showcase logged 117 times)', async () => {
-  await withMutant(SK_URL, 'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, collected, walked: builtWalked })) {',
-    'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, collected, walked: builtWalked }) && !caveNow.length) {', async S => {
+  await withMutant(SK_URL, 'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, refused: refSkippedNow, collected, walked: builtWalked })) {',
+    'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, refused: refSkippedNow, collected, walked: builtWalked }) && !caveNow.length) {', async S => {
       const { bot, digs } = townWorld({ house: HOUSE, cave: CAVE, trees: TREE, finds: [FIND] })
       const r = await runGather(S, bot)
       assert.equal(digs.length, 0); assert.deepEqual(bot.walks, [], 'no walk (the dead end)')
@@ -189,8 +189,8 @@ await ta('CHAIN (a): built + cave floors + an atlas find 80 out -> ONE walk to t
   } finally { untap() }
 })
 await ta('MUTANT KILLED (1): the nostock guard restored (`!caveInBorder().length`) -> no walk, the cave refusal, the tree never reached', async () => {
-  await withMutant(SK_URL, 'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, collected, walked: builtWalked })) {',
-    'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, collected, walked: builtWalked }) && !caveInBorder().length) {', async S => {
+  await withMutant(SK_URL, 'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, refused: refSkippedNow, collected, walked: builtWalked })) {',
+    'if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, refused: refSkippedNow, collected, walked: builtWalked }) && !caveInBorder().length) {', async S => {
       const { bot, digs } = townWorld({ house: HOUSE, cave: CAVE, trees: TREE, finds: [FIND] })
       const r = await runGather(S, bot)
       assert.equal(digs.length, 0); assert.deepEqual(bot.walks, [])
