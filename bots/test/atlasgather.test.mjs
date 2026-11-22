@@ -382,5 +382,15 @@ await ta('MUTANT KILLED (8): the strikes ignored -> one weak no_stand failure al
   })
 })
 
+await ta('Codex r1 BLOCKER 1: one memory per dimension -- an Overworld refusal never skips the Nether\'s same cell; the Overworld keeps its own', () => {
+  const bot = { game: { dimension: 'overworld' } }
+  GR.noteRefusal(GR.memoryOf(bot), { kind: 'gravel', pos: { x: 5, y: 40, z: 5 }, cls: 'liquid', now: 1000, strong: true })
+  assert.ok(GR.isRefused(GR.memoryOf(bot), { kind: 'gravel', pos: { x: 5, y: 40, z: 5 }, now: 2000 }), 'POSITIVE CONTROL: refused in its own dimension')
+  bot.game.dimension = 'minecraft:the_nether'
+  assert.ok(!GR.isRefused(GR.memoryOf(bot), { kind: 'gravel', pos: { x: 5, y: 40, z: 5 }, now: 2000 }), 'the Nether: never refused by the Overworld')
+  bot.game.dimension = 'overworld'
+  assert.ok(GR.isRefused(GR.memoryOf(bot), { kind: 'gravel', pos: { x: 5, y: 40, z: 5 }, now: 2000 }), 'back home: its memory kept')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

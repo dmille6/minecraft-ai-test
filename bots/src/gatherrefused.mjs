@@ -109,10 +109,14 @@ export const refusedRowDetail = ({ op, block, skipped = 0, noted = 0, classes = 
   `op=${op} block=${block} skipped=${skipped}${noted ? ` noted=${noted}` : ''}${found == null ? '' : ` found=${found}`}${classesLabel(classes) ? ` classes=${classesLabel(classes).replace(/ /g, ',')}` : ''}`
 
 const _byBot = new WeakMap()
-/** The bot's memory (one per bot object). */
+/** The bot's memory, ONE PER DIMENSION (Codex r1 BLOCKER 1: an Overworld refusal at x,y,z says nothing of the Nether's x,y,z). Never throws. */
 export function memoryOf (bot) {
   if (!bot || typeof bot !== 'object') return newMemory()
-  let m = _byBot.get(bot)
-  if (!m) { m = newMemory(); _byBot.set(bot, m) }
+  let dim = 'overworld'
+  try { dim = String(bot.game?.dimension ?? 'overworld').replace(/^minecraft:/, '') } catch { dim = 'overworld' }
+  let byDim = _byBot.get(bot)
+  if (!byDim) { byDim = new Map(); _byBot.set(bot, byDim) }
+  let m = byDim.get(dim)
+  if (!m) { m = newMemory(); byDim.set(dim, m) }
   return m
 }

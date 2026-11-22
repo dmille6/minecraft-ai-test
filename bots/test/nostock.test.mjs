@@ -241,9 +241,10 @@ await ta('MUTANT KILLED (c): without the enumeration skip, the 32 nearest are th
   await withMutant(SK_URL, '&& isBuiltCell(bot.collectBlock?.movements ?? bot.pathfinder?.movements, b)) {', '&& false) {', async S => {
     const { bot, digs } = logWorld({ house: HOUSE, trees: [[2, 30, 20]] })
     const r = await runGather(S, bot)
-    assert.equal(digs.length, 0, 'the mutant dug something')
-    assert.equal(r.failClass, 'no_safe_target')
-    assert.match(r.detail, /protected \/ built/, 'the old veto branch now names built cells too: [built:32]')
+    // atlasgather-01show (Codex r1 BLOCKER 2): with the refused-spot memory the 32 house cells the veto refused are remembered and
+    // the search goes on to the tree -- the enumeration skip is no longer the only way past them. What this mutant must still never
+    // do is the safety property the skip guards: dig a house cell. (Without the memory, as before, it would refuse: see atlasgather.)
+    assert.ok(!digs.some(p => HOUSE.some(h => h[0] === p.x && h[1] === p.y && h[2] === p.z)), `the mutant never digs a house cell: ${JSON.stringify(digs)} ${String(r?.detail ?? '').slice(0, 160)}`)
   })
 })
 
