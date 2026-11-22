@@ -204,7 +204,7 @@ await t('MUTANT (buildrun clearKeepOrder): lowest first leaves the stack\'s dirt
   })
 })
 await t('MUTANT (the check at the dig): without floatClearOk the held cells are dug', async () => {
-  await killedBy(FC_PATH, FC, [["  if (c?.kind !== 'float') return true\n  // ANOTHER BODY", "  if (c?.kind !== 'float' || true) return true\n  // ANOTHER BODY"]], async F => {
+  await killedBy(FC_PATH, FC, [["  if (c?.kind !== 'float') return null\n  // ANOTHER BODY", "  if (c?.kind !== 'float' || true) return null\n  // ANOTHER BODY"]], async F => {   // floatloop-01show: the check is floatClearWhy (null digs)
     const { srv, record } = pitWorld()
     // the dig-time check alone: a listed cell that came to hold a torch AFTER the list was read is still never dug
     const list = { v: 1, pool: 'showcase', surveyedAt: 1, jobs: [{ at: [13, G, 0], name: 'dirt', beam: 0 }] }
@@ -222,7 +222,7 @@ await t('CODEX r1 BLOCKER 1: a bot left standing on the beam (its walk failed) d
     assert.strictEqual(standing(srv, 10), 'dirt', 'the block under the bot stands')
     assert.strictEqual(standing(srv, 11, G + 1), 'cobblestone', 'nothing dug while it stands on the beam')
   }
-  await killedBy(FC_PATH, FC, [['  if (under.includes(k3(c.at)) || under.some(k => floating(k))) return false\n', '\n']], scenario)
+  await killedBy(FC_PATH, FC, [["  if (under.includes(k3(c.at))) return 'own_body'\n  if (under.some(k => floating(k))) return 'on_float'\n", '\n']], scenario)   // floatloop-01show: the two body rules, each with its reason
   // the walk off works: from the rim, the same lap digs
   const { srv, list, record } = pitWorld()
   await lap(BF.R, FC, srv, list, { tries: {}, until: {} }, { cells: record, feet: [9, G + 1, 0] })
@@ -246,7 +246,7 @@ await t('RIG 11-20: never the block another body stands on (Kite dug the block u
     assert.strictEqual(standing(srv, 10), 'dirt', 'the block under the other body stands')
     assert.strictEqual(standing(srv, 11), 'air', 'the positive control: its neighbour is taken')
   }
-  await killedBy(FC_PATH, FC, [['  if (others.includes(k3(c.at))) return false\n', '\n']], scenario)
+  await killedBy(FC_PATH, FC, [["  if (others.includes(k3(c.at))) return 'other_body'\n", '\n']], scenario)
 })
 await t('CODEX r5 BLOCKER: a wide body (a spider, 1.4) stands over every column under it, the middle one too', async () => {
   await killedBy(FC_PATH, FC, [['  for (let x = Math.floor(pos.x - w); x <= Math.floor(pos.x + w); x++) for (let z = Math.floor(pos.z - w); z <= Math.floor(pos.z + w); z++) out.push(`${x},${y},${z}`)\n',
@@ -313,12 +313,51 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.strictEqual(body.split('releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)').length, 2, 'the slot released once, in the finally, at its latest generation')
   assert.ok(/\} finally \{\n\s+releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/.test(body), 'in the finally')
   assert.ok(body.includes('const guard = floatGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
-  assert.ok(body.includes('clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) }) } },'), 'the guard read again at the dig, the body, other bodies, the try')
-  assert.ok(body.includes('considered: k => considered.has(k) && !visitGone(bot, signal) })'), 'a try only for a cell the visit got to')
+  // floatloop-01show: the check now names its reason (floatClearWhy) and logs it; a `complete` lap considered every offered cell
+  assert.ok(body.includes('clearOk: (q, rd) => { const qk = k3(q.at); considered.add(qk); const why = floatClearWhy(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) });'), 'the guard read again at the dig, the body, other bodies, the try')
+  assert.ok(body.includes("considered: k => (considered.has(k) || r.stop === 'complete') && !visitGone(bot, signal) })"), 'a try for a cell the visit got to, or every offered cell of a complete visit')
   const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function floorKeysOf'))
   assert.ok(src.includes('  try { return floorKeys(e.position, e.width) } catch { return [] }'), 'the bodies read through the pure floorKeys')
   assert.ok(g.includes('return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })'), 'the guard over the records, the bridges and the plan head (head.plan)')
   assert.ok(g.includes('if (!ph.ok || !ph.head?.plan) return null'), 'no plan: no lap')
+})
+
+console.log('FLOATLOOP-01SHOW (11-22: 109 of 183 laps ended complete, cleared 0, aside 0, and re-offered the same 24)')
+// 48 lone floating dirt blocks in a row, all take-able by the verdict; the visit runs its list out `complete` without digging any
+const LOOP = (() => { const jobs = [], set = {}; for (let i = 0; i < 48; i++) { const at = [i * 3, 70, 0]; jobs.push({ at, name: 'dirt', beam: i }); set[`${i * 3},70,0`] = 'dirt' } return { list: { v: 1, pool: 'showcase', surveyedAt: 1, jobs, beams: jobs.map(j => ({ beam: j.beam, n: 1, top: j.at })) }, read: W(set) } })()
+const loopLap = (mem, now) => {
+  const pj = FC.floatPassJobs(LOOP.list, LOOP.read, { aside: k => FC.floatAsideNow(mem, k, now), max: 24 })
+  const offered = pj.take.map(q => q.at.join(','))
+  // the visit ran its list out (stop=complete) and dug nothing: every offered cell still stands
+  const after = FC.floatAsideAfter(mem, { offered, standing: () => true, considered: () => true, now })
+  return { offered, mem: after.mem, aside: after.aside }
+}
+await t('a lap that runs its list out without digging counts every offered cell; after asideTries laps the next lap offers 24 DIFFERENT cells', () => {
+  let mem = { tries: {}, until: {} }
+  const l1 = loopLap(mem, 1000); mem = l1.mem
+  assert.strictEqual(l1.offered.length, 24)
+  const l2 = loopLap(mem, 2000); mem = l2.mem
+  assert.deepStrictEqual(l2.offered, l1.offered, 'positive control: one try is not yet a set-aside (asideTries ' + FC.FC.asideTries + ')')
+  assert.strictEqual(l2.aside.length, 24, 'the second complete lap sets all 24 aside')
+  const l3 = loopLap(mem, 3000)
+  assert.strictEqual(l3.offered.length, 24)
+  assert.ok(l3.offered.every(k => !l1.offered.includes(k)), 'the third lap offers 24 different cells')
+})
+await t('floatClearWhy names the refusal: other_body, own_body, on_float, and the verdict; null digs', () => {
+  const at = [0, 70, 0], c = { kind: 'float', at, name: 'dirt' }, rd = W({ '0,70,0': 'dirt' })
+  assert.strictEqual(FC.floatClearWhy(c, rd), null)
+  assert.strictEqual(FC.floatClearWhy(c, rd, { others: ['0,70,0'] }), 'other_body')
+  assert.strictEqual(FC.floatClearWhy(c, rd, { under: ['0,70,0'] }), 'own_body')
+  assert.strictEqual(FC.floatClearWhy(c, rd, { under: ['3,70,0'], floating: k => k === '3,70,0' }), 'on_float')
+  assert.strictEqual(FC.floatClearWhy(c, W({ '0,70,0': 'dirt', '0,71,0': 'torch' })), 'holds')
+  assert.strictEqual(FC.floatClearOk(c, rd), true); assert.strictEqual(FC.floatClearOk(c, rd, { others: ['0,70,0'] }), false)
+})
+await t('WIRING (skills.mjs, comments stripped): a `complete` lap considers every offered cell; the dig-time refusal is logged with its reason -- and the mutant without the first is caught', () => {
+  const src = fs.readFileSync(SKILLS_PATH, 'utf8').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
+  const line = "considered: k => (considered.has(k) || r.stop === 'complete') && !visitGone(bot, signal) })"
+  assert.strictEqual(src.split(line).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(src.includes("row('refused', 'no_effect', { at: qk, why, block: take.get(qk)?.name ?? '-' })"))
+  assert.ok(!src.replace(line, "considered: k => considered.has(k) && !visitGone(bot, signal) })").includes(line), 'the mutant (the old rule) is not matched')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
