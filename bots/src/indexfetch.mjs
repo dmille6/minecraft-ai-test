@@ -312,13 +312,18 @@ export const indexFetchModeDetail = (f = FETCH) => `phase=mode index_fetch=${f.o
 export function nextHolder (entries, item, opts = {}) {
   return fetchTargets(entries, { [item]: 1 }, opts)[0] ?? null
 }
-/** What the verb's refusal tells the bot to do when no listed container holds `item`. Pure. A tool is crafted (or its ore mined),
- *  anything else is gathered or crafted -- both are skills the bot can run from where it stands. */
-export function shortRemedy (item, { fixed = 0 } = {}) {
+/** What the verb's refusal tells the bot to do when no listed container holds `item`. Pure. `gatherable` (a block by that name, an ore or
+ *  a log variant: gather resolves it) and `craftable` (a recipe exists) are the caller's facts; each remedy is named only if the bot can
+ *  perform it. An item that is neither (a seed, a drop) is a shortage and says so: nothing is promised that cannot be done. */
+export function shortRemedy (item, { fixed = 0, gatherable = false, craftable = false } = {}) {
   const fix = fixed > 0 ? `; ${fixed} stale index entr${fixed === 1 ? 'y was' : 'ies were'} corrected` : ''
-  const how = /_(pickaxe|axe|shovel|hoe|sword)$/.test(item)
-    ? `craft one (craft 1 ${item}) or gather its materials`
-    : `gather it, or craft it (craft <count> ${item}), yourself`
+  const tool = /_(pickaxe|axe|shovel|hoe|sword)$/.test(item)
+  const ways = []
+  if (gatherable) ways.push(`gather it (gather ${item})`)
+  if (craftable) ways.push(tool ? `craft one (craft 1 ${item})` : `craft it (craft <count> ${item})`)
+  const how = ways.length
+    ? ways.join(', or ')
+    : 'it is only a drop, with no block to gather and no recipe: the shortage stands until a bot deposits it, so work on something else'
   return `the town is short of ${item} and its index lists no other holder${fix} -- ${how}`
 }
 /** The `_index_fetch op=miss` row: one container the verb opened for `item` that the index listed. Pure. */

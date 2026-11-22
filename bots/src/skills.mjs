@@ -12543,6 +12543,16 @@ async function withdraw (ctx, args, signal) {
     throw e
   }
 }
+/** What the bot can do about a short item: is there a block to gather by that name (gather's own resolve), is there a recipe? Never throws. */
+function itemRoutes (bot, item) {
+  let gatherable = false, craftable = false
+  try { gatherable = !!resolveBlockName(bot, item).name } catch { gatherable = false }
+  try {
+    const d = bot.registry?.itemsByName?.[item]
+    craftable = !!d && [...(bot.recipesAll?.(d.id, null, null) ?? []), ...(bot.recipesAll?.(d.id, null, true) ?? [])].length > 0
+  } catch { craftable = false }
+  return { gatherable, craftable }
+}
 async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   if (ctx?.bot) ctx.bot.useWhy = 'withdraw'   // useledger-01
   if (item == null || ['', 'none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(String(item).trim().toLowerCase())) {
@@ -12642,7 +12652,7 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   if (held.length) {
     // Deliberately no "no ... within" in this sentence: state.mjs's prose classifier reads that pair as nothing_found.
     return out({ status: 'failed', failClass: 'container_short',
-                 detail: `${item}${TOOLISH.test(item) ? ' (a usable copy)' : ''} is not in the ${held.length} container(s) tried here -- they hold ${held.join('; ').slice(0, 160)} -- ${shortRemedy(item, { fixed })}` })
+                 detail: `${item}${TOOLISH.test(item) ? ' (a usable copy)' : ''} is not in the ${held.length} container(s) tried here -- they hold ${held.join('; ').slice(0, 160)} -- ${shortRemedy(item, { fixed, ...itemRoutes(bot, item) })}` })
   }
   return out(lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' })
 }
