@@ -105,6 +105,7 @@ import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import { isBuiltCell, builtRemedyPoint, builtRefusal, builtRowDetail, BUILT_WALK_MS, BUILT_WALKS } from './gatherbuilt.mjs'   // nostock-01show (c): built cells skipped at enumeration
+import { memoryOf, noteRefusal, isRefused, standing, classOfVeto, refusalDue, refusedRefusal, refusedRowDetail } from './gatherrefused.mjs'   // atlasgather-01show: the spots that refused this bot are remembered, not re-tried
 import { walkOutDue, walkTargetFor, walkMsFor, missIsGone, walkSpentRemedy, walkRowDetail, ATLAS_WALK_MAX } from './gatherbuilt.mjs'   // logwalk-01show: the walk-out past built cells AND cave floors, to known wood
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -2414,6 +2415,16 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
   let builtSkipped = 0, builtCells = []   // nostock-01show (c): protected / built cells the enumeration skipped this round (in range)
   let builtWalked = 0, builtTo = null     // nostock-01show (c): walks out past them this run, and the last point
+  // atlasgather-01show: THE BOT'S REFUSAL MEMORY (gatherrefused.mjs). A cell that refused this bot before (beside water, under sand,
+  // no stand, buried) is skipped AT ENUMERATION, so the 32 candidates are the nearest that have not refused. Counted in range, per round.
+  const refMem = memoryOf(bot)
+  // every cell this run's attempts excluded is a conclusive no_stand record (the run ended with none of them yielding). Not on a time-out: a budget is not a stance.
+  const rememberExcluded = name => {
+    for (const k of excluded) { const [x, y, z] = k.split(',').map(Number); const b = bot.blockAt(new Vec3(x, y, z)); if (b && b.name === name) noteRefusal(refMem, { kind: name, pos: b.position, cls: 'no_stand', strong: true }) }
+  }
+  let refSkipped = 0, refCells = []
+  let refRounds = 0                       // rounds this run that went round again after remembering the refused cells
+  const REF_ROUNDS = 4
   let walkPending = null                  // logwalk-01show: the last walk, its `_gather_walk` row written with the next search's count
   let roofSkipped = 0   // topdown-01: ground under a roof the enumeration skipped this round
   let roofSaid = false  // topdown-01: the run's `_gather_topdown` op=skip row
@@ -2478,6 +2489,12 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01: an independent conjunction too (its situation read now)
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
+    // atlasgather-01show: does the cause of a record still stand? (the block changed -> the record is dropped.) no_stand has no cheap re-ask: its TTL
+    const refVm = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+    const refStill = (cls, p, b) => cls === 'buried' ? !isExposed(bot, p)
+      : cls === 'protected' ? isBuiltCell(refVm, b)
+      : (cls === 'liquid' || cls === 'falling' || cls === 'unsafe') ? !(isSafeToBreak(bot, p) || shorelineExemptAt(bot, p))
+      : true
     const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
     const notTown = id => b => {
       if (!b || b.type !== id) return false
@@ -2512,6 +2529,13 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
       // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
+      // atlasgather-01show: a cell that refused this bot (and whose cause still stands: `refStill` re-asks the live cell) is skipped here,
+      // in range only (as above). AFTER the built-cell rule, which counts and walks its own.
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance &&
+          isRefused(refMem, { kind: b.name, pos: b.position, still: cls => refStill(cls, b.position, b) })) {
+        refSkipped++; if (refCells.length < 64) refCells.push(b.position)
+        return false
+      }
       // topdown-01: what this matcher has accepted so far, in range (kept if the search is given up: findBlocks' own list is
       // lost). Only a candidate: a wrapper outside this matcher (protectzone.mjs) may still drop it, so the kept list is asked
       // through the whole chain again before it is used (findGround)
@@ -2536,6 +2560,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     }
     roofGaveUp = false
     builtSkipped = 0; builtCells = []   // nostock-01show: this round's (a round that `continue`d earlier left its count: Claude r1)
+    refSkipped = 0; refCells = []       // atlasgather-01show: likewise
     ko?.refresh?.()
     let positions = findGround(type.id)
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
@@ -2646,13 +2671,14 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // is performed -- one bounded walk BUILT_OUT past them, away from the town (walkToGoal: arrival, not goto's first empty
     // slice), and the search again from there. Not reached: the refusal names the reason and the point.
     const builtSkippedNow = builtSkipped, builtCellsNow = builtCells; builtSkipped = 0; builtCells = []
+    const refSkippedNow = refSkipped, refCellsNow = refCells; refSkipped = 0; refCells = []   // atlasgather-01show
     // logwalk-01show: THE WALK-OUT FIRES WHERE BUILT CELLS AND/OR CAVE FLOORS EMPTIED THE SEARCH (the nostock guard
     // `!caveInBorder().length` refused it wherever one cave floor was in range: in town, every log gather -- 117 of 117 failures
     // 11-20). It aims at the nearest live wood the bots' map knows (outside town ground, the zones and the plan's cells), at most
     // ATLAS_WALK_MAX blocks; with none known, the nostock step BUILT_OUT past the cells. The cave refusal below comes only once
     // the run's walks are spent.
     const caveNow = caveInBorder()
-    if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, collected, walked: builtWalked })) {
+    if (walkOutDue({ positions: positions.length, built: builtSkippedNow, cave: caveNow.length, refused: refSkippedNow, collected, walked: builtWalked })) {
       const from = bot.entity?.position?.floored?.() ?? null
       let finds = []
       try { finds = bot.atlas?.view?.()?.finds ?? [] } catch { finds = [] }
@@ -2666,7 +2692,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         return !inTownBox(p, home0, { margin: 4 }) && !zoneHit(zonesNow, f.x, f.z, undefined, { surfaceY: f.y }) &&
           !isBuiltCell(vm, { position: p, name: f.kind, type: bot.registry?.blocksByName?.[f.kind]?.id })
       }
-      const cells = builtCellsNow.length ? builtCellsNow : caveNow.map(v => v.at).filter(Boolean)
+      const cells0 = [...builtCellsNow, ...refCellsNow]   // atlasgather-01show: the remembered cells steer the step walk as the built ones do
+      const cells = cells0.length ? cells0 : caveNow.map(v => v.at).filter(Boolean)
       const tgt = from ? walkTargetFor({ from, home: home0, cells, finds, kind: blockName, ok: atlasOk, minDist: maxDistance, cap: ATLAS_WALK_MAX }) : null
       if (tgt) {
         const to = { x: tgt.x, z: tgt.z }
@@ -2683,6 +2710,16 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         walkPending = { via: tgt.via, block: blockName, from, to, dist: tgt.dist, arrived: reached, ms: Date.now() - t0, built: builtSkippedNow, cave: caveNow.length, find: tgt.find ?? null, capped: tgt.capped === true, err: walkErr }
         continue
       }
+    }
+    // atlasgather-01show: THE SEARCH EMPTIED BY THIS BOT'S OWN REFUSAL MEMORY (every cell in range already refused it) and the walk-out is spent
+    // or had nowhere to go: the refusal names a `goto` point (the step past the cells), never the spots again. One `_gather_refused` row.
+    if (refusalDue({ positions: positions.length, refused: refSkippedNow, collected }) && !caveNow.length) {
+      const from = bot.entity?.position?.floored?.() ?? null
+      const to = builtRemedyPoint({ from, home: townHome(), cells: [...builtCellsNow, ...refCellsNow] })
+      const st = standing(refMem, blockName)
+      try { logEvent({ kind: 'gather_refused', status: 'refused', snapshot: snapshot(bot), detail: refusedRowDetail({ op: 'refused', block: blockName, skipped: refSkippedNow, classes: st.classes, found: 0 }) }) } catch { /* telemetry */ }
+      return { status: 'failed', failClass: 'no_safe_target',
+               detail: refusedRefusal({ block: blockName, n: refSkippedNow + builtSkippedNow, classes: st.classes, point: to ?? builtTo, walked: builtWalked, to: builtTo, maxDistance }) + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
     }
     if (positions.length === 0 && builtSkippedNow > 0 && !caveNow.length && collected === 0) {
       const from = bot.entity?.position?.floored?.() ?? null
@@ -2779,6 +2816,22 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // wet" is a distinguishable answer rather than folding into "buried".
     const safeOnes = exposedOnes.filter(safeTarget)
     const rejectedUnsafe = exposedOnes.length - safeOnes.length
+    // atlasgather-01show: REMEMBER WHAT THE PROFILE'S OWN SAFETY RULE REFUSED (beside water, under sand/gravel, protected): only that rule's
+    // refusals, not a situational one (town ground, the zones, keep-out: those are asked fresh at enumeration). An entity above is not recorded.
+    {
+      let noted = 0
+      for (const q of exposedOnes) {
+        if (isSafeToBreak(bot, q) || shorelineExemptAt(bot, q)) continue
+        const b = bot.blockAt(q)
+        const cls = classOfVeto(breakVetoAt(bot, q) ?? (isBuiltCell(refVm, b) ? 'built' : 'unknown'))
+        if (cls && b && noteRefusal(refMem, { kind: b.name, pos: q, cls })) noted++
+      }
+      if (noted) { try { logEvent({ kind: 'gather_refused', status: 'no_effect', snapshot: snapshot(bot), detail: refusedRowDetail({ op: 'note', block: blockName, noted, skipped: refSkippedNow, classes: standing(refMem, blockName).classes }) }) } catch { /* telemetry */ } }
+      // THE SEARCH AGAIN, NOT THE REFUSAL (atlasgather-01show): nothing takeable among the cells just remembered and nothing collected: the next
+      // search skips them, reaches the next real candidate, or finds none and walks out (walkOutDue `refused`) -- the base's message named no remedy.
+      // Bounded: a few such rounds a run (each remembers up to 32 new cells), and only when something new was remembered.
+      if (noted > 0 && safeOnes.length === 0 && collected === 0 && refRounds < REF_ROUNDS) { refRounds++; continue }
+    }
     // THE CHANGE ROW, and a canary without one is unreadable.
     //
     // `shorelineExemptAt` is otherwise silent, so nothing in telemetry would say the
@@ -3038,6 +3091,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel may have exposed one
       }
+      // atlasgather-01show: the buried cells are remembered (a dirt or log gather walks past them next time) EXCEPT for ores: the tunnel (above) is
+      // their remedy, and a memory that hid them would stop the next run reaching it
+      if (!tk && !WORTH_TUNNELLING.test(viaSource ?? blockName)) {
+        for (const q of positions) { const b = bot.blockAt(q); if (b && !exposed(q)) noteRefusal(refMem, { kind: b.name, pos: q, cls: 'buried' }) }
+      }
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName} found but every candidate is buried — use mine to dig down` +
                        belowGroundHint(bot) +
@@ -3091,9 +3149,13 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
                    detail: `${blockName} via foliage cover: ${viaCover} candidate(s), ` +
                            `all ${excluded.size} already refused this run — nothing attempted` })
       }
+      // atlasgather-01show: every candidate in range refused this run: each is a conclusive no_stand record (the next visit skips them and walks out)
+      rememberExcluded(viaSource ?? blockName)
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName}: all ${excluded.size} candidate(s) in range refused — ` +
-                       `could not stand within reach of any of them` }
+                       `could not stand within reach of any of them` +
+                       // the remedy: not these spots again (remembered for the TTL); a `goto` the bot can make (the cells it must leave behind steer it)
+                       (() => { const f = bot.entity?.position?.floored?.() ?? null; const pt = builtRemedyPoint({ from: f, home: townHome(), cells: reachable }); return pt ? ` -- they are remembered and skipped next time: goto x=${pt.x} z=${pt.z} and gather ${blockName} there` : '' })() }
     }
     const target = bot.blockAt(nextUp)
     if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
@@ -3192,6 +3254,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // yield, and re-picking it is what produced streaks of up to 58 attempts
       // on a single position.
       excluded.add(key(target.position))
+      if (!/exceeded|timeout/i.test(e.message ?? '')) noteRefusal(refMem, { kind: target.name, pos: target.position, cls: 'no_stand' })   // atlasgather-01show: a weak strike (two make a record)
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
       // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
@@ -3282,6 +3345,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
                  (coverRounds > 0
                    ? ` [${coverRounds} round(s) were foliage-covered last resorts, so this is not evidence there is no route]`
                    : '')]
+        if (fc !== 'collect_budget') rememberExcluded(viaSource ?? blockName)   // atlasgather-01show
         return collected > 0
           ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
           : { status: statusFor(failClass), failClass, detail: why }
