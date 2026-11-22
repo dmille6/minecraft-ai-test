@@ -12311,6 +12311,15 @@ async function withdrawVisit0 (ctx, chestBlock, decide, signal, msLeft, deadline
     return { result: { status: 'failed', failClass: 'chest_unreachable', detail: `could not reach the chest at ${cp.x},${cp.y},${cp.z}` }, diag }
   }
   check(signal)
+  // indexfetch-01show r2 (Codex r2): a holder the index named while its chunk was unloaded is read again now the bot stands by it
+  if (chestBlock.unloaded) {
+    const real = bot.blockAt?.(new Vec3(cp.x, cp.y, cp.z))
+    if (!real || !CONTAINER_RE.test(blockNameOf(bot, real) ?? '')) {
+      if (real) { try { townIndexDirty(bot, new Vec3(cp.x, cp.y, cp.z), 'withdraw_miss', 'post') } catch { /* index */ } }
+      return { result: { status: 'failed', failClass: real ? 'not_found' : 'chest_unreachable', detail: real ? `the index's container at ${cp.x},${cp.y},${cp.z} is gone (${blockNameOf(bot, real) ?? real.name})` : `the index's container at ${cp.x},${cp.y},${cp.z} did not load` }, diag, skip: 'unloaded' }
+    }
+    chestBlock = real
+  }
   const before = await recountBag(bot, msLeft)
   diag.verification = before.source
   const opened = await openForWithdraw(bot, chestBlock, signal, msLeft)
@@ -12596,8 +12605,11 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
         if (!h) return null
         const b = bot.blockAt?.(keyVec(h.k))
         if (b && CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) return { block: b, k: h.k }
-        for (const x of h.halves) ixSeen.add(x)   // not loaded here, or gone: not this withdraw's holder
-        if (b) { try { townIndexDirty(bot, keyVec(h.k), 'withdraw_miss', 'post') } catch { /* index */ } }
+        // Codex r2 BLOCKER: a holder whose chunk is NOT LOADED here is no miss -- it is walked to (its chunk loads on approach) and
+        // read again there (withdrawVisit0 `unloaded`); only a loaded cell that is no container is gone
+        if (!b) return { block: { position: keyVec(h.k), name: 'chest', unloaded: true }, k: h.k }
+        for (const x of h.halves) ixSeen.add(x)   // loaded and gone: not this withdraw's holder
+        try { townIndexDirty(bot, keyVec(h.k), 'withdraw_miss', 'post') } catch { /* index */ }
       }
     } catch { /* the sweep decides */ }
     return null

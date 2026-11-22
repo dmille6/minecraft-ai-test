@@ -167,6 +167,33 @@ await t('INDEXFETCH=off / an unreadable index: no holder is named, the nearest-c
 })
 
 // ------------------------------------------------------------------------------------------------- anchored mutants
+await t('Codex r2 BLOCKER: a listed holder whose chunk is NOT LOADED is walked to and read there -- never crossed off unseen', async () => {
+  const w = seenTown()
+  for (const c of NEAR) w.stock(...c, [])   // the three near ones stale
+  const real = w.bot.blockAt.bind(w.bot)
+  const far = { x: FAR[0], y: FAR[1], z: FAR[2] }
+  w.bot.blockAt = v => {   // the far chest's chunk loads only on approach (within 16 blocks)
+    const p = w.bot.entity.position
+    if (Math.floor(v.x) === far.x && Math.floor(v.y) === far.y && Math.floor(v.z) === far.z && Math.hypot(p.x - far.x, p.z - far.z) > 16) return null
+    return real(v)
+  }
+  const r = await withdraw(w)
+  assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+  assert.equal(count(w.bag, 'dirt'), 8)
+  assert.equal(w.spy.opened.at(-1), w.key(...FAR), `the unloaded holder was reached and opened: ${w.spy.opened}`)
+})
+await t('MUTANT KILLED (Codex r2): an unloaded holder crossed off unseen again -> the far chest is never reached', async () => {
+  const killed = await killedBy(() => withMutant(SKILLS_PATH, "        if (!b) return { block: { position: keyVec(h.k), name: 'chest', unloaded: true }, k: h.k }\n", '', async M => {
+    const w = seenTown()
+    for (const c of NEAR) w.stock(...c, [])
+    const real = w.bot.blockAt.bind(w.bot)
+    const far = { x: FAR[0], y: FAR[1], z: FAR[2] }
+    w.bot.blockAt = v => { const p = w.bot.entity.position; if (Math.floor(v.x) === far.x && Math.floor(v.y) === far.y && Math.floor(v.z) === far.z && Math.hypot(p.x - far.x, p.z - far.z) > 16) return null; return real(v) }
+    const r = await withdraw(w, M)
+    assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+  }))
+  assert.ok(killed, 'the mutant must fail the unloaded case')
+})
 await t('MUTANT KILLED: the verb never goes to the index-listed holder (the sweep alone) -> the stale case fails', async () => {
   assert.ok(await killedBy(async () => {
     const w = seenTown()
