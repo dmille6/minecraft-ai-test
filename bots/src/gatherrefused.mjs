@@ -120,3 +120,7 @@ export function memoryOf (bot) {
   if (!m) { m = newMemory(); byDim.set(dim, m) }
   return m
 }
+
+/** THE ONE-SETTING ROLLBACK (Codex/control review 11-22: a protected piece has one): GATHERMEM=off -> the gather notes nothing and
+ *  skips nothing, exactly as before this piece. Pure over env. */
+export const gatherMemOn = (env = typeof process !== 'undefined' ? process.env : {}) => !/^(off|0|false|no)$/i.test(String(env?.GATHERMEM ?? '').trim())

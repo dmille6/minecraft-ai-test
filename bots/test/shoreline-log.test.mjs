@@ -243,7 +243,7 @@ test('MUTANT KILLED: dropping the stance test lets the bot stand in what it open
       'the mutant did not remove the stance guard'))
 })
 
-test('EXACTLY TWO CALL SITES, and the Movements flag is never cleared', () => {
+test('EXACTLY FIVE CALL SITES (three admit, two only read), and the Movements flag is never cleared', () => {
   // Structural, because behaviour cannot reach "nobody else calls this". Comments are
   // stripped first: this codebase's comments quote the code they explain.
   const strip = t => t.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
@@ -255,7 +255,12 @@ test('EXACTLY TWO CALL SITES, and the Movements flag is never cleared', () => {
   // Pass 2 executed a dig from a position the bot moved to AFTER admission, so the
   // permission is re-asked immediately before bot.dig. Raising this number is a
   // deliberate act and the test says which three are allowed.
-  assert.equal(calls, 3, `the exemption has ${calls} call sites; exactly three are sanctioned`)
+  // atlasgather-01show (11-22): FIVE. The two new sites only READ the exemption -- a remembered refusal is re-asked whether it still
+  // holds (refStill: liquid/falling/unsafe still refused only if the cell is neither safe nor shoreline-exempt), and a refused cell
+  // that is exempt is never noted as refused. Neither admits a dig; both are pinned below by their exact executable lines.
+  assert.equal(calls, 5, `the exemption has ${calls} call sites; exactly five are sanctioned (three admit, two only read)`)
+  assert.ok(sk.includes("(cls === 'liquid' || cls === 'falling' || cls === 'unsafe') ? !(isSafeToBreak(bot, p) || shorelineExemptAt(bot, p))"), 'atlasgather: the still-refused read')
+  assert.ok(sk.includes('if (isSafeToBreak(bot, q) || shorelineExemptAt(bot, q)) continue'), 'atlasgather: an exempt cell is never noted refused')
   assert.ok(sk.includes('isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)'),
     "gather's filter must carry it")
   assert.ok(sk.includes('!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)'),
