@@ -52,7 +52,7 @@ All candidates are **Apache-2.0** (licence files must be kept when redistributin
 | Role | Candidates | Notes |
 |---|---|---|
 | **Executive** | **Qwen3.5-9B** (BFCL-V4 66.1, TAU2 79.1) · **Qwen3.5-4B** (50.3 / 79.9; current) · **Granite 4.2 8B** (Aug 2026; about 52.4; official GGUF, FP8 and MLX builds) · **Gemma 4 12B** (TAU2 69) · Gemma 4 E4B (12 GB / Mac fallback) · **Qwen3-8B-AWQ** as the control | Qwen3.5 has built-in multi-token prediction heads (speculative decoding to test later) |
-| **Planner (24 GB / Mac)** | **Qwen3.8-27B** (Aug 2026, official FP8, MLX builds) · Granite 4.2 30B | Too big for 16 GB once caches are counted |
+| **Planner (24 GB / Mac)** | **Qwen3.8-27B** (Aug 2026, official FP8, MLX builds) · **Muse Glimmer 30B** (added 11-22 by the owner: published by the `meta-models` org (not confirmed as official Meta), Apache-2.0, built for multi-step tool use and failure recovery; MLX 4-bit on the Studio) · Granite 4.2 30B | Too big for 16 GB once caches are counted |
 | **Planner (16 GB)** | Qwen3.5-35B-A3B · Gemma 4 26B-A4B (mixture of experts, about 3–4B active) | Q4 is about 20 GB, so tight. Same model in both roles is the default |
 | **Mac teacher / judge** | Qwen3.5-122B-A10B (about 61 GB at 4-bit) · Qwen3.8-27B at 8-bit | Dev only |
 
@@ -85,5 +85,6 @@ updated since 2026-04 and lists none of the 2026 families.
 1. Export the replay set from ELK (VM 109 is running).
 2. Studio: install llama.cpp, MLX-LM and the judge models; label the set (two judges must agree).
 3. Screen the executive candidates on the 5080 with llama.cpp at the adopted settings: validity, grounding, agreement, latency.
-4. Planner tryouts and Apple Silicon numbers on the Studio.
+4. Planner tryouts on the Studio: **Qwen3.8-27B vs Muse Glimmer 30B** on planning prompts from logged situations (including "route failed twice, here is the evidence"), judged blind by both judges; later the live blocked-route chest delivery once M0 runs. Apple Silicon numbers too.
+- Parked (research only): screenshot-driven control (e.g. `EmberJin/Minecraft-Agent-Qwen3.5-9B-Stage3`). Needs a rendered client per bot; its own success rate is 15-25%.
 5. Pick the release model and profile.
