@@ -255,7 +255,7 @@ await t('carriedFrom / carryEntry: a carried receipt\'s file entry round-trips; 
 })
 
 // ---- the fake bot: takeback.test.mjs's harness (a goto as the library's), plus a body that falls when the block under it is dug ----
-const T = Object.freeze({ ...TB.TAKEBACK, tickMs: 4, unusedMs: 60, budgetMs: 400, reuseMs: 400, ttlMs: 300, carryMs: 5_000, pruneMs: 20, saveMs: 20, landMs: 300 })
+const T = Object.freeze({ ...TB.TAKEBACK, tickMs: 4, unusedMs: 60, freshMs: 0, budgetMs: 400, reuseMs: 400, ttlMs: 300, carryMs: 5_000, pruneMs: 20, saveMs: 20, landMs: 300 })
 const REC = (cell, o = {}) => ({ cell, block: 'dirt', reason: 'pathfinder', shape: 'pillar', zone: 'out', profile: 'walk', ...o })
 function fake ({ env = {}, M = TB, digMs = 5, profile = 'walk', io = null, timers = false, Tx = T } = {}) {
   const bot = new EventEmitter()
