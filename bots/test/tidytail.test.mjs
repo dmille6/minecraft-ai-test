@@ -117,12 +117,22 @@ await t('the cells resting on a set-aside cell go with it (fillcolumn waiveRests
   const base = [10, 68, -36]
   const rec = rec0(base, { extra: [{ at: [10, 69, -36], role: 'earth', seg: 'S1' }, { at: [10, 70, -36], role: 'earth', seg: 'S1' }] })
   const rd = (x, y, z) => ({ name: y >= 68 ? 'air' : 'stone', boundingBox: y >= 68 ? 'empty' : 'block' })
-  const rests = FC.waiveRests(rec, [{ k: k(base) }], rd, { done: () => false })
-  assert.ok(rests.every(r => /^fillcolumn:rests_on /.test(r.why)))
+  const rests = T.tailRests({ rec, adds: [{ k: k(base) }], read: rd })
+  assert.ok(rests.every(r => /^rests_on:/.test(r.why)))
   const set = new Set([k(base), ...rests.map(r => r.k)])
   const open = rec.cells.filter(c => c.at[0] === 10).map(c => k(c.at))
   // either the dependents are in the set (tail-only) or they stay open (still offered): never silently dropped
   assert.strictEqual(T.tailOnly({ open, aside: set }), open.every(x => set.has(x)))
+})
+await t('the dependents do not wait on the repair waiver budget (Codex r1): an exhausted budget still yields them', () => {
+  const base = [10, 68, -36]
+  const rec = rec0(base, { extra: [{ at: [10, 69, -36], role: 'earth', seg: 'S1' }, { at: [10, 70, -36], role: 'earth', seg: 'S1' }] })
+  const rd = (x, y, z) => ({ name: y >= 68 ? 'air' : 'stone', boundingBox: y >= 68 ? 'empty' : 'block' })
+  const exhausted = { ...rec, waived: Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`${i},1,1`, { why: 'fillcolumn:rests_on x' }])) }
+  const capped = FC.waiveRests(exhausted, [{ k: k(base) }], rd, { done: () => false })
+  const free = T.tailRests({ rec: exhausted, adds: [{ k: k(base) }], read: rd })
+  assert.ok(free.length >= capped.length)
+  assert.ok(free.length > 0, 'the dependents are found with the budget spent')
 })
 await t('yardRowOutcome: banked or placed is success; nothing is no_effect (the label)', () => {
   assert.deepStrictEqual(T.yardRowOutcome({ banked: { cobblestone: 64 }, placed: 0 }), { status: 'success', stop: 'row', banked: 64, placed: 0 })
@@ -139,6 +149,13 @@ const mut = (name, old, neu, check) => t(`mutant killed: ${name}`, () => withMut
   assert.ok(died, 'the mutant survived')
 }))
 const C = TAILS[0]
+const dep = M => {
+  const base = [10, 68, -36]
+  const rec = rec0(base, { extra: [{ at: [10, 69, -36], role: 'earth', seg: 'S1' }] })
+  const rd = (x, y, z) => ({ name: y >= 68 ? 'air' : 'stone', boundingBox: y >= 68 ? 'empty' : 'block' })
+  const exhausted = { ...rec, waived: Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`${i},1,1`, { why: 'fillcolumn:rests_on x' }])) }
+  assert.ok(M.tailRests({ rec: exhausted, adds: [{ k: k(base) }], read: rd }).length > 0)
+}
 const chain = M => {
   laid.clear()
   const rec = rec0(C)
@@ -173,6 +190,7 @@ await mut('open cells outside the set ignored', 'return open.every(k => aside.ha
 await mut('quiet ignores the version', 'return t.code === code && t.sig === gkwSig(rec)', 'return t.sig === gkwSig(rec)', chain)
 await mut('quiet ignores the signature', 'return t.code === code && t.sig === gkwSig(rec)', 'return t.code === code', chain)
 await mut('quiet never ends', 'now - t.at < T.holdMs\n}', 'true\n}', chain)
+await mut('dependents capped by the repair budget', 'outMin: 1e9, outShare: 1', 'outMin: 12, outShare: 0.1', dep)
 await mut('banked is not work', 'const work = nb + (Number(placed) || 0) > 0', 'const work = (Number(placed) || 0) > 0', chain)
 
 // ---- wiring (structural: comments stripped, the executable line) -----------------------------------------------------------------
@@ -186,6 +204,8 @@ const WIRES = [
   ['the keeper work read', /tidyWork: !!r && \(\(!r\.structure_complete && !tidyTailQuiet\(r\)\) \|\| tidyDue\(r\)/],
   ['the lane read', /open: !!irec && !irec\.structure_complete && !tidyTailQuiet\(irec\)/],
   ['the quota read', /stuck, tail: tidyTailQuiet\(rec\) \}\)/],
+  ['the dependents are the set-aside rule\'s own', /const rests = tailRests\(\{ rec: rw, adds/],
+  ['a set-aside cell is not counted toward the unreachable waiver', /filter\(k => !asideHeld\.has\(k\) && !Object\.prototype\.hasOwnProperty\.call\(rw\.aside \?\? \{\}, k\)\)/],
   ['the post-visit decision', /const upd = tailNext\(rw, \{ drops: re\.drop/],
   ['the yard row label', /return out\(ro\.status, 'yard_row'/],
 ]
