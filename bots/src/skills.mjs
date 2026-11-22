@@ -29305,7 +29305,14 @@ const GKW_ON = gkworkOn()   // gkwork-01
 const TAIL_ON = tailOn()   // tidytail-01show
 const tailCodeNow = () => config.code?.version ?? null
 /** tidytail-01show: is the tidy record done for OFFERING (only set-aside cells remain, tidytail.mjs tailQuiet)? Never throws. */
-const tidyTailQuiet = (rec, now = Date.now()) => { try { return TAIL_ON && tailQuiet(rec, { code: tailCodeNow(), now }) } catch { return false } }
+/** tidytail-01show (control session 11-22): THE LAPS' WORK. floatclean's and pillars' laps run at the head of a tidy crew visit, so a
+ *  tidy that is not offered would stop them: what each lap's last survey left takeable (standing, not set aside) -> owed. Unknown
+ *  (no survey yet this process) is owed. Module state (one bot a process). */
+const LAP_LEFT = { fc: null, pl: null }
+function lapLeftNote (which, census) { try { LAP_LEFT[which] = Math.max(0, (Number(census?.standing) || 0) - (Number(census?.aside) || 0)) + (Number(census?.unread) || 0) } catch { /* unknown stays owed */ } }
+const lapsOwed = () => (FC_ON && LAP_LEFT.fc !== 0) || (PL_ON && LAP_LEFT.pl !== 0)
+const tidyTailQuiet = (rec, now = Date.now(), { laps = true } = {}) => { try { return TAIL_ON && tailQuiet(rec, { code: tailCodeNow(), now }) && !(laps && lapsOwed()) } catch { return false } }
+export const _lapLeftForTest = { note: lapLeftNote, owed: () => lapsOwed(), quiet: (rec, now, o) => tidyTailQuiet(rec, now, o), code: () => tailCodeNow(), reset: () => { LAP_LEFT.fc = null; LAP_LEFT.pl = null } }
 const TRF_ON = tidyRefreshOn()   // tidyrefresh-01
 /** country-01: the country head -> rec | null (undefined: unreadable). Never throws. */
 function countryHeadNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(COUNTRY_PLOT)); return h.ok && !(h.rejected?.length > 0) ? h.head?.rec ?? null : undefined } catch { return undefined } }   // fold r2: a rejected generation is an unread head
@@ -30308,6 +30315,7 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
   const rd0 = tidyRead(bot)
   const pj = floatPassJobs(list, rd0, { aside: k => floatAsideNow(mem, k), cells, zone, max: FC.passMax, part: slot.slot - 1, parts: FC.builders })
   row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, ...pj.census })
+  lapLeftNote('fc', pj.census)   // tidytail-01show (control): the tidy stays offered while this list has takeable work
   // a held cell's row (once a cell an FC.rowMs); an UNREAD one (its chunk not loaded for this bot) is no finding: counted in the survey row only
   for (const h of pj.held) { const k = k3(h.job.at); if (h.why !== 'unread' && rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-' }) }
   const take = new Map(pj.take.map(q => [k3(q.at), q]))
@@ -30456,6 +30464,7 @@ async function pillarcleanLap (ctx, signal, { deadline = Date.now() + PL.passMs 
   const rd0 = tidyRead(bot)
   const pj = pillarPassJobs(list, rd0, { pos: bot.entity?.position ?? null, aside: k => pillarAsideNow(mem, k), cells: guard, zone, max: PL.passMax, part: slot.slot - 1, parts: PL.builders })
   row('survey', 'success', { src: list.surveyedAt, slot: slot.slot, pillars_done: `${pj.census.done}/${pj.census.pillars}`, proven: `${pj.census.proven_done}/${pj.census.proven}`, other: `${pj.census.other_done}/${pj.census.other}`, standing: pj.census.standing, take: pj.census.take, unread: pj.census.unread, aside: pj.census.aside, held: pj.census.why })
+  lapLeftNote('pl', pj.census)   // tidytail-01show (control): the tidy stays offered while this list has takeable work
   for (const h of pj.held) { const k = h.job.at.join(','); if (rowDueFor(`held|${k}`)) row('aside', 'no_effect', { at: k, why: h.why, block: h.job.name, placer: h.job.placer ?? '-', pillar: h.job.pillar }) }
   const take = new Map(pj.take.map(q => [q.at.join(','), q]))
   let effects = null, cleared = 0
@@ -31081,7 +31090,8 @@ async function buildTidyVisit (ctx, args, signal) {
     const r3 = await prepTick(bot, dir, key, rec, me, signal)
     if (r3?.ok && r3.head) { rh = r3; rec = rh.head.rec }
   }
-  if (!rec.structure_complete && tidyTailQuiet(rec)) return out('no_effect', 'tail_aside', `only set-aside cells remain (${Object.keys(rec.aside ?? {}).length}): not visited until the hold ends, a re-survey or a new release`)
+  if (!rec.structure_complete && tidyTailQuiet(rec, Date.now(), { laps: false })) return out('no_effect', 'tail_aside',   // the laps ran above: only the tail is quiet here
+    `only set-aside cells remain (${Object.keys(rec.aside ?? {}).length}): not visited until the hold ends, a re-survey or a new release`)
   if (rec.structure_complete) return out('no_effect', 'complete', lane === 'country' ? 'the countryside band is done; the next is due later' : 'the town ground is tidy')
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())

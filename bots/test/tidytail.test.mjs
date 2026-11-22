@@ -212,7 +212,7 @@ await t('Codex r2: the stall\'s 6 h stuck stamp holds nothing once its cells are
 const src = strip(readFileSync(SK, 'utf8'))
 const WIRES = [
   ['the tidy state is complete for offering', /const complete = !!rec\?\.structure_complete \|\| \(p\.plot === TIDY_PLOT && tidyTailQuiet\(rec, now\)\)/],
-  ['the visit stops with tail_aside', /if \(!rec\.structure_complete && tidyTailQuiet\(rec\)\) return out\('no_effect', 'tail_aside'/],
+  ['the visit stops with tail_aside, after its laps (the tail alone)', /if \(!rec\.structure_complete && tidyTailQuiet\(rec, Date\.now\(\), \{ laps: false \}\)\) return out\('no_effect', 'tail_aside'/],
   ['the proofs are read again before the scan', /asideHeld = tailReread\(\{ rec, read, code: tailCodeNow\(\)/],
   ['the aside cells are passed by the visit', /asideHeld\.has\(q\.at\.join\(','\)\)/],
   ['the keeper room-fallback read', /return !!r && \(\(!r\.structure_complete && !tidyTailQuiet\(r\)\) \|\| tidyDue\(r\)/],

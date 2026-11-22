@@ -289,7 +289,7 @@ const REQUIRED = [
   'bots/src/stepwell.mjs',
   'bots/src/stepwellvisit.mjs',
   'bots/src/tidytail.mjs',
-  'bots/test/tidytail.test.mjs',
+  'bots/test/tidytail.test.mjs', 'bots/test/tidytail-laps.test.mjs',
   'bots/scripts/stepwell-offline.mjs',
   'bots/scripts/stepwell-landmap.mjs',
   'bots/test/stepwell.test.mjs',
