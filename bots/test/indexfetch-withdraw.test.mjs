@@ -122,7 +122,8 @@ await t('NO HOLDER: every listed container is empty -> the refusal says the town
   const r = await withdraw(w)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'container_short')
   assert.match(r.detail, /the town is short of dirt and its index lists no other holder/)
-  assert.match(r.detail, /gather it, or craft it \(craft <count> dirt\)/)
+  assert.match(r.detail, /gather it \(gather dirt\)/)
+  assert.ok(!/craft/.test(r.detail), 'dirt has no recipe here: no craft remedy is named that cannot be performed')
   assert.match(r.detail, /stale index entries were corrected/)
   assert.ok(!(r.detail.includes('no ') && r.detail.includes('within')), 'state.mjs reads that pair as nothing_found')
   // the next bot is not sent to a corrected chest: nothing listed at the ones opened
@@ -131,10 +132,28 @@ await t('NO HOLDER: every listed container is empty -> the refusal says the town
   assert.ok(opened.size === 4 && listed.every(k => !opened.has(k)), `opened ${[...opened]} still listed ${listed}`)
 })
 
-await t('a tool: the refusal says craft one; the remedy is pure and names skills that exist', () => {
-  assert.match(F.shortRemedy('iron_pickaxe'), /craft one \(craft 1 iron_pickaxe\)/)
-  assert.match(F.shortRemedy('wheat_seeds', { fixed: 1 }), /1 stale index entry was corrected/)
+await t('the remedy names only what the bot can perform: gather (a block), craft (a recipe), both, or the shortage itself', () => {
+  assert.match(F.shortRemedy('iron_pickaxe', { craftable: true }), /craft one \(craft 1 iron_pickaxe\)$/)
+  assert.match(F.shortRemedy('stick', { gatherable: false, craftable: true }), /craft it \(craft <count> stick\)$/)
+  assert.match(F.shortRemedy('coal', { gatherable: true, craftable: true }), /gather it \(gather coal\), or craft it/)
+  const none = F.shortRemedy('wheat_seeds', { fixed: 1 })
+  assert.match(none, /1 stale index entry was corrected/); assert.match(none, /only a drop.*the shortage stands/)
+  assert.ok(!/gather it|craft/.test(none), none)
   for (const sk of ['gather', 'craft']) assert.ok(SKILLS[sk], sk)
+})
+await t('A DROP (wheat_seeds: no block, no recipe): the verb\'s refusal is the shortage, not a command that cannot run', async () => {
+  const w = seenTown()
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'wheat_seeds', count: 8 }, sig())
+  assert.equal(r.failClass, 'container_short')
+  assert.match(r.detail, /the town is short of wheat_seeds and its index lists no other holder -- it is only a drop/)
+  assert.ok(!/gather wheat_seeds|craft <count> wheat_seeds/.test(r.detail), r.detail)
+})
+await t('A TOOL with a recipe: the refusal says craft one', async () => {
+  const w = seenTown(); w.bot.recipesAll = () => [{ result: {} }]
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'iron_pickaxe', count: 1 }, sig())
+  assert.equal(r.failClass, 'container_short')
+  assert.match(r.detail, /craft one \(craft 1 iron_pickaxe\)/)
+  assert.match(r.detail, /\(a usable copy\)/)
 })
 
 await t('INDEXFETCH=off / an unreadable index: no holder is named, the nearest-chest sweep is as it was', async () => {
@@ -169,7 +188,7 @@ await t('MUTANT KILLED: the refusal without its remedy -> the no-holder case fai
   assert.ok(await killedBy(async () => {
     const w = seenTown()
     for (const c of CHESTS) w.stock(...c, [])
-    const r = await withMutant(SKILLS_PATH, ' -- ${shortRemedy(item, { fixed })}`', '`', m => withdraw(w, m))
+    const r = await withMutant(SKILLS_PATH, ' -- ${shortRemedy(item, { fixed, ...itemRoutes(bot, item) })}`', '`', m => withdraw(w, m))
     assert.match(r.detail, /the town is short of dirt/)
   }))
 })
@@ -179,6 +198,14 @@ await t('MUTANT KILLED: an index-led visit uses up the sweep\'s three -> the fou
     for (const c of NEAR) w.stock(...c, [])
     const r = await withMutant(SKILLS_PATH, 'if (!led) n++', 'n++', m => withdraw(w, m))
     assert.equal(r.status, 'success', r.detail)
+  }))
+})
+
+await t('MUTANT KILLED: every item reads as gatherable -> the drop\'s refusal promises a gather that cannot run', async () => {
+  assert.ok(await killedBy(async () => {
+    const w = seenTown()
+    const r = await withMutant(SKILLS_PATH, 'try { gatherable = !!resolveBlockName(bot, item).name } catch { gatherable = false }', 'gatherable = true', m => m.SKILLS.withdraw.run({ bot: w.bot }, { item: 'wheat_seeds', count: 8 }, sig()))
+    assert.ok(!/gather wheat_seeds/.test(r.detail), r.detail)
   }))
 })
 
