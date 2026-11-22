@@ -129,3 +129,13 @@ Difficulty: peaceful at first, with easy-difficulty scenarios before survival is
 2. **New repo** (recommended) or a folder in this one?
 3. **Mac Studio**: is it available, which chip, and may it host models (a new host under consolidation)?
 4. The **30-minute-per-week upkeep budget**, with capability work freezing when it is exceeded: agreed?
+
+## Owner goals for the new platform (OWNER 11-22, later)
+
+- **Hardware is open:** the Dell/Proxmox 3090 host (pve1) and the 5080 host (pve4) may be used for anything needed to build, test, train and study.
+  (This supersedes the 11-01 narrow exception on the 5080 for the new project. Ethan's VM on the 3090 stays unless the owner says otherwise.)
+- **The end product is open source:** a "showcase" that runs on **one VM and one GPU**. Development may use more.
+- **Low maintenance:** no "is anything stalled" checks every few hours, no rebase conflicts, no blocking problems.
+- **Timelapses from day 1:** a top-down view of the whole world, isometric views of each project the bots work on, and an isometric view of the town. Well made, showing progress.
+- **GitHub explains the process**, with diagrams showing progress over time.
+- **The owner can join the world and walk around.**
