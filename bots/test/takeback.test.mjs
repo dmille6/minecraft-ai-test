@@ -541,6 +541,9 @@ await t('MUTANTS (anchored): the path rule cut -> Frost\'s block ripe mid-walk; 
 await t('WIRING: ripeNow passes the walk (pf.goal and the path from path_update)', () => {
   const src = readFileSync(SRC, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
   assert.ok(src.includes('const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow())))'))
+  // Codex r1 BLOCKER: the take-back's own halt nulls pf.goal; the walk is ON while its goto call owns the body, and a new walk starts empty
+  assert.ok(src.includes('const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null } }'))
+  assert.ok(/st\.owner = call[^\n]*\n\s*st\.path = \[\]/.test(src), 'a new walk resets the path')
   assert.ok(src.includes("bot.on?.('path_update', r => {"))
 })
 

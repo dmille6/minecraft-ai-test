@@ -402,7 +402,8 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     return false
   }
   // takebackpath-01show: the active walk's path, kept from the library's own path_update (a halted walk keeps it: it resumes to the same goal)
-  const walkNow = () => { const g = !!pf.goal; return { walking: g, nodes: g ? st.path : null } }
+  // Codex r1 BLOCKER: the take-back's own halt nulls pf.goal, and the walk resumes after it -- so the walk is ON while its call is the owner
+  const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null } }
   const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow())))
   const held = () => { try { return bodyHeld(bot.__digContext?.()) } catch { return false } }
   const wet = c => [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]].some(d => holdsLiquid(blockAt([c[0] + d[0], c[1] + d[1], c[2] + d[2]])))
@@ -598,6 +599,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     // review r1: a goto still deferred (its pre-walk pass) is ended by a newer one, exactly as the library's setGoal ends a walk
     try { if (st.owner && st.owner !== call && st.owner.deferring) st.owner.giveUp('GoalChanged') } catch { /* never breaks a goto */ }
     st.owner = call                                                 // the newest goto is the one walk that is watched
+    st.path = []   // takebackpath-01show: a new walk starts with no path (the last walk's is never read for this one)
     const p = run(this, call, goal, rest)
     p.__takeback = call                                             // withTimeout fences it (rule 1)
     return p
