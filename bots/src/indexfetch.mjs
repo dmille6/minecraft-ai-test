@@ -296,3 +296,32 @@ export const indexWantDetail = ({ plot = '-', items = {}, targets = 0, near = '-
   `op=want plot=${plot ?? '-'} need=${Object.entries(items ?? {}).map(([n, c]) => `${n}:${c}`).join(',').slice(0, 80) || '-'} targets=${targets} first=${near}`
 /** The `_indexfetch_mode` licence row (once per spawn). */
 export const indexFetchModeDetail = (f = FETCH) => `phase=mode index_fetch=${f.on ? 'on' : 'off'} trip_s=${f.tripMs / 1000} walk_s=${f.walkMs / 1000} retries=${f.retries} backoff_min=${f.backoffMs / 60_000} max_age_h=${FETCH_MAX_AGE_MS / 3600000}`
+
+// INDEXFETCH-01SHOW r2: THE WITHDRAW VERB USES THE INDEX AS A LIST OF HOLDERS, AND CORRECTS IT WHEN ONE IS WRONG.
+//
+// THE CASE (showcase ES 11-22 00:40-03:40Z): `withdraw` failed 77 of 106 -- "dirt / wheat_seeds / iron_pickaxe is not in the N
+// container(s) tried here". The verb looks in WITHDRAW_CONTAINERS (3) containers: the item's sorted homes, then the nearest. The
+// index knew another holder; the verb never went there, and a home it opened that was empty stayed listed for the next bot.
+//   HOLDER  before the nearest-chest sweep, and again after every miss, the verb goes to the next container the readable index lists
+//           with the item (nextHolder: fresh, in town, not shut, not in a zone, not yet tried), nearest first. Index-led visits do not
+//           use up the sweep's three, but are capped themselves (WITHDRAW_INDEX_HOLDERS). No index, no holder: today's sweep exactly.
+//   MISS    an open that shows less of the item than the index listed is a miss: the open's own observation corrects the entry (the
+//           index is one shared file: every bot's next read sees it); with none written, a dirty mark (no reader trusts the entry).
+//   REFUSAL no holder has it: the refusal says it is a shortage and names what the bot can do about it (shortRemedy).
+/** The next container the index lists with `item` -> { k, halves, names, d } | null. Pure. */
+export function nextHolder (entries, item, opts = {}) {
+  return fetchTargets(entries, { [item]: 1 }, opts)[0] ?? null
+}
+/** What the verb's refusal tells the bot to do when no listed container holds `item`. Pure. A tool is crafted (or its ore mined),
+ *  anything else is gathered or crafted -- both are skills the bot can run from where it stands. */
+export function shortRemedy (item, { fixed = 0 } = {}) {
+  const fix = fixed > 0 ? `; ${fixed} stale index entr${fixed === 1 ? 'y was' : 'ies were'} corrected` : ''
+  const how = /_(pickaxe|axe|shovel|hoe|sword)$/.test(item)
+    ? `craft one (craft 1 ${item}) or gather its materials`
+    : `gather it, or craft it (craft <count> ${item}), yourself`
+  return `the town is short of ${item} and its index lists no other holder${fix} -- ${how}`
+}
+/** The `_index_fetch op=miss` row: one container the verb opened for `item` that the index listed. Pure. */
+export function indexMissDetail ({ item = '-', k = '-', idx = 0, saw = 0, fix = '-' } = {}) {
+  return `op=miss item=${item} k=${k} idx=${Number(idx) || 0} saw=${Number(saw) || 0} fix=${fix}`
+}
