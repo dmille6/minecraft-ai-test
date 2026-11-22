@@ -36,7 +36,7 @@ async function withMutant (old, neu, fn, path = SRC) {
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const until = async (fn, ms = 1500) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting'); await sleep(3) } }
 // the test clock's constants: the same rules, ticks a test can wait for
-const T = Object.freeze({ ...TB.TAKEBACK, tickMs: 4, unusedMs: 60, budgetMs: 400, reuseMs: 400, ttlMs: 5_000 })
+const T = Object.freeze({ ...TB.TAKEBACK, tickMs: 4, unusedMs: 60, freshMs: 0, budgetMs: 400, reuseMs: 400, ttlMs: 5_000 })   // takebackpath-01show: freshMs 0 here (these timings are the walk-halt chain's own); the rule is tested pure with TAKEBACK
 const REC = (cell, o = {}) => ({ cell, block: 'dirt', reason: 'pathfinder', shape: 'step', zone: 'town', profile: 'walk', ...o })
 
 console.log('THE PURE RULES')
@@ -507,6 +507,41 @@ await t('the instrument hands on only placements that LANDED, in any zone (place
   assert.strictEqual(got.length, 1, 'the failed one is not handed on')
   assert.deepStrictEqual(got[0].cell, [501, 64, 500]); assert.strictEqual(got[0].zone, null, 'far outside the town: still handed on')
   assert.strictEqual(TB.receiptFor(got[0]), true)
+})
+
+// TAKEBACKPATH-01SHOW (showcase-Frost 11-21 23:34:05Z: `_takeback outcome=dug why=ripe pos=85,-1,-38 block=dirt shape=pillar age_ms=1605`,
+// then 23:34:09 a 37-block fall from 85.3,0,-37.9 with the path still active: the walk went back over the column it had just lost)
+const FROST = { cell: [85, -1, -38], t: 1000, used: true, closed: false }
+const HERE = { pos: { x: 83.5, y: 1, z: -36.4 }, feet: true, onGround: true, inWater: false }   // off the column, in reach (Frost at the dig)
+const PATH = [{ x: 82.5, y: 2, z: -35.5 }, { x: 83.5, y: 1, z: -36.5 }, { x: 84.5, y: 0, z: -37.5 }, { x: 85.5, y: 0, z: -37.5 }, { x: 86.5, y: 0, z: -38.5 }, { x: 88.5, y: 0, z: -38.5 }]
+await t('pathNeeds: Frost\'s path goes on over the dug column (85.5,0,-37.5 stands on 85,-1,-38) -> needed; a path that never comes near -> not', () => {
+  assert.strictEqual(TB.pathNeeds(FROST.cell, PATH, HERE.pos), true)
+  assert.strictEqual(TB.pathNeeds(FROST.cell, [{ x: 70.5, y: 0, z: -20.5 }, { x: 60.5, y: 0, z: -10.5 }], HERE.pos), false)
+  // nodes BEHIND the bot never hold the cell: the walk already left it
+  assert.strictEqual(TB.pathNeeds(FROST.cell, [{ x: 85.5, y: 0, z: -37.5 }, { x: 83.5, y: 1, z: -36.5 }, { x: 80.5, y: 2, z: -33.5 }], HERE.pos), false)
+  assert.strictEqual(TB.pathNeeds(FROST.cell, [], HERE.pos), false); assert.strictEqual(TB.pathNeeds(FROST.cell, null, HERE.pos), false)
+})
+await t('ripe: Frost\'s receipt is NOT ripe mid-walk (its path ahead stands on it); fresh (< freshMs) not ripe mid-walk; POSITIVE CONTROLS: the walk over, or a path away, ripe as before', () => {
+  const now = FROST.t + 1605
+  assert.strictEqual(TB.ripe(FROST, HERE, now, TB.TAKEBACK, { walking: true, nodes: PATH }), false, 'the path ahead needs it')
+  const away = [{ x: 83.5, y: 1, z: -36.5 }, { x: 80.5, y: 2, z: -30.5 }, { x: 75.5, y: 2, z: -25.5 }]
+  assert.strictEqual(TB.ripe(FROST, HERE, now, TB.TAKEBACK, { walking: true, nodes: away }), false, 'placed 1.6 s ago: fresh, mid-walk')
+  assert.strictEqual(TB.ripe(FROST, HERE, FROST.t + 6000, TB.TAKEBACK, { walking: true, nodes: away }), true, 'a path away, not fresh: ripe')
+  assert.strictEqual(TB.ripe(FROST, HERE, now, TB.TAKEBACK, { walking: false, nodes: null }), true, 'no walk (the walk is over): ripe as before')
+})
+await t('MUTANTS (anchored): the path rule cut -> Frost\'s block ripe mid-walk; the fresh rule cut -> a 1.6 s-old block ripe mid-walk', async () => {
+  await withMutant("  if (walking && pathNeeds(r.cell, nodes, here.pos, T.pathAhead)) return false\n", '', async M => {
+    assert.strictEqual(M.ripe(FROST, HERE, FROST.t + 6000, M.TAKEBACK, { walking: true, nodes: PATH }), true, 'the mutant digs under the walk')
+  })
+  await withMutant("  if (walking && now - r.t < T.freshMs) return false\n", '', async M => {
+    const away = [{ x: 83.5, y: 1, z: -36.5 }, { x: 75.5, y: 2, z: -25.5 }]
+    assert.strictEqual(M.ripe(FROST, HERE, FROST.t + 1605, M.TAKEBACK, { walking: true, nodes: away }), true, 'the mutant takes it at 1.6 s')
+  })
+})
+await t('WIRING: ripeNow passes the walk (pf.goal and the path from path_update)', () => {
+  const src = readFileSync(SRC, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
+  assert.ok(src.includes('const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow())))'))
+  assert.ok(src.includes("bot.on?.('path_update', r => {"))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
