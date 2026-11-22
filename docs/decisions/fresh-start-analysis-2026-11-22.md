@@ -141,3 +141,5 @@ Difficulty: peaceful at first, with easy-difficulty scenarios before survival is
 - **The owner can join the world and walk around.**
 - **Owner answers 11-22:** Ethan's VM is left alone · license **Apache-2.0** · the repo stays **private** for a while ·
   world access is **LAN only** (the owner uses their own VPN; no port forwarding).
+- **Owner 11-22 (latest): build big, ship small.** Use as many VMs as help to train, build, test and analyse, and use ELK where it helps the
+  analysis; resource use during development does not matter. **The released product must run on a single system and be run by a novice user.**
