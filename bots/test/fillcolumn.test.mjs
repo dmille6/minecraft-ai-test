@@ -824,7 +824,7 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
     "try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }",
     'return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)',
     '...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {})',
-    "|| farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))",
+    "|| farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || asideHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))",   // tidytail-01show: the set-aside fills passed too
     'try { floatHeld = fillFloatHold(rec, read, { done: q => buildCellDone(read(...q.at), palette, q.role), guard }) } catch { floatHeld = new Set() }',
     'const floorDone = q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)',
     'const waive = waive0p.length ? [...waive0p, ...waiveRests(rec, waive0p, read2, { done: q => buildCellDone(read2(...q.at), palette, q.role), guard })] : waive0p',
