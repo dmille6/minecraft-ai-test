@@ -29309,7 +29309,9 @@ const tailCodeNow = () => config.code?.version ?? null
  *  tidy that is not offered would stop them: what each lap's last survey left takeable (standing, not set aside) -> owed. Unknown
  *  (no survey yet this process) is owed. Module state (one bot a process). */
 const LAP_LEFT = { fc: null, pl: null }
-function lapLeftNote (which, census) { try { LAP_LEFT[which] = Math.max(0, (Number(census?.standing) || 0) - (Number(census?.aside) || 0)) + (Number(census?.unread) || 0) } catch { /* unknown stays owed */ } }
+// Codex r4: what the lap could TAKE now (census.take: grounded, closed, protected and set-aside cells never enter it) plus the cells it
+// could not read (unloaded: it must go and look) -- pillars count them as census.unread, floatclean as census.why.unread
+function lapLeftNote (which, census) { try { LAP_LEFT[which] = Math.max(0, Number(census?.take) || 0) + Math.max(0, Number(census?.unread ?? census?.why?.unread) || 0) } catch { /* unknown stays owed */ } }
 const lapsOwed = () => (FC_ON && LAP_LEFT.fc !== 0) || (PL_ON && LAP_LEFT.pl !== 0)
 const tidyTailQuiet = (rec, now = Date.now(), { laps = true } = {}) => { try { return TAIL_ON && tailQuiet(rec, { code: tailCodeNow(), now }) && !(laps && lapsOwed()) } catch { return false } }
 export const _lapLeftForTest = { note: lapLeftNote, owed: () => lapsOwed(), quiet: (rec, now, o) => tidyTailQuiet(rec, now, o), code: () => tailCodeNow(), reset: () => { LAP_LEFT.fc = null; LAP_LEFT.pl = null } }
