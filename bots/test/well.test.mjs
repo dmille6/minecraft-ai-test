@@ -3516,5 +3516,63 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
   })
 }
 
+// ---- wellbucket-01show: THE TRIP IS ADMITTED ONLY ON WHAT THE THROW WOULD THROW ---------------------------------------------
+// showcase 11-22: 32 of 65 dispose_well runs ended "nothing went down the town well: done" after the walk. disposePlan lists cobble
+// over the reserve when the YARD is full (setYardFull) with no cap proven; the click only takes cobble at the proven cap.
+const yardFullCobble = fn => { W.setYardFull(n => n === 'cobblestone'); return fn().finally(() => W.setYardFull(null)) }
+const walked = town => town.state.events.some(e => /^goto:/.test(e)) || town.state.goals.length > 0
+await t('WELLBUCKET (a): yard full, 128 cobble, no cap proven: the plan lists a stack the throw would never click, so the skill refuses BEFORE walking and names the remedy', () => yardFullCobble(async () => {
+  const bag = [S('cobblestone', 64), S('cobblestone', 64), S('oak_log', 3)]
+  assert.equal(W.disposePlan(bag.map((x, i) => ({ ...x, slot: 9 + i }))).stacks.length, 1, 'positive control: disposePlan DOES list the cobble stack (the old admission walked on it)')
+  const town = fakeTown({ wellAt: CAP, items: bag, botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'no_effect', r.detail); assert.match(r.detail, /bank it|nothing to do/)
+  assert.equal(town.state.clicks.length, 0); assert.ok(!walked(town), 'no walk to the well: ' + town.state.events.join(' '))
+  assert.equal(town.count('cobblestone'), 128)
+}))
+await t('WELLBUCKET (a): a bag of only the reserve (64 cobble) goes nowhere either', () => yardFullCobble(async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('oak_log', 3)], botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'no_effect', r.detail); assert.ok(!walked(town)); assert.equal(town.state.clicks.length, 0)
+}))
+await t('WELLBUCKET (a): the visit order (listed junk only) never carries cobble either; positive control: listed junk walks and throws', () => yardFullCobble(async () => {
+  const dry = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 64)], botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+  const r0 = await within(SKILLS.dispose_well.run({ bot: dry.bot }, { visit: true }, { aborted: false }), 15000, 'visit')
+  assert.equal(r0.status, 'no_effect', r0.detail); assert.ok(!walked(dry))
+  const wet = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 64), S('egg', 16)], botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+  const r1 = await within(SKILLS.dispose_well.run({ bot: wet.bot }, { visit: true }, { aborted: false }), 15000, 'visit')
+  assert.equal(r1.status, 'success', r1.detail); assert.equal(wet.count('egg'), 0); assert.equal(wet.count('cobblestone'), 128)
+}))
+await t('WELLBUCKET (a): positive control: a bag with listed junk walks and throws it', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('oak_log', 3)], botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.ok(walked(town), 'it walked'); assert.equal(town.count('egg'), 0)
+})
+await t('WELLBUCKET (a): throwableStacks is the click\'s own rule, pure', () => {
+  const st = [{ slot: 9, name: 'egg', count: 16 }, { slot: 10, name: 'cobblestone', count: 64 }, { slot: 11, name: 'stone_sword', count: 1 }, { slot: 12, name: 'dirt', count: 64, stock: 'dirt' }]
+  assert.deepEqual(W.throwableStacks(st).map(x => x.name), ['egg'])
+  assert.deepEqual(W.throwableStacks(st, { cobbleAllowed: true }).map(x => x.name), ['egg', 'cobblestone'])
+  assert.deepEqual(W.throwableStacks(st, { stockAllowed: true }).map(x => x.name), ['egg', 'dirt'])
+  assert.deepEqual(W.throwableStacks(st, { swordsAllowed: true, cobbleAllowed: true, stockAllowed: true }).map(x => x.name), ['egg', 'cobblestone', 'stone_sword', 'dirt'])
+  assert.deepEqual(W.throwableStacks(null), [])
+})
+await t('MUTANT (skills, wellbucket a): the entry admits on the plan as before: the bot walks to the well and the throw phase then refuses', async () => {
+  await yardFullCobble(() => withMutant(SP, "entryPlan = { ...pl, stacks: throwableStacks(pl.stacks, { cobbleAllowed: eCap, swordsAllowed: eSwords, stockAllowed: !!eStock || !!pruned }) }", 'entryPlan = pl', async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 64)], botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(walked(town), 'mutant inert: the old admission walks')
+  }))
+})
+await t('MUTANT (skills, wellbucket a): the OLD admission whole (entry and throw phase both on the raw plan): the well is walked to and "nothing went down the town well" is the answer', async () => {
+  await yardFullCobble(() => withMutants(SP, [
+    ["entryPlan = { ...pl, stacks: throwableStacks(pl.stacks, { cobbleAllowed: eCap, swordsAllowed: eSwords, stockAllowed: !!eStock || !!pruned }) }", 'entryPlan = pl'],
+    ["if (!pit && !roomPlanOf) plan.stacks = throwableStacks(plan.stacks, { cobbleAllowed: out.cap === 'at_cap', swordsAllowed: out.swordsAllowed, stockAllowed: !!out.stock || !!pruned })", ';']], async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 64)], botAt: new Vec3(HOME.x + 0.5 + 12, HOME.y, HOME.z + 0.5) })
+    const r = await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(walked(town), 'mutant inert: it walked')
+    assert.ok(/well_toss_failed/.test(r.failClass ?? '') || /nothing went down/.test(r.detail ?? ''), 'mutant inert: ' + JSON.stringify(r))
+  }))
+})
+
 console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)
 process.exit(fail ? 1 : 0)

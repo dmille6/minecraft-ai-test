@@ -302,6 +302,23 @@ export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swo
            stacks: junk.slice(0, Math.max(0, maxStacks)).map(it => ({ slot: it.slot, name: it.name, count: it.count, ...(stockSlots.has(it.slot) ? { stock: groupOf(it.name) } : {}) })) }
 }
 
+/**
+ * WHAT THE THROW WOULD ACTUALLY THROW (wellbucket-01show). disposePlan lists cobble when the YARD is full (yardFull) with no
+ * cap proven, but the throw's click judgement (skills.mjs throwStacks) takes a cobble stack only while the town's cap is
+ * proven (`cobbleAllowed`), a sword only while the sword switch is on and a stock-surplus stack only with stock options or a
+ * prune. A visit that walked to the well on such a plan threw nothing ("nothing went down the town well: done", 32 of 65
+ * runs, showcase 11-22). The trip is admitted on THESE stacks: the plan's, minus every one the click would pass over. Pure.
+ */
+export function throwableStacks (stacks = [], { cobbleAllowed = false, swordsAllowed = false, stockAllowed = false } = {}) {
+  return (Array.isArray(stacks) ? stacks : []).filter(st => {
+    if (!st) return false
+    if (st.stock) return !!stockAllowed
+    if (isWellJunk(st.name)) return true
+    if (isWellCobble(st.name)) return !!cobbleAllowed
+    return !!swordsAllowed && swordGoes(st.name, true)
+  })
+}
+
 // ---- the blocks ------------------------------------------------------------------------------------------------------
 
 /** Wooden trapdoors only: a hand opens them, mobs cannot. (Iron needs redstone; copper is left out.) */

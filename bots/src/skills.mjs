@@ -76,7 +76,7 @@ import { setDepositColumns, columnBankable, logHalfSteps, IRON_LADDER, LOGS, tow
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, ADMISSION_RADIUS, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
-         trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
+         trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE, throwableStacks,
          disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, cobbleWellStacks, isWellCobble, COBBLE_WELL_RESERVE,
          aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit,
          stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
@@ -10341,6 +10341,8 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       const bagNow = bot.inventory?.items?.() ?? []
       const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
       // buildfirst-01show: a room trip throws its own plan (read from the bag AS THE SERVER HOLDS IT); the cap re-read at each click stands
+      // wellbucket-01show: the same filter as the entry's -- no cap opened for a plan the click would pass over (pit: the build's own rules)
+      if (!pit && !roomPlanOf) plan.stacks = throwableStacks(plan.stacks, { cobbleAllowed: out.cap === 'at_cap', swordsAllowed: out.swordsAllowed, stockAllowed: !!out.stock || !!pruned })
       if (roomPlanOf && !pit) { const rp = roomPlanOf(bagNow); plan.stacks = rp.stacks; plan.stone = null; plan.junkStacks = rp.junkStacks }
       if (out.cap === 'at_cap' && !yardDeferredNow(bot) && wellKeptForYard(bagNow, cobbleReserve)) { bot.yardDeferAt = Date.now(); out.yardKept = cobbleReserve }
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
@@ -10576,8 +10578,19 @@ async function disposeWellRun (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   // buildfirst-01show: the room trip's own plan (the cobble family above the yard's keep, only what the room needs)
   const roomPlanOf = _args?.roomPlan && BUILDFIRST.on && !visit && !clerk && !pruned ? bag => { const w = roomWellPlanNow(bot, { freeSlots: 36 - bag.length, need: Number(_args.roomPlan.need) || BUILD_ROOM_SLOTS, plot: _args.roomPlan.plot ?? null }); return { stacks: w.stacks, stone: null, slots: bag.length, junkStacks: w.slots } } : null
-  const entryPlan = roomPlanOf ? roomPlanOf(items()) : visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
-  if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  // wellbucket-01show: the trip is admitted only on what the THROW would throw (well.mjs throwableStacks: the click's own rules --
+  // cobble only at the proven cap, swords only on the switch, stock only with options or a prune); a listed-only visit throws
+  // none of the three. The walk below is never made for a plan the click would pass over.
+  let entryPlan
+  if (roomPlanOf) entryPlan = roomPlanOf(items())
+  else if (visit) { const pl = disposePlan(items(), { keep: keepOf(items()) }); entryPlan = { ...pl, stacks: throwableStacks(pl.stacks) } }
+  else {
+    const eSwords = wellSwordsNow(bot), eCap = cobbleWellCap(bot) === 'at_cap', eStock = pruneStockOpts(bot, pruned)
+    const pl = disposePlan(items(), { swords: eSwords, cobbleAtCap: eCap, stock: eStock, cobbleReserve: wellCobbleReserveNow(bot), keep })
+    entryPlan = { ...pl, stacks: throwableStacks(pl.stacks, { cobbleAllowed: eCap, swordsAllowed: eSwords, stockAllowed: !!eStock || !!pruned }) }
+  }
+  // (an OPEN well is the visitor's duty: it is walked to and closed -- a real effect, `closed_only` -- so only a closed well is refused here)
+  if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing the well would throw in the bag at ${slotsBefore} of 36 slots (cobble under the reserve or short of the cap, and the yard's holds, stay in the bag): bank it at the town deposit, or there is nothing to do`)
   // wellfix-01show: this bot's turn (the lease, its place in line, nobody within 5) -- waited for here, bounded
   { const t = await wellTurnWait(bot, cap, signal, clerk ? { waitMs: 0 } : undefined); if (t.refused) return skip(t.refused, t.detail) }
   const was = handOf(bot.heldItem)
