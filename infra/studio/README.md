@@ -8,3 +8,7 @@
 - `overnight.sh` waits for the downloads, then runs `judge.py` with Qwen3.5-122B-A10B (thinking off) and then gpt-oss-120b (reasoning low), one at a time,
   writing `labels-<judge>.jsonl`. It can be resumed. Logs are in `~/mcai/logs/`.
 - Labels: acceptable skills, decision ok / args ok (yes, no, unclear), and a short reason. **Only labels both judges agree on count**; a sample is checked by hand.
+- **Second set, `replay-5000.jsonl` (11-22):** 5,000 more decisions from 10-08 onward (Oct 2,409 / Nov 2,591). At most one per bot per minute, at most 40 per
+  session, stratified by skill × outcome × trigger, tagged with code version. Pools: **`final_test` 3,003 (sealed: never used for training or prompt tuning)**
+  and **`train` 1,997**. Sessions are disjoint across these pools and from `replay-1000`. Built with `export_replay2.py`; also on the NAS.
+  `overnight2.sh` labels it with both judges after `overnight.sh` finishes (`labels5k-*.jsonl`).
