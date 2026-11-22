@@ -233,7 +233,7 @@ import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_M
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
-import { tailOn, tailAsideFor, tailReread, tailOnly, tailNext, tailQuiet, yardRowOutcome } from './tidytail.mjs'   // tidytail-01show: the tail set aside
+import { tailOn, tailAsideFor, tailRests, tailReread, tailOnly, tailNext, tailQuiet, yardRowOutcome } from './tidytail.mjs'   // tidytail-01show: the tail set aside
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -31462,7 +31462,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // such visits is waived by the keeper's visit (caps.waive) that still reads it open, and the progress is read again
     if (GKW_ON && GROUNDS.on && (r.stop === 'complete' || caps.waive)) {
       try {
-        const left = tidyLeftKeys(rw, read2, progOpts)
+        const left = tidyLeftKeys(rw, read2, progOpts).filter(k => !asideHeld.has(k) && !Object.prototype.hasOwnProperty.call(rw.aside ?? {}, k))   // tidytail-01show (Codex r1): a set-aside cell is owed, never counted toward the unreachable waiver
         const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
         openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
         const due = caps.waive ? leftWaiveDue(rw, town, left) : []
@@ -31511,7 +31511,7 @@ async function buildTidyVisit (ctx, args, signal) {
         const re = tailReread({ rec: rw, read: read2, done: doneQ, code: tCode, now: tNow })
         const stalledNow = r.stop === 'stuck_on_cell' && /STALLED/.test(String(r.why ?? '')) && !waivedN
         const adds = stalledNow ? tailAsideFor({ rec: rw, deferred: r.deferred ?? [], stalled: true, live: re.live, read: read2, done: doneQ }) : []
-        const rests = adds.length ? waiveRests(rw, adds, read2, { done: doneQ, guard }).map(d => ({ k: d.k, why: `rests_on:${String(d.why).split(' ').pop()}` })) : []
+        const rests = tailRests({ rec: rw, adds, read: read2, done: doneQ, guard })
         const inSet = new Set([...re.live, ...adds.map(d => d.k), ...rests.map(d => d.k)])
         const only = tailOnly({ open: tidyLeftKeys(rw, read2, progOpts), aside: inSet, cutLeft: prog.cutLeft, unread })
         const upd = tailNext(rw, { drops: re.drop, adds: [...adds, ...rests], only, code: tCode, now: tNow, by: me })
