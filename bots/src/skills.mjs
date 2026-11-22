@@ -233,7 +233,7 @@ import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_M
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
-import { tailOn, tailAsideFor, tailRests, tailReread, tailOnly, tailNext, tailQuiet, yardRowOutcome } from './tidytail.mjs'   // tidytail-01show: the tail set aside
+import { tailOn, tailAsideFor, tailRests, tailReread, tailOnly, tailNext, tailQuiet, yardRowOutcome, tidyStampStale } from './tidytail.mjs'   // tidytail-01show: the tail set aside
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -18990,7 +18990,8 @@ function projStuckLive (key, now = Date.now()) {
       // when every cell it names reads done, as a complete record's
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
-      if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
+      // tidytail-01show (Codex r2): a cell set aside in the record is as settled as a done one -- the stall's stamp never outlives the tail's hold
+      if (rec?.blueprint === TIDY_BLUEPRINT) return (TAIL_ON ? tidyStampStale(keys, rec, c => recordCellDone(b, rec, c)) : stuckStale(keys, rec, c => recordCellDone(b, rec, c))) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
       // sinkwaive-01: an OPEN stone sink's stamp whose cells all read done (waived since: the visit that waived them stamped the
       // stall first) holds nothing, as a complete record's
       if (isSinkBlueprint(rec?.blueprint) && SINK_WAIVE.on && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true

@@ -194,6 +194,21 @@ await mut('dependents capped by the repair budget', 'outMin: 1e9, outShare: 1', 
 await mut('banked is not work', 'const work = nb + (Number(placed) || 0) > 0', 'const work = (Number(placed) || 0) > 0', chain)
 
 // ---- wiring (structural: comments stripped, the executable line) -----------------------------------------------------------------
+await t('Codex r2: the stall\'s 6 h stuck stamp holds nothing once its cells are set aside (or laid) -- the project is offered again after the hold', async () => {
+  const tail = TAILS[0]
+  laid.clear()
+  const r = rec0(tail, { aside: { [k(tail)]: { why: 'no_stand', code: 'v-old', at: NOW - 4 * 3600_000 } } })
+  assert.strictEqual(T.tidyStampStale([k(tail)], r, done), true, 'set aside: the stamp holds nothing')
+  // POSITIVE CONTROLS: the same stamp with the cell neither set aside nor laid still holds; a stamp naming another, open cell holds
+  assert.strictEqual(T.tidyStampStale([k(tail)], rec0(tail), done), false, 'not set aside, not laid: holds')
+  const other = [tail[0] + 1, tail[1], tail[2]]
+  assert.strictEqual(T.tidyStampStale([k(tail), k(other)], rec0(tail, { extra: [{ at: other, role: 'earth', seg: 'S1' }], aside: { [k(tail)]: { why: 'no_stand' } } }), done), false, 'one cell still open: holds')
+  laid.add(k(tail)); assert.strictEqual(T.tidyStampStale([k(tail)], rec0(tail), done), true, 'laid: holds nothing (as before)')
+  await withMutant(TT, "  return stuckStale(keys, rec, c => done(c) === true || Object.prototype.hasOwnProperty.call(aside, c.at.join(',')))", '  return stuckStale(keys, rec, c => done(c) === true)', async M => {
+    laid.clear()
+    assert.strictEqual(M.tidyStampStale([k(tail)], r, done), false, 'the mutant keeps the stamp over a set-aside cell')
+  })
+})
 const src = strip(readFileSync(SK, 'utf8'))
 const WIRES = [
   ['the tidy state is complete for offering', /const complete = !!rec\?\.structure_complete \|\| \(p\.plot === TIDY_PLOT && tidyTailQuiet\(rec, now\)\)/],
@@ -208,6 +223,7 @@ const WIRES = [
   ['a set-aside cell is not counted toward the unreachable waiver', /filter\(k => !asideHeld\.has\(k\) && !Object\.prototype\.hasOwnProperty\.call\(rw\.aside \?\? \{\}, k\)\)/],
   ['the post-visit decision', /const upd = tailNext\(rw, \{ drops: re\.drop/],
   ['the yard row label', /return out\(ro\.status, 'yard_row'/],
+  ['the tidy stamp reads the set-aside (Codex r2)', /if \(rec\?\.blueprint === TIDY_BLUEPRINT\) return \(TAIL_ON \? tidyStampStale\(keys, rec, c => recordCellDone\(b, rec, c\)\)/],
 ]
 for (const [name, re] of WIRES) {
   await t(`wired: ${name} (and a one-character mutant of the line is not matched)`, () => {

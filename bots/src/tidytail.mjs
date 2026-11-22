@@ -22,6 +22,7 @@
 // TIDYTAIL=0|off|false|no: everything as before.
 import { gkwSig } from './gkwork.mjs'
 import { waiveRests, FILLCOLUMN } from './fillcolumn.mjs'
+import { stuckStale } from './shop.mjs'   // tidytail-01show (Codex r2): the stamp's own rule
 
 export const TAIL = Object.freeze({
   visits: 3,                    // = buildrun.mjs STUCK_VISITS: the town-wide count a cell must carry
@@ -121,4 +122,15 @@ export function yardRowOutcome ({ banked = {}, placed = 0 } = {}) {
   const nb = Object.values(banked ?? {}).reduce((t, v) => t + (Number(v) || 0), 0)
   const work = nb + (Number(placed) || 0) > 0
   return { status: work ? 'success' : 'no_effect', stop: work ? 'row' : 'row_none', banked: nb, placed: Number(placed) || 0 }
+}
+
+/**
+ * tidytail-01show (Codex r2 BLOCKER): THE STUCK STAMP AND THE SET-ASIDE. The stalled visit that set the tail aside also wrote the
+ * project's 6 h stuck stamp (buildrun settleStuck). Once the tail's hold ends -- its life, or a new release -- the project is
+ * offered again, and that stamp would hold it six more hours. A tidy stamp whose every cell is done OR set aside in the record
+ * holds nothing (stepwell-03show's rule for its own stamps). Pure: `done(cell)` the caller's read.
+ */
+export function tidyStampStale (keys = [], rec = null, done = () => false) {
+  const aside = rec?.aside ?? {}
+  return stuckStale(keys, rec, c => done(c) === true || Object.prototype.hasOwnProperty.call(aside, c.at.join(',')))
 }
