@@ -52,6 +52,36 @@ Skill learning starts with **compositions of existing skills**. Code generated i
 with a test sandbox, versioning, a critic check before a skill is stored, and retirement by success rate.
 Distillation into the small model uses **verified successful trajectories only**.
 
+## Owner values: a clean, beautiful world (OWNER 11-22)
+
+> "I want a clean beautiful world... the bots clean, manicure and terraform the world as they go... build what is
+> necessary to sustain and clean the world around them. THEN slowly build up and progress, keeping things organized."
+
+The mind's order of values: **sustain → clean what is around it → shape the land → grow, organised.** Tidiness is part of
+how every skill works, not a clean-up project run afterwards.
+
+1. **Leave no trace, enforced in every skill contract.** Each skill records its *footprint*: the blocks it placed or broke, each marked
+   **temporary** (scaffold, pillar, travel tunnel, bridge) or **permanent** (part of a plan). A skill does not report `success` until its
+   temporary changes are undone and the items it dropped are picked up. If it cannot finish the undo, it reports `left_mess`, with the location,
+   and the planner treats that as work it owes. This is code, not a lesson: one of the few hard rules.
+2. **A change ledger.** Every change a bot makes to the world is logged with its intent and its owner (the bot and the skill). Undo, audits and blame
+   all read from it. That way bots clean up their own mess first, and we can show where any block came from.
+3. **A land report as part of what the planner sees.** A region scan near home and along used routes counts pillars and 1×1 columns, floating blocks,
+   holes and scars, dropped items, stray blocks outside any plan, and bare or unlit ground. The planner reads it every cycle.
+4. **A target ground plan, then the difference.** Following the owner's 11-18 rule (*designed ground, not repair*), the planner keeps a target for the area:
+   terraces, gentle slopes, paths, water edges, planting, and districts for homes, farms, storage and industry. Terraforming work is the
+   difference between the target and the world, ordered so the cut and fill balance (dug dirt and stone go into fills or sorted storage).
+5. **Grow only when it is clean.** The planner starts a new project only when the base's sustenance is met **and** the land report near the base
+   is below a mess limit. Otherwise its next goal is cleaning. This is a value the planner holds and that gets measured, not a branch of the decision tree.
+6. **Sustainable by default.** Replant after cutting trees, refill pits that were quarried, keep farms replanted, put sorted chests in a warehouse,
+   and light the ground the bots use. Keep to the biome's own palette and to curves, not grids (the owner's landscape vision, 11-16).
+7. **Skills this adds:** pick up litter · take down a pillar or scaffold · fill a hole · grade or flatten an area · smooth a slope · lay a path ·
+   plant (grass, flowers, trees) · light an area · put items away in sorted chests · undo my footprint.
+8. **Measured from M1.** Every milestone's pass bar includes **no net mess**: the land report at the end is no worse than at the start,
+   outside planned builds. From M4 onward, the land report must improve over time. A daily region audit and the timelapse show it.
+
+A fresh world makes this a matter of **keeping** it clean, not restoring it. That is the main reason to start the new mind there.
+
 ## Navigation: Baritone's ideas on our pathfinder (OWNER 11-22: "option A")
 
 Problem (fleet, 69.6 h, 80 bots): about 60 `_path_noPath` per bot-hour, plus 25 `_path_no_legal_move`, 18 `_path_timeout`, 9 `_entombed` and 8
