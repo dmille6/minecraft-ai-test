@@ -1,5 +1,10 @@
 # Working rules for this repo
 
+> **⛔ PROJECT FROZEN 2026-11-22 (owner): read [`docs/reports/FROZEN-2026-11-22.md`](docs/reports/FROZEN-2026-11-22.md) FIRST.**
+> All bots, worlds, crons, timers and project VMs are stopped on purpose, with backups on the NAS. Do not repair, restart or
+> chase alarms. Restart a piece only on the owner's word. The next work is a fresh project:
+> [`docs/decisions/fresh-start-analysis-2026-11-22.md`](docs/decisions/fresh-start-analysis-2026-11-22.md).
+
 > **FUN MODE (OWNER DECISION 2026-10-28) — read [`docs/PROCESS-fun-mode.md`](docs/PROCESS-fun-mode.md) first.**
 > It sets the process: tiers by risk (`config/protected-paths.txt`), reviews, canary reads, the showcase,
 > the rollout ledger, stuck goals. This file holds the **tooling rules** that still apply under it.

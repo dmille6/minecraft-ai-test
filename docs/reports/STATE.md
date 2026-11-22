@@ -22,6 +22,7 @@ _Generated 2026-11-22T15:20:01Z._
 ## Notes
 
 <!-- NOTES:BEGIN (hand-written; stategen.py keeps this block verbatim) -->
+- **11-22 ~16:10Z: PROJECT FROZEN by the owner.** Everything stopped, VMs shut down (not deleted), backups on the NAS. The table above is the last generated state. See [FROZEN-2026-11-22](FROZEN-2026-11-22.md).
 _Hand-written context the sources cannot say. Keep it short; date each line; delete what is done._
 
 - **Fleet vs main (11-02, audit 11-01 flag 4): RECONCILED.** main 9294d28b carries all promotions to fleetbuild-01 c711879e
