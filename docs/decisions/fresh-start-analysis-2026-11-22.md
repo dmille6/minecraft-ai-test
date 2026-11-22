@@ -139,3 +139,5 @@ Difficulty: peaceful at first, with easy-difficulty scenarios before survival is
 - **Timelapses from day 1:** a top-down view of the whole world, isometric views of each project the bots work on, and an isometric view of the town. Well made, showing progress.
 - **GitHub explains the process**, with diagrams showing progress over time.
 - **The owner can join the world and walk around.**
+- **Owner answers 11-22:** Ethan's VM is left alone · license **Apache-2.0** · the repo stays **private** for a while ·
+  world access is **LAN only** (the owner uses their own VPN; no port forwarding).
