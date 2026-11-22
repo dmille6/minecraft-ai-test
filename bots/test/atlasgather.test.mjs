@@ -177,7 +177,7 @@ const run = (S, bot, block = 'sand') => S.SKILLS.gather.run({ bot }, { block, co
 const SHORE = []; for (let x = 3; x <= 10; x++) for (let z = 0; z <= 4; z++) SHORE.push([x, 30, z])
 const FRESH = [[0, 30, 30]]
 const rowsOf = name => { const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === name) rows.push(`${r.skill.status} ${r.skill.detail}`) }); return { rows, untap } }
-const noMemory = fn => withMutant(SK_URL, 'isRefused(refMem, { kind: b.name, pos: b.position, still: cls => refStill(cls, b.position, b) })', 'false', fn)
+const noMemory = fn => withMutant(SK_URL, 'REFMEM_ON && isRefused(refMem, { kind: b.name, pos: b.position, still: cls => refStill(cls, b.position, b) })', 'false', fn)
 
 await ta('FIXTURE: 40 shore cells are all refused by the safety rule (water above), the fresh sand is takeable; the search\'s 32 nearest are shore', async () => {
   const { bot } = world({ shore: SHORE, fresh: FRESH })
@@ -325,7 +325,7 @@ await ta('BURIED ore is NOT remembered (the tunnel is its remedy); buried DIRT i
 // ---------------------------------------------------------------- 4. anchored mutants
 await ta('MUTANT KILLED (1): the enumeration does not ask the memory -> visit 2 refuses the same 32 (the base)', async () => {
   const { bot } = world({ shore: SHORE, fresh: FRESH })
-  await withMutant(SK_URL, 'isRefused(refMem, { kind: b.name, pos: b.position, still: cls => refStill(cls, b.position, b) })', 'false', async S => {
+  await withMutant(SK_URL, 'REFMEM_ON && isRefused(refMem, { kind: b.name, pos: b.position, still: cls => refStill(cls, b.position, b) })', 'false', async S => {
     await run(S, bot); const r = await run(S, bot)
     assert.match(r.detail, /beside water/); assert.equal(bot.digAt.length, 0)
   })
@@ -345,14 +345,14 @@ await ta('MUTANT KILLED (3): the refusal branch removed -> a remembered-empty se
   })
 })
 await ta('MUTANT KILLED (4): the veto cells are not recorded -> visit 2 is visit 1', async () => {
-  await withMutant(SK_URL, 'if (cls && b && noteRefusal(refMem, { kind: b.name, pos: q, cls })) noted++', 'if (cls && b) noted++', async S => {
+  await withMutant(SK_URL, 'if (cls && b && refNote(refMem, { kind: b.name, pos: q, cls })) noted++', 'if (cls && b) noted++', async S => {
     const w = world({ shore: SHORE, fresh: FRESH })
     await run(S, w.bot); const r = await run(S, w.bot)
     assert.match(r.detail, /beside water/)
   })
 })
 await ta('MUTANT KILLED (5): the all-refused ending records nothing (strong dropped) -> the next visit digs the stumps again', async () => {
-  await withMutant(SK_URL, "noteRefusal(refMem, { kind: name, pos: b.position, cls: 'no_stand', strong: true })", 'void 0', async S => {
+  await withMutant(SK_URL, "refNote(refMem, { kind: name, pos: b.position, cls: 'no_stand', strong: true })", 'void 0', async S => {
     const LOGS = [[3, 30, 0], [4, 30, 0], [3, 30, 1]]
     // a single failed visit leaves one weak strike per cell only when the catch records one: with it dropped too, nothing stands
     const w = world({ logs: LOGS, badDig: LOGS })
@@ -390,6 +390,11 @@ await ta('Codex r1 BLOCKER 1: one memory per dimension -- an Overworld refusal n
   assert.ok(!GR.isRefused(GR.memoryOf(bot), { kind: 'gravel', pos: { x: 5, y: 40, z: 5 }, now: 2000 }), 'the Nether: never refused by the Overworld')
   bot.game.dimension = 'overworld'
   assert.ok(GR.isRefused(GR.memoryOf(bot), { kind: 'gravel', pos: { x: 5, y: 40, z: 5 }, now: 2000 }), 'back home: its memory kept')
+})
+
+await ta('THE ROLLBACK: GATHERMEM=off turns the memory off (one setting); unset and on keep it', () => {
+  assert.strictEqual(GR.gatherMemOn({}), true); assert.strictEqual(GR.gatherMemOn({ GATHERMEM: 'on' }), true)
+  for (const v of ['off', '0', 'false', 'no', 'OFF']) assert.strictEqual(GR.gatherMemOn({ GATHERMEM: v }), false, v)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

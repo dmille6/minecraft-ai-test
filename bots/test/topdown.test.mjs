@@ -778,9 +778,18 @@ await t('THE IN-RANGE GUARD: refused dirt only beyond the search -> no skip row,
 await t('THE SECOND FALLBACK\'S SKIPS do not leak into the next round', async () => {
   const leakWorld = () => { const c = new Map(); for (let x = 92; x <= 108; x++) for (let z = 92; z <= 108; z++) { for (let y = 62; y < SURF; y++) c.set(key(x, y, z), 'stone'); c.set(key(x, SURF, z), 'grass_block') } for (const x of [99, 100]) c.set(key(x, SURF, 100), 'dirt'); for (let x = 104; x <= 106; x++) c.set(key(x, SURF + 1, 100), 'stone'); return c }
   const go = async mod => { rows.length = 0; const w = gatherWorld({ cells: leakWorld() }); w.bot.collectBlock.movements.safeToBreak = b => b?.name !== 'dirt'; const r = await run(mod, w.bot, { block: 'dirt', count: 2 }); return { ...w, r, skip: tdRows('skip') } }
-  const real = await go(SK)
-  assert.ok(real.digs.some(d => d.name === 'grass_block'), show(real.r, real.digs)); assert.deepEqual(real.skip, [])
-  await withMutantsAll(SKILLS_URL, [LEAK], async mod => { const m = await go(mod); assert.ok(m.skip.length > 0) })
+  // atlasgather-01show: the refused-spot memory changes this scene's path (a round more, its own roof skips), so the LEAK this test
+  // pins is checked with the memory OFF (GATHERMEM=off: the gather exactly as before); with it ON the run must still take the grass
+  const was = process.env.GATHERMEM
+  process.env.GATHERMEM = 'off'
+  try {
+    const real = await go(SK)
+    assert.ok(real.digs.some(d => d.name === 'grass_block'), show(real.r, real.digs)); assert.deepEqual(real.skip, [])
+    await withMutantsAll(SKILLS_URL, [LEAK], async mod => { const m = await go(mod); assert.ok(m.skip.length > 0) })
+  } finally { if (was === undefined) delete process.env.GATHERMEM; else process.env.GATHERMEM = was }
+  const on = await go(SK)
+  assert.ok(on.digs.some(d => d.name === 'grass_block'), `memory ON: the grass is still taken ${show(on.r, on.digs)}`)
+  assert.ok(!on.digs.some(d => d.name === 'dirt'), 'memory ON: the refused dirt is never dug')
 })
 await t('CLAUDE r3 NOTE, A MEASURED TENDENCY (not a guarantee): on the plain an open 3x3 scrape 2-4 blocks from the bot is widened in at least 16 of 24 placements (19 measured); every run digs', async () => {
   let kept = 0, lost = 0
