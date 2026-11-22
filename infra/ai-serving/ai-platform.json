@@ -1,0 +1,258 @@
+{
+ "title": "AI platform: GPUs and model servers",
+ "uid": "ai-platform",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "refresh": "30s",
+ "panels": [
+  {
+   "type": "timeseries",
+   "title": "GPU memory used",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "nvidia_smi_memory_used_bytes{job=\"gpu\"}",
+     "legendFormat": "{{gpu}} used"
+    },
+    {
+     "refId": "B",
+     "expr": "nvidia_smi_memory_total_bytes{job=\"gpu\"}",
+     "legendFormat": "{{gpu}} total"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "3090 headroom left for Ethan's peaks (free VRAM)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "nvidia_smi_memory_free_bytes{gpu=\"rtx3090\"}",
+     "legendFormat": "free"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "GPU utilisation",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 8,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "nvidia_smi_utilization_gpu_ratio{job=\"gpu\"}",
+     "legendFormat": "{{gpu}}"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "GPU power and temperature",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 8,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "nvidia_smi_power_draw_watts{job=\"gpu\"}",
+     "legendFormat": "{{gpu}} W"
+    },
+    {
+     "refId": "B",
+     "expr": "nvidia_smi_temperature_gpu{job=\"gpu\"}",
+     "legendFormat": "{{gpu}} \u00b0C"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "vLLM 3090: requests running / waiting",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 16,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "vllm:num_requests_running",
+     "legendFormat": "running"
+    },
+    {
+     "refId": "B",
+     "expr": "vllm:num_requests_waiting",
+     "legendFormat": "waiting"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "vLLM 3090: end-to-end latency",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 16,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.5, sum(rate(vllm:e2e_request_latency_seconds_bucket[5m])) by (le))",
+     "legendFormat": "p50"
+    },
+    {
+     "refId": "B",
+     "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket[5m])) by (le))",
+     "legendFormat": "p95"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Tokens generated per second",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(vllm:generation_tokens_total[2m]))",
+     "legendFormat": "3090 vLLM"
+    },
+    {
+     "refId": "B",
+     "expr": "rate(llamacpp:tokens_predicted_total[2m])",
+     "legendFormat": "5080 llama.cpp"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "llama.cpp 5080: slots busy / deferred",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 24,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "llamacpp:requests_processing",
+     "legendFormat": "processing"
+    },
+    {
+     "refId": "B",
+     "expr": "llamacpp:requests_deferred",
+     "legendFormat": "deferred"
+    }
+   ]
+  }
+ ]
+}

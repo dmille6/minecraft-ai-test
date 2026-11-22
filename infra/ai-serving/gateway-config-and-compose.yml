@@ -1,0 +1,22 @@
+# mcai LLM gateway (added 2026-11-22): one OpenAI-compatible address for every dev VM.
+# Ethan s server on the 3090 is NOT routed here.
+model_list:
+  - model_name: executive            # main executive: vLLM on the shared 3090
+    litellm_params: {model: hosted_vllm/executive, api_base: "http://10.0.0.16:8000/v1", timeout: 60, extra_body: {chat_template_kwargs: {enable_thinking: false}}}
+  - model_name: qwen35-4b            # llama.cpp servea on the 5080
+    litellm_params: {model: openai/r3-qwen35-4b-q8, api_base: "http://10.0.0.72:18080/v1", api_key: "none", timeout: 60}
+router_settings:
+  num_retries: 1
+  fallbacks: [{"executive": ["qwen35-4b"]}]
+litellm_settings:
+  drop_params: true
+  callbacks: ["prometheus"]
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.106.0
+    container_name: mcai-gateway
+    restart: unless-stopped
+    env_file: .env
+    ports: ["4000:4000"]
+    volumes: ["./config.yaml:/app/config.yaml:ro"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
