@@ -197,10 +197,12 @@ export function receiptFor (rec, T = TAKEBACK) {
  * ([{x,y,z}] feet positions, pathfinder's own), `pos` the bot's feet now: the path from the node nearest the bot onward (at most
  * `ahead`); a node standing on the cell or beside it (its column +-1, feet one to two above the cell) still needs it.
  */
-export function pathNeeds (cell, nodes, pos, ahead = TAKEBACK.pathAhead) {
+export function pathNeeds (cell, nodes, pos, ahead = TAKEBACK.pathAhead, { live = false } = {}) {
   if (!cell || !Array.isArray(nodes) || !nodes.length || !pos) return false
+  // `live`: the library's OWN path array, which it shifts as each node is reached -- its front IS the rest of the walk (second engine,
+  // r1: on a path that doubles back past the bot, the nearest node can be a later one and would skip what lies between)
   let i0 = 0, best = Infinity
-  for (let i = 0; i < nodes.length; i++) { const n = nodes[i]; const d = (n.x - pos.x) ** 2 + (n.y - pos.y) ** 2 + (n.z - pos.z) ** 2; if (d < best) { best = d; i0 = i } }
+  if (!live) for (let i = 0; i < nodes.length; i++) { const n = nodes[i]; const d = (n.x - pos.x) ** 2 + (n.y - pos.y) ** 2 + (n.z - pos.z) ** 2; if (d < best) { best = d; i0 = i } }
   for (let i = i0; i < Math.min(nodes.length, i0 + ahead); i++) {
     const n = nodes[i]
     const nx = Math.floor(n.x), ny = Math.floor(n.y), nz = Math.floor(n.z)
@@ -208,12 +210,12 @@ export function pathNeeds (cell, nodes, pos, ahead = TAKEBACK.pathAhead) {
   }
   return false
 }
-export function ripe (r, here, now, T = TAKEBACK, { walking = false, nodes = null } = {}) {
+export function ripe (r, here, now, T = TAKEBACK, { walking = false, nodes = null, live = false } = {}) {
   if (!r || r.closed || !here?.pos || !here.feet) return false
   if (!(r.used || now - r.t >= T.unusedMs)) return false
   // takebackpath-01show: never mid-walk on a block placed this recently, nor one the rest of the walk stands on or beside
   if (walking && now - r.t < T.freshMs) return false
-  if (walking && pathNeeds(r.cell, nodes, here.pos, T.pathAhead)) return false
+  if (walking && pathNeeds(r.cell, nodes, here.pos, T.pathAhead, { live })) return false
   if (overlapsColumn(r.cell, here.pos)) return false
   if (!here.onGround || here.inWater) return false
   return inReach(r.cell, here.pos, T)
@@ -276,7 +278,8 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   const st = { open: [], busy: false, digger: null, owner: null, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false, dirty: false, handed: new Map(), path: [] }
   // takebackpath-01show: the path the library is walking (feet nodes), every update; a new goal starts it empty
   try {
-    bot.on?.('path_update', r => { try { st.path = Array.isArray(r?.path) ? r.path.map(n => ({ x: n.x, y: n.y, z: n.z })) : [] } catch { st.path = [] } })
+    // the library's own array, kept by reference: it shifts it as the walk goes (mineflayer-pathfinder index.js 447/586), never copied
+    bot.on?.('path_update', r => { try { st.path = Array.isArray(r?.path) ? r.path : [] } catch { st.path = [] } })
     bot.on?.('goal_reached', () => { st.path = [] })
   } catch { /* no events: the rule reads no path, as before */ }
   const row = (r, outcome, why, ms = null) => {
@@ -403,7 +406,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   }
   // takebackpath-01show: the active walk's path, kept from the library's own path_update (a halted walk keeps it: it resumes to the same goal)
   // Codex r1 BLOCKER: the take-back's own halt nulls pf.goal, and the walk resumes after it -- so the walk is ON while its call is the owner
-  const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null } }
+  const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null, live: true } }
   const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow())))
   const held = () => { try { return bodyHeld(bot.__digContext?.()) } catch { return false } }
   const wet = c => [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]].some(d => holdsLiquid(blockAt([c[0] + d[0], c[1] + d[1], c[2] + d[2]])))

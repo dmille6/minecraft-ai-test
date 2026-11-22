@@ -521,6 +521,14 @@ await t('pathNeeds: Frost\'s path goes on over the dug column (85.5,0,-37.5 stan
   assert.strictEqual(TB.pathNeeds(FROST.cell, [{ x: 85.5, y: 0, z: -37.5 }, { x: 83.5, y: 1, z: -36.5 }, { x: 80.5, y: 2, z: -33.5 }], HERE.pos), false)
   assert.strictEqual(TB.pathNeeds(FROST.cell, [], HERE.pos), false); assert.strictEqual(TB.pathNeeds(FROST.cell, null, HERE.pos), false)
 })
+await t('pathNeeds LIVE (the library\'s shifted array): a path that doubles back past the bot still protects the cell between (second engine r1)', () => {
+  // the rest of the walk, front first: away from C, then back past the bot's own spot, then over C
+  const rest = [{ x: 84.5, y: 1, z: -34.5 }, { x: 84.5, y: 1, z: -32.5 }, { x: 83.5, y: 1, z: -36.5 }, { x: 85.5, y: 0, z: -37.5 }]
+  assert.strictEqual(TB.pathNeeds(FROST.cell, rest, HERE.pos, 24, { live: true }), true, 'live: every node ahead is read')
+  // POSITIVE CONTROL: the same list read by nearest-node (not live) starts at the doubled-back node -- still finds C here; a live list
+  // whose rest never comes near C does not need it
+  assert.strictEqual(TB.pathNeeds(FROST.cell, [{ x: 80.5, y: 2, z: -30.5 }, { x: 75.5, y: 2, z: -25.5 }], HERE.pos, 24, { live: true }), false)
+})
 await t('ripe: Frost\'s receipt is NOT ripe mid-walk (its path ahead stands on it); fresh (< freshMs) not ripe mid-walk; POSITIVE CONTROLS: the walk over, or a path away, ripe as before', () => {
   const now = FROST.t + 1605
   assert.strictEqual(TB.ripe(FROST, HERE, now, TB.TAKEBACK, { walking: true, nodes: PATH }), false, 'the path ahead needs it')
@@ -530,7 +538,7 @@ await t('ripe: Frost\'s receipt is NOT ripe mid-walk (its path ahead stands on i
   assert.strictEqual(TB.ripe(FROST, HERE, now, TB.TAKEBACK, { walking: false, nodes: null }), true, 'no walk (the walk is over): ripe as before')
 })
 await t('MUTANTS (anchored): the path rule cut -> Frost\'s block ripe mid-walk; the fresh rule cut -> a 1.6 s-old block ripe mid-walk', async () => {
-  await withMutant("  if (walking && pathNeeds(r.cell, nodes, here.pos, T.pathAhead)) return false\n", '', async M => {
+  await withMutant("  if (walking && pathNeeds(r.cell, nodes, here.pos, T.pathAhead, { live })) return false\n", '', async M => {
     assert.strictEqual(M.ripe(FROST, HERE, FROST.t + 6000, M.TAKEBACK, { walking: true, nodes: PATH }), true, 'the mutant digs under the walk')
   })
   await withMutant("  if (walking && now - r.t < T.freshMs) return false\n", '', async M => {
@@ -542,7 +550,8 @@ await t('WIRING: ripeNow passes the walk (pf.goal and the path from path_update)
   const src = readFileSync(SRC, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
   assert.ok(src.includes('const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T, walkNow())))'))
   // Codex r1 BLOCKER: the take-back's own halt nulls pf.goal; the walk is ON while its goto call owns the body, and a new walk starts empty
-  assert.ok(src.includes('const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null } }'))
+  assert.ok(src.includes('const walkNow = () => { const w = !!pf.goal || !!st.owner; return { walking: w, nodes: w ? st.path : null, live: true } }'))
+  assert.ok(src.includes("bot.on?.('path_update', r => { try { st.path = Array.isArray(r?.path) ? r.path : [] } catch { st.path = [] } })"), 'the live array, by reference')
   assert.ok(/st\.owner = call[^\n]*\n\s*st\.path = \[\]/.test(src), 'a new walk resets the path')
   assert.ok(src.includes("bot.on?.('path_update', r => {"))
 })
