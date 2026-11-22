@@ -81,11 +81,11 @@ export function groundsEligible ({ feet = null, home = null, G = GK_FIT } = {}) 
  *   shopDone  the workshop's record reads complete      readable  the tidy's chain could be read      rec  its head record | null
  *   stuck     the order's stuck back-off reads live for the tidy (shop.mjs stuckBackoff)
  */
-export function groundsRecord ({ shopDone = false, readable = true, rec = null, stuck = false } = {}) {
+export function groundsRecord ({ shopDone = false, readable = true, rec = null, stuck = false, tail = false } = {}) {
   if (!shopDone) return 'no_workshop'
   if (!readable) return 'unreadable'
   if (!rec) return 'none'
-  if (rec.structure_complete) return 'complete'
+  if (rec.structure_complete || tail) return 'complete'   // tidytail-01show: only set-aside cells remain
   return stuck ? 'stuck' : 'open'
 }
 /**

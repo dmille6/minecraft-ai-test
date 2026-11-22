@@ -288,6 +288,8 @@ const REQUIRED = [
   // stepwell-01 (11-05, owner "Yes"): the town stepwell -- the landmark tank and the miners' shared descent (design on main)
   'bots/src/stepwell.mjs',
   'bots/src/stepwellvisit.mjs',
+  'bots/src/tidytail.mjs',
+  'bots/test/tidytail.test.mjs',
   'bots/scripts/stepwell-offline.mjs',
   'bots/scripts/stepwell-landmap.mjs',
   'bots/test/stepwell.test.mjs',

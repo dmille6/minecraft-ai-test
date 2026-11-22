@@ -233,6 +233,7 @@ import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_M
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
+import { tailOn, tailAsideFor, tailReread, tailOnly, tailNext, tailQuiet, yardRowOutcome } from './tidytail.mjs'   // tidytail-01show: the tail set aside
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -18623,7 +18624,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         const rec0 = h.ok ? h.head?.rec ?? null : null
         // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
         const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
-        const complete = !!rec?.structure_complete
+        const complete = !!rec?.structure_complete || (p.plot === TIDY_PLOT && tidyTailQuiet(rec, now))   // tidytail-01show: only set-aside cells remain: done for offering
         if (isCottagePlot(p.plot)) cotDone.set(p.plot, complete)   // homes-01show: the next cottage's chain reads it
         // UPKEEP-01 (upkeep.mjs upkeepState): always complete (never the finite order, never a repair), due while a job is open or the
         // list is due its survey
@@ -22761,10 +22762,11 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
       const rr = await yardRowStep(ctx, rec, bp, plot, signal, deadline)
       f.banked = rr.banked
       const nb2 = Object.values(rr.banked).reduce((t, v) => t + v, 0)
-      stop = nb2 + rr.placed > 0 ? 'row' : 'row_none'
+      const ro = yardRowOutcome({ banked: rr.banked, placed: rr.placed })   // tidytail-01show: a chest banked into or placed is work: success
+      stop = ro.stop
       if (!(nb2 + rr.placed > 0)) bot.yardRestUntil = Date.now() + yardRestMs({ slots: slotsNow() })
       bot.yardsMemo = null
-      return out(nb2 + rr.placed > 0 ? 'success' : 'no_effect', 'yard_row', `the yard's chest row: ${nb2} item(s) banked, ${rr.placed} chest(s) placed`, { stop })
+      return out(ro.status, 'yard_row', `the yard's chest row: ${nb2} item(s) banked, ${rr.placed} chest(s) placed`, { stop, ...(rr.placed > 0 ? { placed: rr.placed } : {}) })
     }
     // compact-01: THE CLERK'S PASS (the first yard, nothing else to do): one bot at a time under the yard's `clerkpass` lease
     if (plot === YARD_PLOT && !drawing && (!w.kind || (w.kind === 'upkeep' && !w.first))) {
@@ -29129,10 +29131,10 @@ setIdleNow(plot => {
 })
 /** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
 // gkroom-01: the keeper's tidy read for shop.mjs roomFallback -- the lease itself (never a helper) and a tidy record open or due
-const tidyRecWork = () => { try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)) } catch { return false } }
+const tidyRecWork = () => { try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return !!r && ((!r.structure_complete && !tidyTailQuiet(r)) || tidyDue(r) || gkStageDue(r)) } catch { return false } }
 function tidyWorkBase (b) {
   if (!b || !keeperLeaseNow(b)) return { keeper: false, tidyWork: false }
-  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return { keeper: true, tidyWork: !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)) } } catch { return { keeper: true, tidyWork: false } }
+  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return { keeper: true, tidyWork: !!r && ((!r.structure_complete && !tidyTailQuiet(r)) || tidyDue(r) || gkStageDue(r)) } } catch { return { keeper: true, tidyWork: false } }
 }
 setTidyWork(() => {
   const b = activeMem?.bot ?? null
@@ -29299,6 +29301,10 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
 const GKW_ON = gkworkOn()   // gkwork-01
+const TAIL_ON = tailOn()   // tidytail-01show
+const tailCodeNow = () => config.code?.version ?? null
+/** tidytail-01show: is the tidy record done for OFFERING (only set-aside cells remain, tidytail.mjs tailQuiet)? Never throws. */
+const tidyTailQuiet = (rec, now = Date.now()) => { try { return TAIL_ON && tailQuiet(rec, { code: tailCodeNow(), now }) } catch { return false } }
 const TRF_ON = tidyRefreshOn()   // tidyrefresh-01
 /** country-01: the country head -> rec | null (undefined: unreadable). Never throws. */
 function countryHeadNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(COUNTRY_PLOT)); return h.ok && !(h.rejected?.length > 0) ? h.head?.rec ?? null : undefined } catch { return undefined } }   // fold r2: a rejected generation is an unread head
@@ -29385,7 +29391,7 @@ function g2Record (dir, now = Date.now()) {
     // the project's own stuck back-off, by the order's rule (shop.mjs stuckBackoff over projStuckLive: an open tidy's stamp holds
     // only while nothing else of it is open)
     const stuck = !!rec && stuckBackoff([{ plot: TIDY_PLOT, exists: true, complete: !!rec.structure_complete }], plot => projStuckLive(projKeyOf(plot), now), now)[0]?.stuck === true
-    return { state: groundsRecord({ shopDone: !!(sh.ok && sh.head?.rec?.structure_complete), readable: !!h.ok, rec, stuck }), rec }
+    return { state: groundsRecord({ shopDone: !!(sh.ok && sh.head?.rec?.structure_complete), readable: !!h.ok, rec, stuck, tail: tidyTailQuiet(rec) }), rec }
   } catch { return { state: 'unreadable', rec: null } }
 }
 /** The tidy's OWN open cells (fills + cuts left: the newest visit's count for the stage its head is at -- gkwork.mjs openNewest, at
@@ -30939,7 +30945,7 @@ async function buildTidyVisit (ctx, args, signal) {
     if (crec !== undefined) {
       const irec = rh.head?.rec ?? null
       const cap = role === 'helper' ? helpersCap(gkOpenNow(bot, dir, projKeyOf(TIDY_PLOT))) : 0
-      const gl = groundsLane({ on: true, role, helper: helper?.name ?? null, cap, inside: { open: !!irec && !irec.structure_complete, due: !irec || tidyDue(irec) || gkStageDue(irec) }, country: { demand: countryDemand(crec) }, lastCountryAt: procMem(bot).gkCountryAt ?? -Infinity })
+      const gl = groundsLane({ on: true, role, helper: helper?.name ?? null, cap, inside: { open: !!irec && !irec.structure_complete && !tidyTailQuiet(irec), due: !irec || tidyDue(irec) || gkStageDue(irec) }, country: { demand: countryDemand(crec) }, lastCountryAt: procMem(bot).gkCountryAt ?? -Infinity })
       lane = gl.lane
       try { logEvent({ kind: 'grounds_lane', status: 'success', snapshot: snapshot(bot), detail: laneDetail({ lane, why: gl.why, role, helper: helper?.name ?? null, demand: countryDemand(crec) }) }) } catch { /* telemetry */ }
       if (lane === 'country') {
@@ -31074,6 +31080,7 @@ async function buildTidyVisit (ctx, args, signal) {
     const r3 = await prepTick(bot, dir, key, rec, me, signal)
     if (r3?.ok && r3.head) { rh = r3; rec = rh.head.rec }
   }
+  if (!rec.structure_complete && tidyTailQuiet(rec)) return out('no_effect', 'tail_aside', `only set-aside cells remain (${Object.keys(rec.aside ?? {}).length}): not visited until the hold ends, a re-survey or a new release`)
   if (rec.structure_complete) return out('no_effect', 'complete', lane === 'country' ? 'the countryside band is done; the next is due later' : 'the town ground is tidy')
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
@@ -31145,7 +31152,8 @@ async function buildTidyVisit (ctx, args, signal) {
   const claimedQ = q => (claimsNow.length > 0 && claimEntry(q, claimsNow)) || standQ(q)
   // fillcolumn-01 (`floatHeld`, filled once the visit's reader stands, below): a fill no order of work can lay now is passed too
   let floatHeld = new Set()
-  const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
+  let asideHeld = new Set()   // tidytail-01show: the set-aside fills (tidytail.mjs tailReread), read again before the scan
+  const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || asideHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, lane === 'country' ? workerSlots(COUNTRY.builders, G2.on && worker) : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -31177,6 +31185,8 @@ async function buildTidyVisit (ctx, args, signal) {
     // the keeper's hourly refresh (tidyRefresh above: the column extended down to its floor, or left out); only on a record that
     // refresh serves and while it is not overdue (repairServes), else nothing is held and the cells are deferred as before
     try { floatHeld = fillFloatHold(rec, read, { done: q => buildCellDone(read(...q.at), palette, q.role), guard }) } catch { floatHeld = new Set() }
+    // tidytail-01show: THE PROOFS READ AGAIN BEFORE THE SCAN -- an entry of another code version, past its life, unread or laid now is dropped
+    if (TAIL_ON) { try { asideHeld = tailReread({ rec, read, code: tailCodeNow(), done: q => buildCellDone(read(...q.at), palette, q.role) }).live } catch { asideHeld = new Set() } }
     if (floatHeld.size) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'float_held', cell: [...floatHeld][0].split(',').map(Number), n: floatHeld.size, why: FILL_HOLD_WHY }) }) } catch { /* telemetry */ } }
     // THE BILL: the open fills (any earth: the bag's spare dirt first, then cobblestone), less the bag's spare dirt and cobblestone,
     // drawn as cobblestone (the town's stone reserve: the project allowance), SHOP_BILL_CAP a visit
@@ -31491,6 +31501,30 @@ async function buildTidyVisit (ctx, args, signal) {
         try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: gkw.close ? 'stage_close' : 'stage_held', kind: heldWhy({ clearsLeft: tidyClearsLeft(rw, read2), clearsOk: held0.clearsOk, crewHeld, crewHolds: held0.crewHolds, unread, prep: prepHold, platform: platformUp(rw) }), n: gkw.total, visits: GKW.emptyVisits }) }) } catch { /* telemetry */ }
       }
       bot.gkwPending = empty && !gkw.close ? { at: Date.now() } : null
+    }
+    // TIDYTAIL-01SHOW (tidytail.mjs): the proofs read again, a STALLED visit's cells no stand reached set aside (by any role), the cells
+    // resting on them with them; with only set-aside cells left the record's `tail` mark says the project is done for offering
+    if (TAIL_ON && GROUNDS.on && !rw.structure_complete) {
+      try {
+        const tNow = Date.now(), tCode = tailCodeNow()
+        const doneQ = q => buildCellDone(read2(...q.at), palette, q.role)
+        const re = tailReread({ rec: rw, read: read2, done: doneQ, code: tCode, now: tNow })
+        const stalledNow = r.stop === 'stuck_on_cell' && /STALLED/.test(String(r.why ?? '')) && !waivedN
+        const adds = stalledNow ? tailAsideFor({ rec: rw, deferred: r.deferred ?? [], stalled: true, live: re.live, read: read2, done: doneQ }) : []
+        const rests = adds.length ? waiveRests(rw, adds, read2, { done: doneQ, guard }).map(d => ({ k: d.k, why: `rests_on:${String(d.why).split(' ').pop()}` })) : []
+        const inSet = new Set([...re.live, ...adds.map(d => d.k), ...rests.map(d => d.k)])
+        const only = tailOnly({ open: tidyLeftKeys(rw, read2, progOpts), aside: inSet, cutLeft: prog.cutLeft, unread })
+        const upd = tailNext(rw, { drops: re.drop, adds: [...adds, ...rests], only, code: tCode, now: tNow, by: me })
+        if (upd) {
+          const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && cur.sitedAt === rw.sitedAt && gkwSig(cur) === gkwSig(rw) ? tailNext(cur, { drops: re.drop, adds: [...adds, ...rests], only, code: tCode, now: tNow, by: me }) : null), { by: me })
+          if (pub.result === 'accepted') {
+            for (const d of [...adds, ...rests]) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'set_aside', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+            for (const d of re.drop) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'aside_revoked', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+            const h5 = recordHead(dir, key); if (h5.ok && h5.head) rw = h5.head.rec
+            f.aside = `${inSet.size}${only ? ' tail' : ''}`
+          }
+        }
+      } catch { /* decided again next visit */ }
     }
     // plotprep-01: never complete over a felling stand still standing (the keeper tears it down first: gkPlanAdditions)
     if (caps.complete && !crewHolds && !platformUp(rw) && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
