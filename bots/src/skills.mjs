@@ -310,6 +310,7 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead, set
 setBagDraw(() => activeMem?.bot?.drawLog ?? null)
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setFetchAsk } from './shop.mjs'   // indexfetch-01show: the short draw's fetch trip
+import { nextHolder, shortRemedy, indexMissDetail, openVerdict } from './indexfetch.mjs'   // indexfetch-01show r2: the withdraw verb's holders
 import { FETCH as INDEXFETCH, fetchStillWanted, fetchAllowed, fetchTargets, fetchWantOf, fetchBackedOff, fetchBackoff, runFetchTrip, indexFetchDetail, indexFetchDistDetail, indexLegDetail, walkOutcome, indexWantDetail, indexFetchModeDetail } from './indexfetch.mjs'   // indexfetch-01show
 import { setTidyWork, roomFallbackPick, setYardsWanted } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
@@ -11732,6 +11733,7 @@ async function buildPlinth (ctx, _args, signal) {
 // back. Never a spent tool, either way.
 const WITHDRAW_CONTAINERS = 3
 const WITHDRAW_ALT_RADIUS = 24
+const WITHDRAW_INDEX_HOLDERS = 4   // indexfetch-01show r2: index-listed holders one withdraw may go to (apart from the sweep's WITHDRAW_CONTAINERS)
 const WITHDRAW_WALK_MS = 30_000
 const RECOUNT_MS = 3_000
 const TOOLISH = /_(pickaxe|axe|shovel|hoe|sword)$/
@@ -12568,21 +12570,51 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   const sweep = withdrawSweep(bot, { prefer: (() => { const sh = sortHomesNow(bot); return sh ? withdrawPrefer(sh, item) : [] })() })
   // storehub-01: the sorted hall's chests for the item's section first (where the clerk puts it), then the storehouse's homes
   sweep.preferFirst(hubWithdrawPrefer(item))
-  let chestBlock = sweep.next(48)
+  // INDEXFETCH-01SHOW r2: the containers the readable index lists with the item come first, each after a miss too (see indexfetch.mjs)
+  const ixSeen = new Set()
+  let ixLed = 0, fixed = 0, led = false
+  const ixHolder = () => {
+    if (!INDEXFETCH.on || ixLed >= WITHDRAW_INDEX_HOLDERS || !/^[a-z0-9_]+$/.test(item)) return null
+    try {
+      const ents = townIndexEntries(bot)
+      if (!ents) return null
+      const me = bot.entity?.position ?? null
+      const ok = fetchOkNow(bot)
+      for (let guard = 0; guard < 8; guard++) {
+        const h = nextHolder(ents, item, { exclude: ixSeen, ok, dist: k => (me ? me.distanceTo(keyVec(k)) : 0) })
+        if (!h) return null
+        const b = bot.blockAt?.(keyVec(h.k))
+        if (b && CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) return { block: b, k: h.k }
+        for (const x of h.halves) ixSeen.add(x)   // not loaded here, or gone: not this withdraw's holder
+        if (b) { try { townIndexDirty(bot, keyVec(h.k), 'withdraw_miss', 'post') } catch { /* index */ } }
+      }
+    } catch { /* the sweep decides */ }
+    return null
+  }
+  const pickNext = (radius) => {
+    const h = ixHolder()
+    if (h) { led = true; ixLed++; return h.block }
+    led = false
+    return sweep.next(radius)
+  }
+  let chestBlock = pickNext(48)
   if (!chestBlock) {
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
     const walked = await home(ctx, {}, signal)
     check(signal)
-    chestBlock = sweep.next(48)
+    chestBlock = pickNext(48)
     if (!chestBlock && walked.status === 'failed') return out({ ...walked, detail: `no chest nearby; walking home to the town chest failed: ${walked.detail}` })
   }
   if (!chestBlock) return out({ status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks, even at home' })
   const held = []
   let lastFailure = null, noRoom = 0
-  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
+  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS;) {
     check(signal)
+    if (!led) n++   // the sweep's own count: an index-led visit does not use up its three
+    const ixPre = INDEXFETCH.on ? townIndexEntries(bot) : null   // the index as this container was listed, before the open's observation
     const v = await withdrawVisit(ctx, chestBlock, decide, signal, msLeft, deadline - 2_000)
     sweep.mark(chestBlock.position, v.double)
+    for (const x of sweep.halves(chestBlock.position, v.double)) ixSeen.add(x)
     tried.push(`${posKey(chestBlock.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     diag = v.diag ?? diag
     if (v.moved) moved = v.moved
@@ -12590,14 +12622,27 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
     if (v.result && ['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered'].includes(v.result.failClass)) return out(v.result)
     if (v.skip) noRoom++
     else if (v.result) lastFailure = v.result
-    else held.push(`${chestBlock.position.x},${chestBlock.position.z}: ${v.saw.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'}`)
-    chestBlock = sweep.next(WITHDRAW_ALT_RADIUS)
+    else {
+      held.push(`${chestBlock.position.x},${chestBlock.position.z}: ${v.saw.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'}`)
+      // THE INDEX LISTED IT HERE AND IT IS NOT (indexfetch r2): corrected at once, for every bot (the one shared index)
+      try {
+        const k = containerKey(bot, chestBlock.position)
+        const idx = Number(ixPre?.[k]?.obs?.names?.[item]?.[0]) || 0
+        const saw = v.saw.reduce((c, it) => c + (it.name === item ? (it.count ?? 0) : 0), 0)
+        if (idx > 0 && openVerdict({ [item]: idx }, { [item]: saw }).miss.length) {
+          const fix = v.diag?.ix ? 'observed' : (townIndexDirty(bot, chestBlock.position, 'withdraw_miss', 'post') ? 'dirty' : 'failed')
+          if (fix !== 'failed') fixed++
+          logEvent({ kind: 'index_fetch', status: 'no_effect', snapshot: snapshot(bot), detail: indexMissDetail({ item, k, idx, saw, fix }) })
+        }
+      } catch { /* telemetry and the correction are advisory: the next holder is still tried */ }
+    }
+    chestBlock = pickNext(WITHDRAW_ALT_RADIUS)
   }
   if (noRoom && !held.length) return out({ status: 'failed', failClass: 'chest_no_room', detail: `the chest(s) holding ${item} are full, and the bag needs room made first` })
   if (held.length) {
     // Deliberately no "no ... within" in this sentence: state.mjs's prose classifier reads that pair as nothing_found.
     return out({ status: 'failed', failClass: 'container_short',
-                 detail: `${item}${TOOLISH.test(item) ? ' (a usable copy)' : ''} is not in the ${held.length} container(s) tried here -- they hold ${held.join('; ').slice(0, 160)}` })
+                 detail: `${item}${TOOLISH.test(item) ? ' (a usable copy)' : ''} is not in the ${held.length} container(s) tried here -- they hold ${held.join('; ').slice(0, 160)} -- ${shortRemedy(item, { fixed })}` })
   }
   return out(lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' })
 }

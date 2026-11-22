@@ -379,7 +379,7 @@ await t('WIRED: the draw notes the want; build_shop dispatches the trip; the ask
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   for (const line of [
     "if (why === 'build' && out.short && !out.unsettled && INDEXFETCH.on && bot.shopVisitBusy === true) {",
-    'try { const fw = indexFetchNote(bot, Object.fromEntries(Object.entries(left).filter(([n]) => !zero.has(n))), allow, reserve); if (fw) out.fetch = fw }',
+    'try { const fw = indexFetchNote(bot, Object.fromEntries(Object.entries(left).filter(([, n]) => n > 0)), allow, reserve); if (fw) out.fetch = fw }',
     'if (args?.indexFetch === true && INDEXFETCH.on) return indexFetchVisit(ctx, args, signal)',
     'if (INDEXFETCH.on) setFetchAsk(fetchAsk)',
     'diag.ix = opened.ix ?? null',
