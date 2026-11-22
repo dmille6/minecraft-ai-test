@@ -121,7 +121,7 @@ import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
-import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
+import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal, findFillSpot, REACH as BUCKET_REACH } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
 import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS, allocateHomes, indexStateOf } from './townindex.mjs'   // townindex-01
@@ -35604,6 +35604,9 @@ async function bucketSkill (ctx, args, signal) {
       if (b) near.push({ b, off: [dx, dy, dz], d: Math.hypot(dx, dy, dz) })
     }
   }
+  // wellbucket-01show: after the walk the known source cell itself is a candidate (the walk arrives within goto's range, not beside it)
+  const sp = args?._walked && args?._spot && [args._spot.x, args._spot.y, args._spot.z].every(Number.isFinite) ? args._spot : null
+  if (sp) { const off = [sp.x - p.x, sp.y - p.y, sp.z - p.z], b = at(...off); if (b && !near.some(c => c.off.join() === off.join())) near.push({ b, off, d: Math.hypot(...off) }) }
   const reasons = []
   // protectzone-01: NO BUCKET USE WITHIN REACH OF A PROTECTED ZONE (Codex r1 P1): the server ray-traces the use from the bot's
   // eye, so a scoop aimed at water outside can take a zone's water first and a pour can land in it. The bucket is the
@@ -35648,8 +35651,20 @@ async function bucketSkill (ctx, args, signal) {
         ? { status: 'success', detail: 'filled the bucket' }
         : { status: 'failed', failClass: 'bucket_fill', detail: `fill failed: ${r.reason}` }
     }
-    return { status: 'failed', failClass: 'bucket_fill',
-             detail: `nothing within reach to fill from [${[...new Set(reasons)].slice(0, 3).join(' | ')}]` }
+    // wellbucket-01show: NO SOURCE WITHIN REACH. Walk only to a spot a fresh scan shows holds a source the scoop itself takes
+    // (bucket.mjs findFillSpot), once; with none known, refuse HERE, before any walk, and name the remedy. Never a walk to a
+    // spot nobody has seen water at (showcase 11-22: 8 of 8 fills ended where the use found air or a table).
+    const seen = `[${[...new Set(reasons)].slice(0, 3).join(' | ')}]`
+    if (!hasEmpty) return { status: 'failed', failClass: 'bucket_fill', detail: `nothing within reach to fill from ${seen}` }
+    if (args?._walked) return { status: 'failed', failClass: 'bucket_fill', detail: `walked to the known source water and still nothing within reach to fill from ${seen}` }
+    const spot = findFillSpot(bot, { skip: q => { try { return !!zoneWithin(bot.protectZones?.() ?? [], q, BUCKET_ZONE_REACH + 4) } catch { return false } } })   // the arrival (goto range 3, one above the source) must clear the bucket's own zone reach on every axis (Codex r1, r2)
+    if (!spot) {
+      return { status: 'failed', failClass: 'bucket_fill', detail: `nothing within reach to fill from ${seen}, and no scoopable source water within 24 blocks of here: walk to a lake or river first (water to stand beside), or carry a water bucket and pour a source (bucket action=pour) where you are` }
+    }
+    check(signal)
+    try { await goto(ctx, { x: spot.pos.x, y: spot.pos.y + 1, z: spot.pos.z, range: BUCKET_REACH - 1.5 }, signal, { until: Date.now() + 25_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    return bucketSkill(ctx, { ...args, _walked: true, _spot: spot.pos }, signal)
   }
   const hasWater = has('water_bucket')
   for (const c of near) {
