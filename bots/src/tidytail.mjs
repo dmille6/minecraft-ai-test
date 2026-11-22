@@ -21,6 +21,7 @@
 //    (the signature moves), another code version or the hold's end opens it again; the one visit that then finds it still so renews it.
 // TIDYTAIL=0|off|false|no: everything as before.
 import { gkwSig } from './gkwork.mjs'
+import { waiveRests, FILLCOLUMN } from './fillcolumn.mjs'
 
 export const TAIL = Object.freeze({
   visits: 3,                    // = buildrun.mjs STUCK_VISITS: the town-wide count a cell must carry
@@ -53,6 +54,14 @@ export function tailAsideFor ({ rec, deferred = [], stalled = false, live = new 
     out.push({ k, why: `no_stand:${Number(d.visits)}` })
   }
   return out
+}
+
+/** THE CELLS RESTING ON THE CELLS SET ASIDE NOW -> [{ k, why }]. Pure. fillcolumn.mjs waiveRests' own finding, with no waiver budget (a set-aside
+ *  names no waiver: it spends no room, and an exhausted repair budget must not leave a dependent open -- Codex r1). */
+export function tailRests ({ rec, adds = [], read, done = () => false, guard = new Set() } = {}) {
+  if (!adds.length) return []
+  const T = { ...FILLCOLUMN, outMin: 1e9, outShare: 1 }
+  return waiveRests(rec, adds, read, { done, guard, T }).map(d => ({ k: d.k, why: `rests_on:${String(d.why).split(' ').pop()}` }))
 }
 
 /** THE SET READ AGAIN BEFORE A SCAN -> { live: Set<k>, drop: [{ k, why }] }. Pure. Every entry of `rec.aside` is judged on the world now. */
