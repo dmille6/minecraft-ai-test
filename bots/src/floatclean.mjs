@@ -36,10 +36,11 @@ export const FC = Object.freeze({
   passMax: 24,             // listed cells a pass takes into its visit at most (in the list's order)
   passMs: 100_000,         // a pass's bound (the tidy visit gets the rest of the skill's budget)
   passMinMs: 20_000,       // no pass when less than this is left of the skill's budget
-  everyMs: 5 * 60_000,     // a bot's next lap after one that took nothing (a lap that dug: the next visit's head at once)
+  everyMs: 2 * 60_000,     // a bot's next lap after one that took nothing (a lap that dug: the next visit's head at once). floatloop-01show: 5 -> 2 min -- a lap that took nothing no longer re-offers the same cells (they get their tries), so the next lap is new work
   builders: 3,             // admission slots on the plot
   asideTries: 2,           // completed passes in which a standing take-able cell was not dug before it is set aside (per bot)
   asideMs: 6 * 60 * 60_000,
+  holdMs: 15 * 60_000,     // floatloop-01show: a cell a complete visit skipped unread or unresolved: out of the next laps' offer this long, never a try
   rowMs: 30 * 60_000,      // an aside/held row for the same cell from the same bot at most this often
   walkR: 160,              // the visit's walk radius round home (the step well is ~74 out)
   reach: 128,              // the survey's town reach round home (Chebyshev)
@@ -273,16 +274,20 @@ export function floatPassJobs (list, read, { aside = () => false, cells = () => 
  * digs the block it stands on, and never digs while standing on a floating listed block. `others`: the cells under every other
  * body near it (players, mobs) -- never dug from under them.
  */
-export function floatClearOk (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], floating = () => false, others = [] } = {}) {
-  if (c?.kind !== 'float') return true
+/** floatloop-01show: THE CHECK AT THE DIG, with its reason -> null (dig) | 'other_body' | 'own_body' | 'on_float' | the verdict. Pure. */
+export function floatClearWhy (c, read, { listed = () => false, cells = () => false, zone = () => false, under = [], floating = () => false, others = [] } = {}) {
+  if (c?.kind !== 'float') return null
   // ANOTHER BODY (rig 11-20: Kite dug the floating grass block Juno stood on; Juno fell 3 blocks): never a block any other player
   // or mob stands on (`others`: the cells under their bodies) -- it waits for the next lap
-  if (others.includes(k3(c.at))) return false
+  if (others.includes(k3(c.at))) return 'other_body'
   // THE BODY (Codex r1 BLOCKER 1: a walk that did not arrive left the bot on the beam, and it dug the block under itself): never the
   // block the bot stands on, and nothing at all while the bot stands on a floating listed block -- it walks off first
-  if (under.includes(k3(c.at)) || under.some(k => floating(k))) return false
-  return floatVerdict(c, read, { listed: k => listed(k) && !!read(...k.split(',').map(Number)) && isSolid(read(...k.split(',').map(Number))), cells, zone }) === 'take'
+  if (under.includes(k3(c.at))) return 'own_body'
+  if (under.some(k => floating(k))) return 'on_float'
+  const v = floatVerdict(c, read, { listed: k => listed(k) && !!read(...k.split(',').map(Number)) && isSolid(read(...k.split(',').map(Number))), cells, zone })
+  return v === 'take' ? null : String(v)
 }
+export const floatClearOk = (c, read, o = {}) => floatClearWhy(c, read, o) === null
 
 /**
  * THE SET-ASIDE MEMORY (one bot's) after a pass -> { mem, aside: [{ k, tries }] }. Pure. `mem` { tries: { k: n }, until: { k: t } }.

@@ -291,7 +291,7 @@ import { tempStandOn, standVeto, otherCellsStrict } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { floatcleanOn, floatGuardOf, floorKeys, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
+import { floatcleanOn, floatGuardOf, floorKeys, floatListOk, floatListNewer, floatPassJobs, floatClearOk, floatClearWhy, floatAsideAfter, floatAsideNow, floatDetail, sameBlock as sameFloatBlock, k3, FC, FLOATCLEAN_PLOT } from './floatclean.mjs'   // floatclean-01show
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
 import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
@@ -30305,12 +30305,17 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.fcStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
       domain: () => true, walkR: FC.walkR, blockLayer: false, clearMax: Infinity, stuckStalledOnly: true,
       clearKeepOrder: true, clearNoFloor: pj.floor, clearPart: { lease, has: () => true },
-      clearOk: (q, rd) => { considered.add(k3(q.at)); return floatClearOk(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) }) } },
+      clearOk: (q, rd) => { const qk = k3(q.at); considered.add(qk); const why = floatClearWhy(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) }); if (why && rowDueFor(`clearno|${qk}`)) row('refused', 'no_effect', { at: qk, why, block: take.get(qk)?.name ?? '-' }); return why === null } },   // floatloop-01show: the dig-time refusal names its reason
     effects, { deadline: Math.min(deadline, t0 + FC.passMs), maxSteps: 200 })
     cleared = r.cleared ?? 0
     // set aside: a cell this lap offered, considered to the end of the list, and left standing (no stand, no arrival) -- per bot
     const read2 = tidyRead(bot)
-    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, considered: k => considered.has(k) && !visitGone(bot, signal) })
+    // floatloop-01show (Codex r1): a cell the visit SKIPPED without its dig-time check -- unread (its chunk not loaded) or an unresolved
+    // dig (bot.shopUnknown) -- is never a try toward a 6 h set-aside; it is HELD briefly instead (FC.holdMs) so the next lap offers
+    // other cells, and it comes back after the hold
+    const skippedNow = k => { if (considered.has(k)) return false; try { return !read2(...k.split(',').map(Number)) || !!bot.shopUnknown?.has?.(k) } catch { return true } }
+    if (r.stop === 'complete') for (const k of take.keys()) if (skippedNow(k)) { mem.until[k] = Math.max(Number(mem.until[k]) || 0, Date.now() + FC.holdMs); if (rowDueFor(`hold|${k}`)) row('held', 'no_effect', { at: k, why: read2(...k.split(',').map(Number)) ? 'unresolved' : 'unread', block: take.get(k)?.name ?? '-', until_min: Math.round(FC.holdMs / 60_000) }) }
+    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, considered: k => (considered.has(k) || (r.stop === 'complete' && !skippedNow(k))) && !visitGone(bot, signal) })   // floatloop-01show: a visit that ran its list out `complete` considered every offered cell it could READ and that was not an unresolved dig (Codex r1: runVisit skips those silently and still says complete)
     mem.tries = after.mem.tries; mem.until = after.mem.until
     for (const a of after.aside) row('aside', 'no_effect', { at: a.k, why: 'unreached', tries: a.tries, block: take.get(a.k)?.name ?? '-', until_min: Math.round(FC.asideMs / 60_000) })
     const status = cleared > 0 ? 'success' : 'no_effect'
