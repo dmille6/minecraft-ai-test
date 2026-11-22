@@ -20,21 +20,21 @@ const NOW = Date.now()
 const quietRec = () => { const r = { sitedAt: 1, stage: 0, cells: [{ at: [14, 68, -36], role: 'earth', seg: 'S1' }], cut: [], waived: {}, aside: { '14,68,-36': { why: 'no_stand' } } }; r.tail = { code: L.code(), sig: gkwSig(r), at: NOW - 60_000 }; return r }
 
 await t('the tail all set aside AND the pillar list still has takeable work -> the tidy stays OFFERED (its crew visit runs the lap)', () => {
-  L.reset(); L.note('fc', { standing: 0, aside: 0 }); L.note('pl', { standing: 12, aside: 2, unread: 0 })
+  L.reset(); L.note('fc', { standing: 0, take: 0 }); L.note('pl', { standing: 12, take: 10, unread: 0 })
   assert.strictEqual(L.owed(), true)
   assert.strictEqual(L.quiet(quietRec(), NOW), false, 'offered: the laps are owed')
   assert.strictEqual(L.quiet(quietRec(), NOW, { laps: false }), true, 'the visit itself still stops after its laps: only the tail is quiet')
 })
-await t('the same with the FLOATING list owed', () => {
-  L.reset(); L.note('fc', { standing: 3, aside: 0 }); L.note('pl', { standing: 0, aside: 0 })
+await t('the FLOATING list owed by cells it could not read (floatclean counts them in census.why.unread: Codex r4)', () => {
+  L.reset(); L.note('fc', { standing: 3, take: 0, why: { unread: 3 } }); L.note('pl', { standing: 0, take: 0 })
   assert.strictEqual(L.quiet(quietRec(), NOW), false)
 })
 await t('no lap has surveyed yet this process -> owed (never silenced by not knowing)', () => {
   L.reset()
   assert.strictEqual(L.quiet(quietRec(), NOW), false)
 })
-await t('POSITIVE CONTROL: both lists done (or every standing cell set aside) -> the tail-quiet tidy is not offered', () => {
-  L.reset(); L.note('fc', { standing: 4, aside: 4 }); L.note('pl', { standing: 0, aside: 0, unread: 0 })
+await t('POSITIVE CONTROL: nothing takeable on either list (set aside, closed/grounded, protected) -> the tail-quiet tidy is not offered (Codex r4: never offered for ever)', () => {
+  L.reset(); L.note('fc', { standing: 4, take: 0, aside: 4, why: { closed: 4 } }); L.note('pl', { standing: 2, take: 0, unread: 0 })
   assert.strictEqual(L.owed(), false)
   assert.strictEqual(L.quiet(quietRec(), NOW), true)
 })
@@ -46,7 +46,7 @@ await t('MUTANT KILLED (anchored): the laps dropped from the offer -> a pillar l
   writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
   try {
     const M = await import(out.href)
-    M._lapLeftForTest.reset(); M._lapLeftForTest.note('pl', { standing: 12, aside: 0 })
+    M._lapLeftForTest.reset(); M._lapLeftForTest.note('pl', { standing: 12, take: 12 })
     const r = quietRec(); r.tail.code = M._lapLeftForTest.code()
     assert.strictEqual(M._lapLeftForTest.quiet(r, NOW), true, 'the mutant silences the lap')
   } finally { try { unlinkSync(out) } catch {} }
