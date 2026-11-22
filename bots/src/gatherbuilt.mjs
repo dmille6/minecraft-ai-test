@@ -81,8 +81,9 @@ export const walkMsFor = dist => Math.min(WALK_MS_MAX, Math.max(BUILT_WALK_MS, M
 
 /** IS THE WALK-OUT DUE? Pure. The search emptied (nothing takeable), nothing collected yet this run, something WAS here but every
  *  one was a built cell or a floor over a drop, and the run has a walk left. */
-export function walkOutDue ({ positions = 0, built = 0, cave = 0, collected = 0, walked = 0, walks = BUILT_WALKS } = {}) {
-  return positions === 0 && collected === 0 && (built > 0 || cave > 0) && walked < walks
+export function walkOutDue ({ positions = 0, built = 0, cave = 0, refused = 0, collected = 0, walked = 0, walks = BUILT_WALKS } = {}) {
+  // atlasgather-01show: `refused` = cells the bot's own refusal memory skipped (gatherrefused.mjs): a search they emptied walks out too
+  return positions === 0 && collected === 0 && (built > 0 || cave > 0 || refused > 0) && walked < walks
 }
 
 const fin = p => p && Number.isFinite(p.x) && Number.isFinite(p.z)
