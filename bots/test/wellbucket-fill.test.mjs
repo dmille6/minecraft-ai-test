@@ -69,7 +69,7 @@ await t('a dry spot with NO source known: refuses before any walk, names the rem
   const fb = fakeBot({ at: [0.5, 70, 0.5], water: [], table: [1, 70, 0] })
   const r = await fill(fb)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'bucket_fill')
-  assert.equal(fb.events.goals.length, 0, 'no walk'); assert.match(r.detail, /no scoopable source water within 24/); assert.match(r.detail, /pour a source|walk to a lake/)
+  assert.equal(fb.events.goals.length, 0, 'no walk'); assert.match(r.detail, /no scoopable source water within 24/); assert.match(r.detail, /explore 32\+ blocks .* and bucket fill again/, "a remedy the bot can perform from here: explore, then fill")
   assert.match(r.detail, /not water \(air\)|not water \(crafting_table\)/, 'the reasons still ride')
 })
 await t('water beyond the scan radius is not known: refused, no walk', async () => {
