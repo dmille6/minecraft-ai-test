@@ -40,6 +40,7 @@ export const FC = Object.freeze({
   builders: 3,             // admission slots on the plot
   asideTries: 2,           // completed passes in which a standing take-able cell was not dug before it is set aside (per bot)
   asideMs: 6 * 60 * 60_000,
+  holdMs: 15 * 60_000,     // floatloop-01show: a cell a complete visit skipped unread or unresolved: out of the next laps' offer this long, never a try
   rowMs: 30 * 60_000,      // an aside/held row for the same cell from the same bot at most this often
   walkR: 160,              // the visit's walk radius round home (the step well is ~74 out)
   reach: 128,              // the survey's town reach round home (Chebyshev)

@@ -30310,7 +30310,12 @@ async function floatcleanLap (ctx, signal, { deadline = Date.now() + FC.passMs }
     cleared = r.cleared ?? 0
     // set aside: a cell this lap offered, considered to the end of the list, and left standing (no stand, no arrival) -- per bot
     const read2 = tidyRead(bot)
-    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, considered: k => (considered.has(k) || r.stop === 'complete') && !visitGone(bot, signal) })   // floatloop-01show: a visit that ran its list out `complete` considered every offered cell (floatAsideAfter's own rule): 109 of 183 laps 11-22 ended complete, cleared 0, aside 0, and re-offered the same 24
+    // floatloop-01show (Codex r1): a cell the visit SKIPPED without its dig-time check -- unread (its chunk not loaded) or an unresolved
+    // dig (bot.shopUnknown) -- is never a try toward a 6 h set-aside; it is HELD briefly instead (FC.holdMs) so the next lap offers
+    // other cells, and it comes back after the hold
+    const skippedNow = k => { if (considered.has(k)) return false; try { return !read2(...k.split(',').map(Number)) || !!bot.shopUnknown?.has?.(k) } catch { return true } }
+    if (r.stop === 'complete') for (const k of take.keys()) if (skippedNow(k)) { mem.until[k] = Math.max(Number(mem.until[k]) || 0, Date.now() + FC.holdMs); if (rowDueFor(`hold|${k}`)) row('held', 'no_effect', { at: k, why: read2(...k.split(',').map(Number)) ? 'unresolved' : 'unread', block: take.get(k)?.name ?? '-', until_min: Math.round(FC.holdMs / 60_000) }) }
+    const after = floatAsideAfter(mem, { offered: [...take.keys()], standing: k => { const b = read2(...k.split(',').map(Number)); return !b || sameFloatBlock(b.name, take.get(k).name) }, considered: k => (considered.has(k) || (r.stop === 'complete' && !skippedNow(k))) && !visitGone(bot, signal) })   // floatloop-01show: a visit that ran its list out `complete` considered every offered cell it could READ and that was not an unresolved dig (Codex r1: runVisit skips those silently and still says complete)
     mem.tries = after.mem.tries; mem.until = after.mem.until
     for (const a of after.aside) row('aside', 'no_effect', { at: a.k, why: 'unreached', tries: a.tries, block: take.get(a.k)?.name ?? '-', until_min: Math.round(FC.asideMs / 60_000) })
     const status = cleared > 0 ? 'success' : 'no_effect'

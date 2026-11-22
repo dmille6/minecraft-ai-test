@@ -315,7 +315,9 @@ await t('skills.mjs floatcleanLap: the runVisit call carries clearKeepOrder, cle
   assert.ok(body.includes('const guard = floatGuardStrict(bot)') && body.includes("if (!guard) { row('survey', 'no_effect', { why: 'records_unread' }); return no('record_unreadable') }"), 'an unreadable record: no lap')
   // floatloop-01show: the check now names its reason (floatClearWhy) and logs it; a `complete` lap considered every offered cell
   assert.ok(body.includes('clearOk: (q, rd) => { const qk = k3(q.at); considered.add(qk); const why = floatClearWhy(q, rd ?? rd0, { listed: k => take.has(k), cells: cellsNow, zone, under: bodyFloorKeys(bot), floating: k => pj.floor.has(k), others: othersFloorKeys(bot) });'), 'the guard read again at the dig, the body, other bodies, the try')
-  assert.ok(body.includes("considered: k => (considered.has(k) || r.stop === 'complete') && !visitGone(bot, signal) })"), 'a try for a cell the visit got to, or every offered cell of a complete visit')
+  assert.ok(body.includes("considered: k => (considered.has(k) || (r.stop === 'complete' && !skippedNow(k))) && !visitGone(bot, signal) })"), 'a try for a cell the visit got to, or every READ, resolved offered cell of a complete visit')
+  assert.ok(body.includes("const skippedNow = k => { if (considered.has(k)) return false; try { return !read2(...k.split(',').map(Number)) || !!bot.shopUnknown?.has?.(k) } catch { return true } }"), 'unread or unresolved: skipped (Codex r1)')
+  assert.ok(body.includes("mem.until[k] = Math.max(Number(mem.until[k]) || 0, Date.now() + FC.holdMs)"), 'a skipped cell is held briefly, never a try')
   const g = src.slice(src.indexOf('function floatGuardStrict'), src.indexOf('function floorKeysOf'))
   assert.ok(src.includes('  try { return floorKeys(e.position, e.width) } catch { return [] }'), 'the bodies read through the pure floorKeys')
   assert.ok(g.includes('return floatGuardOf({ records, extra: [...bridgeCellKeys(bs)], plan: ph.head.plan })'), 'the guard over the records, the bridges and the plan head (head.plan)')
@@ -343,6 +345,17 @@ await t('a lap that runs its list out without digging counts every offered cell;
   assert.strictEqual(l3.offered.length, 24)
   assert.ok(l3.offered.every(k => !l1.offered.includes(k)), 'the third lap offers 24 different cells')
 })
+await t('Codex r1: a cell a complete visit SKIPPED (unread / unresolved) is held FC.holdMs -- out of the next offer, never a try -- and comes back after it', () => {
+  const mem = { tries: {}, until: {} }
+  const k = LOOP.list.jobs[0].at.join(',')
+  mem.until[k] = 1000 + FC.FC.holdMs
+  const pj = FC.floatPassJobs(LOOP.list, LOOP.read, { aside: q => FC.floatAsideNow(mem, q, 2000), max: 24 })
+  assert.ok(!pj.take.some(q => q.at.join(',') === k), 'held: not offered')
+  const later = FC.floatPassJobs(LOOP.list, LOOP.read, { aside: q => FC.floatAsideNow(mem, q, 1000 + FC.FC.holdMs + 1), max: 24 })
+  assert.ok(later.take.some(q => q.at.join(',') === k), 'after the hold: offered again')
+  assert.ok(FC.FC.holdMs < FC.FC.asideMs, 'a hold is short')
+  assert.strictEqual(mem.tries[k], undefined, 'and it never got a try')
+})
 await t('floatClearWhy names the refusal: other_body, own_body, on_float, and the verdict; null digs', () => {
   const at = [0, 70, 0], c = { kind: 'float', at, name: 'dirt' }, rd = W({ '0,70,0': 'dirt' })
   assert.strictEqual(FC.floatClearWhy(c, rd), null)
@@ -354,7 +367,7 @@ await t('floatClearWhy names the refusal: other_body, own_body, on_float, and th
 })
 await t('WIRING (skills.mjs, comments stripped): a `complete` lap considers every offered cell; the dig-time refusal is logged with its reason -- and the mutant without the first is caught', () => {
   const src = fs.readFileSync(SKILLS_PATH, 'utf8').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
-  const line = "considered: k => (considered.has(k) || r.stop === 'complete') && !visitGone(bot, signal) })"
+  const line = "considered: k => (considered.has(k) || (r.stop === 'complete' && !skippedNow(k))) && !visitGone(bot, signal) })"
   assert.strictEqual(src.split(line).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.ok(src.includes("row('refused', 'no_effect', { at: qk, why, block: take.get(qk)?.name ?? '-' })"))
   assert.ok(!src.replace(line, "considered: k => considered.has(k) && !visitGone(bot, signal) })").includes(line), 'the mutant (the old rule) is not matched')
