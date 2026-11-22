@@ -295,6 +295,8 @@ const TIDY_FN = /\nasync function buildTidyVisit \([\s\S]*?\n\}\n/
 assert.ok(TIDY_FN.test(SK), 'buildTidy is found (the cut is not a no-op)')
 // boardwalk-03: waterWalkVisit (the keeper's water visit) repeats the tidy's effects and presence lines (its wiring: boardwalk3.test.mjs)
 const WW_FN = /\nasync function waterWalkVisit \([\s\S]*?\n\}\n/
+// floatclean-01show: floatcleanLap follows the water visit's slot release (its wiring: floatclean.test.mjs)
+const FLOAT_FN = /\nasync function floatcleanLap \([\s\S]*?\n\}\n/
 assert.ok(WW_FN.test(SK), 'waterWalkVisit is found (the cut is not a no-op)')
 // stockyard-01: yardVisit (the yard's own visit) releases its slot the same way (its wiring: yard.test.mjs)
 const YARD_FN = /\nasync function yardVisit \([\s\S]*?\n\}\n/
@@ -322,8 +324,9 @@ const UPKEEP_FN = /\nasync function buildUpkeep \([\s\S]*?\n\}\n/
 const PENS_FN = /\nasync function buildPens \([\s\S]*?\n\}\n/
 assert.ok(PENS_FN.test(SK), 'buildPens is found (the cut is not a no-op)')
 assert.ok(UPKEEP_FN.test(SK), 'buildUpkeep is found (the cut is not a no-op)')
+assert.ok(FLOAT_FN.test(SK), 'floatcleanLap is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(UPKEEP_FN, '\n').replace(PENS_FN, '\n').replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n').replace(CROP_FN, '\n').replace(CANE_FN, '\n').replace(SWELL_FN, '\n').replace(SWELL_RUN_FN, '\n').replace(FOREST_FN, '\n').replace(WW_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(UPKEEP_FN, '\n').replace(PENS_FN, '\n').replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n').replace(CROP_FN, '\n').replace(CANE_FN, '\n').replace(SWELL_FN, '\n').replace(SWELL_RUN_FN, '\n').replace(FOREST_FN, '\n').replace(WW_FN, '\n').replace(FLOAT_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]
