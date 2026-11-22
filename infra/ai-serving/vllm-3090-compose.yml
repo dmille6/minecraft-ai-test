@@ -1,6 +1,8 @@
-# mcai-vllm: the new AI platform s model server on the shared 3090 (added 2026-11-22).
-# Ethan s llama-ethan.service on this card is NOT managed here and must never be starved:
+# mcai-vllm: the new AI platform's model server on the shared 3090 (added 2026-11-22).
+# Ethan's llama-ethan.service on this card is NOT managed here and must never be starved:
 # vLLM takes a FIXED share of the 24 GB card (gpu-memory-utilization 0.45 = ~10.8 GB).
+# max-num-seqs 8: throughput peaks at 8 parallel (11-22 bench).
+# disable_any_whitespace: compact JSON (no free whitespace) -- the 11-22 token sweep found padded JSON truncating.
 services:
   vllm:
     image: vllm/vllm-openai:v0.33.0
@@ -13,7 +15,21 @@ services:
       resources:
         reservations:
           devices: [{driver: nvidia, count: all, capabilities: [gpu]}]
-    command: >
-      --model Qwen/Qwen3-8B-AWQ --served-model-name executive qwen3-8b-awq
-      --gpu-memory-utilization 0.45 --max-model-len 8192 --max-num-seqs 16
-      --enable-prefix-caching --host 0.0.0.0 --port 8000
+    command:
+      - "Qwen/Qwen3-8B-AWQ"
+      - "--served-model-name"
+      - "executive"
+      - "qwen3-8b-awq"
+      - "--gpu-memory-utilization"
+      - "0.45"
+      - "--max-model-len"
+      - "8192"
+      - "--max-num-seqs"
+      - "8"
+      - "--enable-prefix-caching"
+      - "--structured-outputs-config"
+      - '{"backend": "xgrammar", "disable_any_whitespace": true}'
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
