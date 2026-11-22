@@ -5,7 +5,9 @@ extra = json.loads(sys.argv[5]) if len(sys.argv) > 5 else {}
 done = set()
 if os.path.exists(out):
     for l in open(out):
-        try: done.add(json.loads(l)["id"])
+        try:
+            r = json.loads(l)
+            if r.get("label"): done.add(r["id"])      # unparsed rows are retried
         except Exception: pass
 SYS = ("You grade decisions made by a Minecraft bot. The bot saw the PROMPT below and chose ONE skill with arguments. "
        "Judge whether the choice was sensible GIVEN WHAT THE BOT COULD SEE when it chose. The later OUTCOME is a hint only: "
@@ -16,11 +18,13 @@ def ask(item):
     user = (f"PROMPT THE BOT SAW:\n{item['prompt']}\n\nBOT'S DECISION: skill={item['logged_skill']} args={json.dumps(item['logged_args'])} "
             f"reason={item.get('logged_reason')!r}\n\nOUTCOME (hint only): {item.get('outcome_status')} {item.get('outcome_detail','')[:300]}")
     body = {"model": model, "messages": [{"role": "system", "content": SYS}, {"role": "user", "content": user}],
-            "max_tokens": 400, "temperature": 0.0, **extra}
+            "max_tokens": int(os.environ.get("JUDGE_MAX_TOKENS", "400")), "temperature": 0.0, **extra}
     t = time.time()
     d = json.load(urllib.request.urlopen(urllib.request.Request(base + "/v1/chat/completions", json.dumps(body).encode(),
                                                                 {"Content-Type": "application/json"}), timeout=600))
     txt = d["choices"][0]["message"]["content"] or ""
+    if "<|channel|>final<|message|>" in txt:            # gpt-oss harmony output: keep only the final channel
+        txt = txt.split("<|channel|>final<|message|>", 1)[1]
     m = re.search(r"\{.*\}", txt, re.S)
     lab = json.loads(m.group(0)) if m else None
     return lab, txt, time.time() - t
