@@ -348,6 +348,45 @@ export function fillRefusal ({ hasEmptyBucket = false, target = null, cardinals 
   return null
 }
 
+/** How far a fill walk looks for source water (a fresh scan from the bot's own position). */
+export const FILL_SEARCH_R = 24
+
+/**
+ * THE FILL SPOT a bucket walk may go to (wellbucket-01show) -> { pos, dist } | null. Pure. `cands` are
+ * { pos, block, above, cardinals } read from the world; only a cell the SCOOP ITSELF would take counts (scoopRefusal at distance
+ * 0: a level-0 water block, a bucket to fill, not one that refills within 5 ticks), so the walk never ends at a spot the use
+ * refuses: showcase 11-22, 8 of 8 `bucket fill` runs stood where the use found air, a crafting table, ... "not water (air)".
+ */
+export function pickFillSpot (cands = [], from = null) {
+  const fx = Number(from?.x), fy = Number(from?.y), fz = Number(from?.z)
+  let best = null
+  for (const c of Array.isArray(cands) ? cands : []) {
+    if (!c?.pos || ![c.pos.x, c.pos.y, c.pos.z].every(Number.isFinite)) continue
+    if (scoopRefusal({ hasEmptyBucket: true, target: c.block, above: c.above, cardinals: c.cardinals, distance: 0 })) continue
+    const dist = [fx, fy, fz].every(Number.isFinite) ? Math.hypot(c.pos.x - fx, c.pos.y - fy, c.pos.z - fz) : 0
+    if (!best || dist < best.dist) best = { pos: { x: c.pos.x, y: c.pos.y, z: c.pos.z }, dist }
+  }
+  return best
+}
+
+/** A fresh scan around the bot -> pickFillSpot's answer. `skip(pos)` drops a cell (a protected zone's). Never throws (null). */
+export function findFillSpot (bot, { radius = FILL_SEARCH_R, skip = null } = {}) {
+  try {
+    const wid = bot?.registry?.blocksByName?.water?.id
+    const from = bot?.entity?.position
+    if (wid == null || !from) return null
+    const at = (q, dx, dy, dz) => { try { return bot.blockAt(typeof q.offset === 'function' ? q.offset(dx, dy, dz) : { x: q.x + dx, y: q.y + dy, z: q.z + dz }) } catch { return null } }
+    const cands = []
+    for (const q of bot.findBlocks?.({ matching: wid, maxDistance: radius, count: 128 }) ?? []) {
+      if (typeof skip === 'function' && skip(q)) continue
+      const block = at(q, 0, 0, 0)
+      if (!isWaterSource(block)) continue
+      cands.push({ pos: q, block, above: at(q, 0, 1, 0), cardinals: [at(q, 1, 0, 0), at(q, -1, 0, 0), at(q, 0, 0, 1), at(q, 0, 0, -1)] })
+    }
+    return pickFillSpot(cands, from)
+  } catch { return null }
+}
+
 /** Why this lava scoop cannot be attempted, or null. Pure. A lava SOURCE only (flowing lava cannot fill a bucket). */
 export function lavaScoopRefusal ({ hasEmptyBucket = false, holdsLava = false, target = null, distance = Infinity } = {}) {
   if (!hasEmptyBucket) return 'no empty bucket'
