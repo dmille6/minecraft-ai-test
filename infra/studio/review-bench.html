@@ -1,0 +1,167 @@
+<title>Bot Review Bench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Layout: a working bench — sticky tab bar, one card at a time, controls docked under the evidence. */
+:root{
+  --bg:#f3f5f1; --panel:#ffffff; --ink:#1c241d; --muted:#5d6b5f; --line:#d6ded4;
+  --accent:#3f7d4e; --accent-ink:#ffffff; --warn:#a3612a; --bad:#a83a32; --good:#2f7a45;
+  --code:#eef2ec;
+  --f-display:"Space Grotesk",system-ui,sans-serif; --f-body:"Inter",system-ui,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#131813; --panel:#1b221c; --ink:#e3ebe2; --muted:#9aab9c; --line:#2d3a2f;
+  --accent:#6fb57f; --accent-ink:#0e1a10; --warn:#d99a5c; --bad:#e2786e; --good:#7cc98f; --code:#151c16; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#131813; --panel:#1b221c; --ink:#e3ebe2; --muted:#9aab9c; --line:#2d3a2f;
+  --accent:#6fb57f; --accent-ink:#0e1a10; --warn:#d99a5c; --bad:#e2786e; --good:#7cc98f; --code:#151c16; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:980px;margin:0 auto;padding-block:20px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+h1{font-family:var(--f-display);font-size:26px;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:0;max-width:65ch}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding-block:8px;z-index:5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+.tab{font:600 14px var(--f-body);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tab:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.count{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:500}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.label{font:600 11px var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+pre{font:12.5px/1.45 var(--f-mono);background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;margin:0;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto}
+.decision{font:14px var(--f-mono);background:var(--code);border-radius:8px;padding:10px 12px;border-left:3px solid var(--accent);word-break:break-word}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{font:600 14px var(--f-body);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 14px;border-radius:8px;cursor:pointer}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+textarea{font:14px var(--f-body);width:100%;box-sizing:border-box;min-height:56px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);color:var(--ink)}
+.reveal{border-top:1px dashed var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px}
+.pill{display:inline-block;font:600 12px var(--f-body);padding:2px 8px;border-radius:999px;border:1px solid currentColor}
+.pill.yes{color:var(--good)} .pill.no{color:var(--bad)} .pill.unclear{color:var(--warn)}
+.nav{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.status{color:var(--muted);font-size:13px}
+.img{width:100%;max-width:100%;border-radius:8px;border:1px solid var(--line);background:var(--code);aspect-ratio:16/10;object-fit:contain}
+.empty{color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Bot Review Bench</h1>
+    <p class="sub">Two short jobs. <b>Decisions:</b> grade 50 real bot choices from the old fleet, before seeing what Opus said. <b>World views:</b> score 54 renders of the old showcase town for how good they look. Answers save as you go.</p>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" id="tab-dec" role="tab" aria-selected="true">Decisions <span class="count" id="c-dec">0/50</span></button>
+    <button class="tab" id="tab-view" role="tab" aria-selected="false">World views <span class="count" id="c-view">0/54</span></button>
+  </nav>
+
+  <main id="panel"><div class="card empty" id="loading">Loading the items… If this takes long, reload the page.</div></main>
+  <p class="status" id="status"></p>
+</div>
+
+<script>
+const S = { tab: "dec", dec: [], view: [], answers: {}, i: { dec: 0, view: 0 }, db: null, me: "" };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function setStatus(t) { $("status").textContent = t || ""; }
+
+function counts() {
+  const a = Object.values(S.answers);
+  $("c-dec").textContent = `${a.filter((x) => x.kind === "decision").length}/${S.dec.length || 50}`;
+  $("c-view").textContent = `${a.filter((x) => x.kind === "view").length}/${S.view.length || 54}`;
+}
+
+function render() {
+  counts();
+  const list = S.tab === "dec" ? S.dec : S.view;
+  const p = $("panel");
+  if (!S.db) { p.innerHTML = `<div class="card empty">Sign in to claude.ai to load and save the review items.</div>`; return; }
+  if (!list.length) { p.innerHTML = `<div class="card empty">No items yet. Claude adds the ${S.tab === "dec" ? "50 decisions" : "54 world views"} here after publishing; reload in a minute.</div>`; return; }
+  const k = Math.min(S.i[S.tab], list.length - 1); S.i[S.tab] = k;
+  const it = list[k]; const ans = S.answers[it.id] || {};
+  p.innerHTML = S.tab === "dec" ? decCard(it, ans, k, list.length) : viewCard(it, ans, k, list.length);
+  wire(it, ans);
+}
+
+function decCard(it, ans, k, n) {
+  const done = !!ans.verdict;
+  return `<article class="card">
+    <div class="meta"><span>Decision ${k + 1} of ${n}</span><span>${esc(it.bot)}</span><span>${esc(it.model)}</span><span>${esc(it.when)}Z</span></div>
+    <div><div class="label">What the bot saw</div><pre>${esc(it.prompt)}</pre></div>
+    <div><div class="label">What it chose</div><div class="decision">${esc(it.skill)} ${esc(it.args)}${it.reason ? `<br><span style="color:var(--muted)">reason: ${esc(it.reason)}</span>` : ""}</div></div>
+    <div><div class="label">Was choosing this skill sensible, from what the bot could see?</div>
+      <div class="row" role="group">
+        ${["yes", "no", "unclear"].map((v) => `<button class="btn" data-v="${v}" aria-pressed="${ans.verdict === v}">${v === "yes" ? "Sensible" : v === "no" ? "Not sensible" : "Can't tell"}</button>`).join("")}
+      </div></div>
+    <div><label class="label" for="note-${it.id}">Note (optional)</label><textarea id="note-${it.id}" placeholder="What would a good player do here?">${esc(ans.note)}</textarea></div>
+    ${done ? `<div class="reveal"><div class="label">What Opus said (shown after you answer)</div>
+      <div>Skill choice <span class="pill ${esc(it.opus_decision)}">${esc(it.opus_decision)}</span> · arguments <span class="pill ${esc(it.opus_args)}">${esc(it.opus_args)}</span>${it.opus_category && it.opus_category !== "none" ? ` · ${esc(it.opus_category.replaceAll("_", " "))}` : ""}</div>
+      <div>${esc(it.opus_why)}</div>
+      ${ans.verdict === it.opus_decision ? `<div style="color:var(--good)">You agree.</div>` : `<div style="color:var(--warn)">You differ. A note on why helps.</div>`}</div>` : ""}
+    <div class="nav"><button class="btn" id="prev" ${k === 0 ? "disabled" : ""}>Previous</button><button class="btn primary" id="next">${k === n - 1 ? "Last one" : "Next"}</button></div>
+  </article>`;
+}
+
+function viewCard(it, ans, k, n) {
+  return `<article class="card">
+    <div class="meta"><span>View ${k + 1} of ${n}</span><span>${esc(it.kind)}</span><span>${esc(it.when)}</span></div>
+    <img class="img" src="${esc(it.url)}" alt="Showcase render: ${esc(it.kind)} view, ${esc(it.when)}">
+    <div><div class="label">How good does this look? (1 = ugly, 5 = beautiful)</div>
+      <div class="row" role="group">${[1, 2, 3, 4, 5].map((v) => `<button class="btn" data-s="${v}" aria-pressed="${ans.score === v}">${v}</button>`).join("")}</div></div>
+    <div><div class="label">What do you notice? (pick any)</div>
+      <div class="row" role="group">${["tidy", "messy", "natural", "blocky", "pretty builds", "ugly builds", "pillars/litter", "nice paths", "scarred land", "good layout"].map((t) => `<button class="btn" data-t="${t}" aria-pressed="${(ans.tags || []).includes(t)}">${t}</button>`).join("")}</div></div>
+    <div><label class="label" for="note-${it.id}">Note (optional)</label><textarea id="note-${it.id}" placeholder="What would make it better?">${esc(ans.note)}</textarea></div>
+    <div class="nav"><button class="btn" id="prev" ${k === 0 ? "disabled" : ""}>Previous</button><button class="btn primary" id="next">${k === n - 1 ? "Last one" : "Next"}</button></div>
+  </article>`;
+}
+
+async function save(it, patch) {
+  const prev = S.answers[it.id] || {};
+  const doc = { ...prev, ...patch, kind: S.tab === "dec" ? "decision" : "view", item: it.id, at: new Date().toISOString(), by: S.me };
+  S.answers[it.id] = doc; render();
+  try { await S.db.collection("answers").doc(it.id).set(doc); setStatus("Saved."); }
+  catch (e) { setStatus("Couldn't save that answer (" + (e && e.code || "error") + "). Check you're signed in, then try again."); }
+}
+
+function wire(it, ans) {
+  document.querySelectorAll("[data-v]").forEach((b) => b.onclick = () => save(it, { verdict: b.dataset.v, note: $("note-" + it.id).value }));
+  document.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => save(it, { score: Number(b.dataset.s), note: $("note-" + it.id).value }));
+  document.querySelectorAll("[data-t]").forEach((b) => b.onclick = () => {
+    const t = new Set(ans.tags || []); t.has(b.dataset.t) ? t.delete(b.dataset.t) : t.add(b.dataset.t);
+    save(it, { tags: [...t], note: $("note-" + it.id).value });
+  });
+  const note = $("note-" + it.id);
+  note.onchange = () => { if ((S.answers[it.id] || {}).note !== note.value) save(it, { note: note.value }); };
+  $("prev").onclick = () => { S.i[S.tab]--; render(); scrollTo({ top: 0 }); };
+  $("next").onclick = () => { const L = S.tab === "dec" ? S.dec : S.view; if (S.i[S.tab] < L.length - 1) S.i[S.tab]++; render(); scrollTo({ top: 0 }); };
+}
+
+function pickTab(t) {
+  S.tab = t; $("tab-dec").setAttribute("aria-selected", t === "dec"); $("tab-view").setAttribute("aria-selected", t === "view");
+  try { localStorage.setItem("tab", t); } catch (e) {}
+  render();
+}
+$("tab-dec").onclick = () => pickTab("dec"); $("tab-view").onclick = () => pickTab("view");
+
+(async () => {
+  try { const t = localStorage.getItem("tab"); if (t === "view") pickTab("view"); } catch (e) {}
+  const timer = setTimeout(() => { if (!S.dec.length && !S.view.length) render(); }, 10000);
+  const db = window.claude && await window.claude.use("db");
+  const user = window.claude && await window.claude.use("user");
+  S.me = user ? await user.id().catch(() => "") : "";
+  S.db = db; if (!db) { clearTimeout(timer); render(); return; }
+  const firstUnanswered = (list) => { const k = list.findIndex((x) => !S.answers[x.id]); return k < 0 ? 0 : k; };
+  let started = { dec: false, view: false };
+  db.collection("decisions").orderBy("n").onSnapshot((s) => {
+    clearTimeout(timer); S.dec = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (!started.dec && S.dec.length) { S.i.dec = firstUnanswered(S.dec); started.dec = true; } render();
+  }, () => setStatus("Couldn't load the decisions."));
+  db.collection("views").orderBy("n").onSnapshot((s) => {
+    S.view = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (!started.view && S.view.length) { S.i.view = firstUnanswered(S.view); started.view = true; } render();
+  }, () => setStatus("Couldn't load the world views."));
+  db.collection("answers").onSnapshot((s) => { S.answers = {}; s.docs.forEach((d) => S.answers[d.id] = d.data()); render(); });
+})();
+</script>
