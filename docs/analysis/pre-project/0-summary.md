@@ -25,8 +25,12 @@ Seven analyses of the full old-fleet history (15.6M decisions, ~126M skill/event
 8. **Before easy or normal difficulty:** combat, food, armour, torches and shelter. None of these was ever tested. *(7)*
 9. **Storage design.** Stop destroying cobblestone in the junk well (1.71M items against 1.85M deposited) and stockpile it for terraforming. Fix why deposits fail three times out of four. *(9)*
 
+## 5. Offline prompt test (done): see [5-offline-prompt-test.md](5-offline-prompt-test.md)
+The best model with the new design roughly doubles sensible decisions: **31.7% (old bots) → 67.4% (Gemma 4 12B, V3)**. The design adds +4 to +8 points
+for 4 of the 5 models. Leading executive candidates: **Gemma 4 12B** (best, 6.6 s) and **Granite 4.2 8B** (fast, 2.7 s).
+Graded by Sonnet; the Opus audit agrees 80% and finds Sonnet stricter.
+
 ## Still to do
-- **5. Offline test of the new prompt design.** Rebuild graded situations with feasible menus, collapsed refusals and post-filter hints. Ask the candidate models and grade with the best judge. This runs after the local-judge bake-off: so far Qwen3.8-27B agrees with Opus 78–80%; for comparison, Sonnet 87%.
 - **6. The owner's review** on the Bot Review Bench: 50 decisions graded blind, and 54 views scored for beauty.
 
 ## Codex second opinion (2026-11-23), see [10-codex-review-of-design.md](10-codex-review-of-design.md)
