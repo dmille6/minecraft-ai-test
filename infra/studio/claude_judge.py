@@ -19,7 +19,7 @@ import anthropic
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 from anthropic.types.messages.batch_create_params import Request
 
-RUBRIC = "v2"
+RUBRIC = "v3"   # v3 = v2 + the skill reference (pilot 11-22: judges lacked arg semantics)
 SYS = ("You grade one decision made by a Minecraft bot. The bot saw the PROMPT below and chose ONE skill with arguments. "
        "Judge only from what the bot could see when it chose.\n"
        "decision_ok: was choosing THIS SKILL reasonable now? yes / no / unclear.\n"
@@ -48,6 +48,12 @@ SCHEMA = {
 }
 
 
+_REF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skill-reference.txt")
+SKILL_REF = open(_REF).read() if os.path.exists(_REF) else ""
+SYSTEM = [{"type": "text", "text": SYS + ("\n\n" + SKILL_REF if SKILL_REF else ""),
+           "cache_control": {"type": "ephemeral", "ttl": "1h"}}]       # shared by every request: cached
+
+
 def client():
     if not os.environ.get("ANTHROPIC_API_KEY"):
         p = os.path.expanduser("~/.config/mcai/anthropic.key")
@@ -74,7 +80,7 @@ def submit(replay, ids_path, model, effort, prefix, mode="blind"):
         want = {line.strip() for line in open(ids_path) if line.strip()}
         items = [x for x in items if x["id"] in want]
     reqs = [Request(custom_id=str(i), params=MessageCreateParamsNonStreaming(
-        model=model, max_tokens=4000, system=SYS,
+        model=model, max_tokens=4000, system=SYSTEM,
         messages=[{"role": "user", "content": user_text(x, mode)}],
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": SCHEMA}}))
         for i, x in enumerate(items)]
@@ -100,8 +106,9 @@ def collect(prefix):
             row = {"id": rid, "judge": meta["model"], "mode": meta.get("mode", "visible"), "rubric": meta.get("rubric", "v1"), "label": None}
             if r.result.type == "succeeded":
                 m = r.result.message
-                n_in += m.usage.input_tokens
+                n_in += m.usage.input_tokens + (m.usage.cache_read_input_tokens or 0) + (m.usage.cache_creation_input_tokens or 0)
                 n_out += m.usage.output_tokens
+                counts["cache_read_tok"] = counts.get("cache_read_tok", 0) + (m.usage.cache_read_input_tokens or 0)
                 if m.stop_reason == "refusal":
                     row["raw"] = "refusal"
                 else:
