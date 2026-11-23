@@ -2,7 +2,9 @@
 
 Same grading instructions as the local judges (judge.py), so labels are comparable.
 
-  python3 claude_judge.py submit  <replay.jsonl> <ids.txt|ALL> <model> <effort> <out_prefix>
+  python3 claude_judge.py submit  <replay.jsonl> <ids.txt|ALL> <model> <effort> <out_prefix> [blind|visible]
+
+blind (default, rubric v2 after the Codex review 11-22): the judge does NOT see the logged outcome. visible: it does (to measure hindsight bias).
   python3 claude_judge.py collect <out_prefix>
 
 The API key is read from ANTHROPIC_API_KEY, or from ~/.config/mcai/anthropic.key (mode 600).
@@ -17,20 +19,31 @@ import anthropic
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 from anthropic.types.messages.batch_create_params import Request
 
-SYS = ("You grade decisions made by a Minecraft bot. The bot saw the PROMPT below and chose ONE skill with arguments. "
-       "Judge whether the choice was sensible GIVEN WHAT THE BOT COULD SEE when it chose. The later OUTCOME is a hint only: "
-       "an action can be right and still be aborted by a controller or fail for reasons the bot could not know. "
-       "Return acceptable_skills (skill names from the prompt that would be reasonable next actions), decision_ok, args_ok, "
-       "and why (one short sentence).")
+RUBRIC = "v2"
+SYS = ("You grade one decision made by a Minecraft bot. The bot saw the PROMPT below and chose ONE skill with arguments. "
+       "Judge only from what the bot could see when it chose.\n"
+       "decision_ok: was choosing THIS SKILL reasonable now? yes / no / unclear.\n"
+       "args_ok: given that it chose this skill, do the arguments fit the skill's usage in the prompt and the visible state "
+       "(targets exist, counts and coordinates sensible)? yes / no / unclear.\n"
+       "Use unclear only when the prompt lacks the evidence to decide, and say why in unclear_reason (else empty). "
+       "Do not invent requirements that the prompt does not state.\n"
+       "acceptable_skills: skills from the prompt that would also be reasonable now (a guide, not an exhaustive list).\n"
+       "failure_category: if decision_ok or args_ok is no, one of: ignored_task_or_hint, unreachable_or_not_near, "
+       "missing_prerequisite, repeated_rejected_action, wrong_target, bad_args, wrong_priority, other; else none.\n"
+       "evidence: the prompt facts you relied on, briefly. why: one short sentence.")
 SCHEMA = {
     "type": "object",
     "properties": {
         "acceptable_skills": {"type": "array", "items": {"type": "string"}},
         "decision_ok": {"type": "string", "enum": ["yes", "no", "unclear"]},
         "args_ok": {"type": "string", "enum": ["yes", "no", "unclear"]},
+        "unclear_reason": {"type": "string"},
+        "failure_category": {"type": "string", "enum": ["none", "ignored_task_or_hint", "unreachable_or_not_near", "missing_prerequisite",
+                                                         "repeated_rejected_action", "wrong_target", "bad_args", "wrong_priority", "other"]},
+        "evidence": {"type": "string"},
         "why": {"type": "string"},
     },
-    "required": ["acceptable_skills", "decision_ok", "args_ok", "why"],
+    "required": ["acceptable_skills", "decision_ok", "args_ok", "unclear_reason", "failure_category", "evidence", "why"],
     "additionalProperties": False,
 }
 
@@ -46,26 +59,29 @@ def client():
     return anthropic.Anthropic()
 
 
-def user_text(item):
-    return (f"PROMPT THE BOT SAW:\n{item['prompt']}\n\nBOT'S DECISION: skill={item['logged_skill']} "
-            f"args={json.dumps(item['logged_args'])} reason={item.get('logged_reason')!r}\n\n"
-            f"OUTCOME (hint only): {item.get('outcome_status')} {item.get('outcome_detail', '')[:300]}")
+def user_text(item, mode="blind"):
+    t = (f"PROMPT THE BOT SAW:\n{item['prompt']}\n\nBOT'S DECISION: skill={item['logged_skill']} "
+         f"args={json.dumps(item['logged_args'])} reason={item.get('logged_reason')!r}")
+    if mode == "visible":
+        t += (f"\n\nLATER OUTCOME (hint only; a right action can still be aborted or fail for reasons the bot could not know): "
+              f"{item.get('outcome_status')} {item.get('outcome_detail', '')[:300]}")
+    return t
 
 
-def submit(replay, ids_path, model, effort, prefix):
+def submit(replay, ids_path, model, effort, prefix, mode="blind"):
     items = [json.loads(line) for line in open(replay)]
     if ids_path != "ALL":
         want = {line.strip() for line in open(ids_path) if line.strip()}
         items = [x for x in items if x["id"] in want]
     reqs = [Request(custom_id=str(i), params=MessageCreateParamsNonStreaming(
         model=model, max_tokens=4000, system=SYS,
-        messages=[{"role": "user", "content": user_text(x)}],
+        messages=[{"role": "user", "content": user_text(x, mode)}],
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": SCHEMA}}))
         for i, x in enumerate(items)]
     json.dump({str(i): x["id"] for i, x in enumerate(items)}, open(prefix + ".idmap.json", "w"))
     b = client().messages.batches.create(requests=reqs)
-    json.dump({"batch_id": b.id, "model": model, "effort": effort, "n": len(reqs)}, open(prefix + ".batch.json", "w"))
-    print(f"submitted batch {b.id}: {len(reqs)} requests, model {model}, effort {effort}")
+    json.dump({"batch_id": b.id, "model": model, "effort": effort, "n": len(reqs), "mode": mode, "rubric": RUBRIC}, open(prefix + ".batch.json", "w"))
+    print(f"submitted batch {b.id}: {len(reqs)} requests, model {model}, effort {effort}, {mode}, rubric {RUBRIC}")
 
 
 def collect(prefix):
@@ -81,7 +97,7 @@ def collect(prefix):
     with open(prefix + ".labels.jsonl", "w") as f:
         for r in c.messages.batches.results(meta["batch_id"]):
             rid = idmap[r.custom_id]
-            row = {"id": rid, "judge": meta["model"], "label": None}
+            row = {"id": rid, "judge": meta["model"], "mode": meta.get("mode", "visible"), "rubric": meta.get("rubric", "v1"), "label": None}
             if r.result.type == "succeeded":
                 m = r.result.message
                 n_in += m.usage.input_tokens
@@ -103,8 +119,8 @@ def collect(prefix):
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd == "submit" and len(sys.argv) == 7:
-        submit(*sys.argv[2:7])
+    if cmd == "submit" and len(sys.argv) in (7, 8):
+        submit(*sys.argv[2:8])
     elif cmd == "collect" and len(sys.argv) == 3:
         collect(sys.argv[2])
     else:
