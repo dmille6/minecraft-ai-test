@@ -1,0 +1,204 @@
+# Old-project worktree clean-up list (2026-11-25)
+
+193 `.wt-*` folders, 22 GB in total. **Nothing has been deleted.** Deleting needs the owner's yes.
+
+## Safe to remove: 131 folders
+No uncommitted edits, and their HEAD commit is on a remote branch, so nothing is lost. Remove with `git worktree remove <dir>`, then run `git worktree prune`.
+
+- .wt-atlas
+- .wt-atlas-show
+- .wt-atlasgather
+- .wt-atlasgather-base
+- .wt-bagdiet5d
+- .wt-bagfix
+- .wt-bagfix2
+- .wt-bagfix2r
+- .wt-bagfix3-rigbase
+- .wt-botmem15
+- .wt-braincfg
+- .wt-brainwatch
+- .wt-bw3
+- .wt-c4
+- .wt-camdirector
+- .wt-camunder
+- .wt-chestmerge
+- .wt-civicroof
+- .wt-civicroof-r2
+- .wt-civicvisit
+- .wt-cleanzone
+- .wt-cottagepost
+- .wt-dashfix
+- .wt-decrate
+- .wt-depfix-live
+- .wt-dp2
+- .wt-fallback
+- .wt-fleetstop
+- .wt-floatclean
+- .wt-floatclean-r3
+- .wt-floatloop
+- .wt-fullplace
+- .wt-gatherzone
+- .wt-gk02
+- .wt-gkpick
+- .wt-gkpick-main
+- .wt-glass
+- .wt-grounds
+- .wt-hivedrop
+- .wt-homes
+- .wt-ic2
+- .wt-indexfetch
+- .wt-indexfetch2
+- .wt-keeperstall
+- .wt-landprev
+- .wt-landprev-s
+- .wt-landprev-z
+- .wt-lidcount
+- .wt-lidmain
+- .wt-line-r4
+- .wt-line-r5
+- .wt-line2
+- .wt-litter
+- .wt-loggate
+- .wt-logwalk
+- .wt-market3
+- .wt-mem2-a5
+- .wt-mem2-b6
+- .wt-memctl
+- .wt-memtidy
+- .wt-memtidy-5df
+- .wt-mineorder
+- .wt-nostock
+- .wt-obsolete-c
+- .wt-overseer-r2
+- .wt-parkledger
+- .wt-pillars
+- .wt-pillars-other
+- .wt-pillars-r2
+- .wt-pillars-scafleft
+- .wt-pipe
+- .wt-pit
+- .wt-pit-r2
+- .wt-pit-r3
+- .wt-placeok
+- .wt-planvalid-c
+- .wt-projfix
+- .wt-projturn-c
+- .wt-replaytime
+- .wt-resmgmt
+- .wt-rigguard
+- .wt-roadsite
+- .wt-roadsite-r2
+- .wt-roofclimb
+- .wt-routewatch
+- .wt-saplingkeep
+- .wt-scaffold
+- .wt-scaffold-r2
+- .wt-sched43
+- .wt-sched44main
+- .wt-shaft
+- .wt-shopread-allhands
+- .wt-show3
+- .wt-showdrop
+- .wt-showgk2
+- .wt-showrel
+- .wt-showyg
+- .wt-soakgate
+- .wt-soakrun
+- .wt-spentpick-z
+- .wt-standcache
+- .wt-statusfix
+- .wt-stepwell
+- .wt-stepwell4
+- .wt-stepwell4-rel
+- .wt-stepwell4-rel2
+- .wt-stopwatch
+- .wt-stopwatch-wellthrow
+- .wt-suitefb
+- .wt-t11
+- .wt-t11reach3
+- .wt-takeback
+- .wt-takebackpath
+- .wt-tc
+- .wt-tempstand
+- .wt-tidydead
+- .wt-tidyread
+- .wt-tidyread2
+- .wt-tidytail-base
+- .wt-tripbrain
+- .wt-trunk
+- .wt-trunk2
+- .wt-twmerge
+- .wt-villagesafe
+- .wt-voyh2
+- .wt-vu
+- .wt-vushow
+- .wt-wellbucket
+- .wt-wellfix
+- .wt-wellstep
+- .wt-zonesite
+
+## Keep or push first: 62 folders
+Their HEAD is on no remote branch. Push or archive the branch before removing the folder. .wt-memtidy also has 3 uncommitted edits.
+
+- .wt-airroute airroute-01show (notOnMain=747 commits not on main, 2026-11-16)
+- .wt-airroute-b airroute-01show-r1 (notOnMain=752 commits not on main, 2026-11-16)
+- .wt-bagfix3 bagfix-03show (notOnMain=772 commits not on main, 2026-11-17)
+- .wt-bagfix3-rel bagfix-03show-rc2 (notOnMain=780 commits not on main, 2026-11-17)
+- .wt-bagfix3-rig bagfix-03show-rig (notOnMain=779 commits not on main, 2026-11-16)
+- .wt-bfr2 buildfirst-01show-r2 (notOnMain=773 commits not on main, 2026-11-18)
+- .wt-buildfirst buildfirst-01show (notOnMain=806 commits not on main, 2026-11-18)
+- .wt-craftmemo craftmemo-01show (notOnMain=769 commits not on main, 2026-11-17)
+- .wt-craftmemo-r2 craftmemo-01show-r2 (notOnMain=771 commits not on main, 2026-11-17)
+- .wt-cutbank cutbank-01show (notOnMain=807 commits not on main, 2026-11-19)
+- .wt-data-P0.1 data/P0.1 (notOnMain=2 commits not on main, 2026-11-19)
+- .wt-data-P0.2 data/P0.2 (notOnMain=9 commits not on main, 2026-11-19)
+- .wt-data-P0.4 data/P0.4 (notOnMain=1 commits not on main, 2026-11-19)
+- .wt-data-P0.5 data/P0.5 (notOnMain=3 commits not on main, 2026-11-19)
+- .wt-data-P1.0 data/P1.0 (notOnMain=2 commits not on main, 2026-11-19)
+- .wt-data-P1.3 data/P1.3 (notOnMain=7 commits not on main, 2026-11-20)
+- .wt-data-P1.4 data/P1.4 (notOnMain=4 commits not on main, 2026-11-20)
+- .wt-data-P1.7 data/P1.7 (notOnMain=7 commits not on main, 2026-11-20)
+- .wt-depfix depfix-01show (notOnMain=809 commits not on main, 2026-11-19)
+- .wt-drawshort drawshort-01show (notOnMain=787 commits not on main, 2026-11-18)
+- .wt-gathermemo gathermemo-01show (notOnMain=772 commits not on main, 2026-11-17)
+- .wt-gatherprobe gatherprobe-01show (notOnMain=772 commits not on main, 2026-11-17)
+- .wt-leaves leaffell-01show-r1 (notOnMain=659 commits not on main, 2026-11-12)
+- .wt-mem2fix cleanup-mem2-01show (notOnMain=771 commits not on main, 2026-11-18)
+- .wt-memtest memrig-01 (notOnMain=770 commits not on main, 2026-11-17)
+- .wt-minecrew minecrew-01show (notOnMain=763 commits not on main, 2026-11-16)
+- .wt-minecrew2 minecrew-01show-r2 (notOnMain=799 commits not on main, 2026-11-17)
+- .wt-minecrew2b minecrew-01show-r2b (notOnMain=788 commits not on main, 2026-11-17)
+- .wt-obsolete obsolete-01show (notOnMain=731 commits not on main, 2026-11-15)
+- .wt-overseer overseer-01 (notOnMain=772 commits not on main, 2026-11-17)
+- .wt-overseer-p1 overseer-01show (notOnMain=784 commits not on main, 2026-11-17)
+- .wt-planvalid planvalid-01show (notOnMain=734 commits not on main, 2026-11-16)
+- .wt-projturn projturn-01show (notOnMain=731 commits not on main, 2026-11-16)
+- .wt-readfix readfix-01show (notOnMain=770 commits not on main, 2026-11-17)
+- .wt-reconnleak reconnleak-01show (notOnMain=772 commits not on main, 2026-11-18)
+- .wt-reconnstall reconnstall-01show (notOnMain=771 commits not on main, 2026-11-18)
+- .wt-restack readfix-stack-01show (notOnMain=787 commits not on main, 2026-11-17)
+- .wt-restack-cu HEAD (notOnMain=771 commits not on main, 2026-11-17)
+- .wt-roofrig roofrig-01 (notOnMain=786 commits not on main, 2026-11-17)
+- .wt-roofrig2 roofrig-02 (notOnMain=787 commits not on main, 2026-11-17)
+- .wt-rs-cm HEAD (notOnMain=772 commits not on main, 2026-11-17)
+- .wt-rs-ga HEAD (notOnMain=773 commits not on main, 2026-11-17)
+- .wt-rs-sv HEAD (notOnMain=774 commits not on main, 2026-11-17)
+- .wt-rsc HEAD (notOnMain=774 commits not on main, 2026-11-18)
+- .wt-scarmeter scarmeter-01 (notOnMain=2 commits not on main, 2026-11-16)
+- .wt-shortage data/shortage (notOnMain=2 commits not on main, 2026-11-19)
+- .wt-spentpick spentpick-01show (notOnMain=727 commits not on main, 2026-11-15)
+- .wt-stillvisit stillvisit-01show (notOnMain=775 commits not on main, 2026-11-17)
+- .wt-t11c t11c-01show (notOnMain=825 commits not on main, 2026-11-19)
+- .wt-t11reach t11reach-01show (notOnMain=817 commits not on main, 2026-11-18)
+- .wt-t11reach2 t11reach2-01show (notOnMain=806 commits not on main, 2026-11-19)
+- .wt-tidyflow tidyflow-01show (notOnMain=755 commits not on main, 2026-11-16)
+- .wt-tidyflow2 tidyflow-01show-r2 (notOnMain=781 commits not on main, 2026-11-17)
+- .wt-tidyflow3 tidyflow-01show-r3 (notOnMain=782 commits not on main, 2026-11-17)
+- .wt-tidytail tidytail-01show (notOnMain=814 commits not on main, 2026-11-21)
+- .wt-tidytop tidytop-01show (notOnMain=774 commits not on main, 2026-11-18)
+- .wt-tidytop-rel2 tidytop-01show-rel2 (notOnMain=779 commits not on main, 2026-11-18)
+- .wt-tidytop-rel3 tidytop-01show-rel3 (notOnMain=787 commits not on main, 2026-11-18)
+- .wt-vegclear vegclear-01show (notOnMain=816 commits not on main, 2026-11-18)
+- .wt-worklist worklist-01show (notOnMain=754 commits not on main, 2026-11-16)
+- .wt-yardcap yardcap-01show (notOnMain=790 commits not on main, 2026-11-20)
+- .wt-zoneplant zoneplant-01show (notOnMain=783 commits not on main, 2026-11-18)
